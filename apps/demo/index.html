@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>3DGS Tour Player Demo</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #111; color: #eee; font-family: system-ui, sans-serif; }
+#viewer { width: 100%; height: 100%; position: relative; }
+#info { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 8px; font-size: 14px; pointer-events: none; text-align: center; max-width: 80%; }
+#loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
+#loading .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#error { position: absolute; bottom: 20px; left: 20px; right: 20px; background: rgba(200,40,40,0.9); padding: 12px 20px; border-radius: 8px; font-size: 14px; display: none; }
+#hud { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 6px; font-size: 12px; font-family: monospace; line-height: 1.6; pointer-events: none; display: none; }
+#scene-selector { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 50%; justify-content: flex-end; }
+#scene-selector button { background: rgba(0,0,0,0.6); color: #eee; border: 1px solid rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+#scene-selector button:hover { background: rgba(255,255,255,0.15); }
+#scene-selector button.active { background: rgba(80,160,255,0.4); border-color: rgba(80,160,255,0.8); }
+
+/* 操作说明面板 */
+#controls-panel { position: absolute; bottom: 20px; right: 20px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 14px 18px; font-size: 12px; line-height: 1.8; pointer-events: none; backdrop-filter: blur(6px); max-width: 260px; }
+#controls-panel .panel-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: rgba(255,255,255,0.9); }
+#controls-panel .ctrl-row { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+#controls-panel .ctrl-keys { display: flex; gap: 3px; }
+#controls-panel kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 5px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-bottom-width: 2px; border-radius: 4px; font-family: monospace; font-size: 11px; color: rgba(255,255,255,0.8); transition: all 0.1s; }
+#controls-panel kbd.active { background: rgba(80,160,255,0.5); border-color: rgba(80,160,255,0.8); color: #fff; transform: translateY(1px); }
+#controls-panel .ctrl-desc { color: rgba(255,255,255,0.6); font-size: 11px; }
+#controls-panel .divider { height: 1px; background: rgba(255,255,255,0.1); margin: 8px 0; }
+#controls-panel .toggle-btn { pointer-events: auto; position: absolute; top: 6px; right: 8px; background: none; border: none; color: rgba(255,255,255,0.4); font-size: 14px; cursor: pointer; line-height: 1; }
+#controls-panel .toggle-btn:hover { color: rgba(255,255,255,0.8); }
+#controls-panel.collapsed .panel-body { display: none; }
+#controls-panel.collapsed { padding: 8px 14px; max-width: none; }
+</style>
+</head>
+<body>
+<div id="viewer">
+  <div id="loading">
+    <div class="spinner"></div>
+    <div id="loading-text">初始化渲染器...</div>
+  </div>
+  <div id="hud"></div>
+  <div id="scene-selector"></div>
+  <div id="controls-panel">
+    <button class="toggle-btn" onclick="document.getElementById('controls-panel').classList.toggle('collapsed')" title="折叠/展开">—</button>
+    <div class="panel-title">操作说明</div>
+    <div class="panel-body">
+      <div class="ctrl-row">
+        <div class="ctrl-keys"><kbd id="key-w">W</kbd></div>
+        <div class="ctrl-keys"><kbd id="key-a">A</kbd><kbd id="key-s">S</kbd><kbd id="key-d">D</kbd></div>
+        <span class="ctrl-desc">水平移动</span>
+      </div>
+      <div class="ctrl-row">
+        <div class="ctrl-keys"><kbd id="key-q">Q</kbd><kbd id="key-e">E</kbd></div>
+        <span class="ctrl-desc">升高 / 下降</span>
+      </div>
+      <div class="divider"></div>
+      <div class="ctrl-row">
+        <span class="ctrl-desc">拖拽 — 旋转视角</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-desc">滚轮 — 前进 / 后退</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-desc">双指捏合 — 缩放 (移动端)</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-desc">双指旋转 — 画面旋转 (移动端)</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-desc">点击热点 — 跳转场景</span>
+      </div>
+    </div>
+  </div>
+  <div id="error"></div>
+</div>
+
+<script type="module">
+import { TourPlayer } from '@3dgs/core';
+import { createRenderer, RenderManager } from '@3dgs/renderer-three';
+import { createHotspotSystem, createDepthOcclusionPlugin, createTouchGesturesPlugin } from '@3dgs/plugins';
+
+async function main() {
+  const container = document.getElementById('viewer');
+  const loading = document.getElementById('loading');
+  const loadingText = document.getElementById('loading-text');
+  const errorEl = document.getElementById('error');
+  const hudEl = document.getElementById('hud');
+  const selectorEl = document.getElementById('scene-selector');
+
+  // ── 创建播放器 ──
+  const player = new TourPlayer(container);
+
+  // ── 创建渲染器 (WebGPU 自动检测 + WebGL2 回退) ──
+  loadingText.textContent = '检测 WebGPU 支持...';
+  const { renderer, backend, webgpuCapability } = await createRenderer();
+  player.setRenderer(renderer);
+
+  // ── 注册插件 ──
+  player.use(createHotspotSystem());
+  player.use(createDepthOcclusionPlugin({ sampleInterval: 2 }));
+  player.use(createTouchGesturesPlugin());
+
+  // ── HUD: 设备信息 + FPS + WebGPU 状态 ──
+  const tier = renderer.getDeviceTier();
+  const tierNames = ['LOW', 'MEDIUM', 'HIGH', 'ULTRA'];
+  let fps = 0;
+  let frameCount = 0;
+  let fpsTimer = performance.now();
+
+  player.on('load', () => {
+    loading.style.display = 'none';
+    hudEl.style.display = 'block';
+    showInfo('拖拽旋转 / 滚轮前进后退 / WASD移动 / 双指缩放 / 点击热点跳转');
+  });
+
+  // FPS 监控 + 按键状态高亮 (挂载到渲染器帧回调)
+  const keyEls = {
+    w: document.getElementById('key-w'),
+    a: document.getElementById('key-a'),
+    s: document.getElementById('key-s'),
+    d: document.getElementById('key-d'),
+    q: document.getElementById('key-q'),
+    e: document.getElementById('key-e'),
+  };
+  renderer.onFrame(() => {
+    frameCount++;
+    const now = performance.now();
+
+    // 按键状态高亮
+    const activeKeys = renderer.getActiveMoveKeys ? renderer.getActiveMoveKeys() : [];
+    for (const [k, el] of Object.entries(keyEls)) {
+      if (el) el.classList.toggle('active', activeKeys.includes(k));
+    }
+
+    if (now - fpsTimer >= 500) {
+      fps = Math.round((frameCount * 1000) / (now - fpsTimer));
+      frameCount = 0;
+      fpsTimer = now;
+      const resScale = renderer.getResolutionScale ? renderer.getResolutionScale() : 1.0;
+      const isolated = RenderManager.isCrossOriginIsolated() ? '✓' : '✗';
+      const lodStatus = renderer.isLodReady ? (renderer.isLodReady() ? '✓' : '✗') : '—';
+      const gpuInfo = webgpuCapability.adapterInfo
+        ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}`
+        : 'N/A';
+      hudEl.innerHTML = [
+        `Backend: ${backend.toUpperCase()} | Tier: ${tierNames[tier]} | FPS: ${fps}`,
+        `GPU: ${gpuInfo}`,
+        `Resolution: ${(resScale * 100).toFixed(0)}% | SAB: ${isolated} | LOD: ${lodStatus}`,
+      ].join('<br>');
+    }
+  });
+
+  // ── 事件 ──
+  player.on('hotspot:click', (h) => {
+    const d = h;
+    showInfo(`点击热点: ${d?.id || '(热点)'}`);
+  });
+
+  player.on('hotspot:hover', (h) => {
+    const d = h;
+    if (d?.config?.onHover?.tooltip) {
+      showInfo(d.config.onHover.tooltip);
+    }
+  });
+
+  player.on('scene:switched', (data) => {
+    const d = data;
+    showInfo(`已切换到场景: ${d?.sceneId || ''}`);
+    updateSelector(d?.sceneId);
+  });
+
+  player.on('error', ({ message }) => {
+    loading.style.display = 'none';
+    errorEl.textContent = '❌ ' + message;
+    errorEl.style.display = 'block';
+  });
+
+  function showInfo(text) {
+    let el = document.getElementById('info');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'info';
+      container.appendChild(el);
+    }
+    el.textContent = text;
+  }
+
+  function updateSelector(activeId) {
+    selectorEl.innerHTML = '';
+    for (const id of Object.keys(config.scenes)) {
+      const btn = document.createElement('button');
+      btn.textContent = config.scenes[id].title || id;
+      btn.className = id === activeId ? 'active' : '';
+      btn.onclick = () => player.switchScene(id);
+      selectorEl.appendChild(btn);
+    }
+  }
+
+  // ── 漫游配置 ──
+  const config = {
+    version: '1.0',
+    meta: {
+      title: '3DGS 漫游 Demo (阶段二)',
+      description: 'WebGPU 检测 + 深度遮挡 + 触摸手势 + 多场景漫游',
+    },
+    defaults: {
+      camera: {
+        fov: 60,
+        minFov: 30,
+        maxFov: 90,
+        limitPitch: [-80, 80],
+      },
+      transition: {
+        type: 'fade',
+        duration: 800,
+      },
+    },
+    scenes: {
+      kitchen: {
+        title: '厨房',
+        source: '/kitchen.splat',
+        initialView: { yaw: 0, pitch: 0, fov: 60 },
+        extensions: {
+          hotspot: {
+            hotspots: [
+              {
+                id: 'hotspot-info',
+                type: 'text',
+                position: [0.5, 1.2, -1.0],
+                onHover: { tooltip: '信息标注热点 (深度遮挡检测)' },
+              },
+              {
+                id: 'hotspot-scene2',
+                type: 'scene',
+                position: [-1.0, 1.5, -2.0],
+                targetScene: 'living',
+                transition: { type: 'fade', duration: 600 },
+                style: { glow: true, pulse: true, color: '#80a0ff', size: 36 },
+                onHover: { tooltip: '点击进入客厅' },
+              },
+            ],
+          },
+        },
+      },
+      living: {
+        title: '客厅',
+        source: '/kitchen.splat',
+        initialView: { yaw: 90, pitch: 0, fov: 60 },
+        extensions: {
+          hotspot: {
+            hotspots: [
+              {
+                id: 'hotspot-back',
+                type: 'scene',
+                position: [1.0, 1.5, -2.0],
+                targetScene: 'kitchen',
+                transition: { type: 'fade', duration: 600 },
+                style: { glow: true, pulse: true, color: '#80ff80', size: 36 },
+                onHover: { tooltip: '返回厨房' },
+              },
+              {
+                id: 'hotspot-scene21',
+                type: 'scene',
+                position: [-1.5, 1.0, -1.5],
+                targetScene: 'scene21',
+                transition: { type: 'fade', duration: 600 },
+                style: { glow: true, pulse: true, color: '#ffa080', size: 36 },
+                onHover: { tooltip: '进入场景 21 (PLY 转换)' },
+              },
+            ],
+          },
+        },
+      },
+      scene21: {
+        title: '场景 21',
+        source: '/scene21.splat',
+        initialView: { yaw: 0, pitch: 0, fov: 60 },
+        extensions: {
+          hotspot: {
+            hotspots: [
+              {
+                id: 'hotspot-back-from-21',
+                type: 'scene',
+                position: [1.0, 1.0, -2.0],
+                targetScene: 'living',
+                transition: { type: 'fade', duration: 600 },
+                style: { glow: true, pulse: true, color: '#80ff80', size: 36 },
+                onHover: { tooltip: '返回客厅' },
+              },
+              {
+                id: 'hotspot-info-21',
+                type: 'text',
+                position: [0.3, 0.8, -1.0],
+                onHover: { tooltip: '由 21.ply 转换而来 (72,105 splats)' },
+              },
+            ],
+          },
+        },
+      },
+    },
+  };
+
+  // ── 加载 ──
+  loadingText.textContent = '加载场景配置...';
+  await player.load(config);
+
+  // ── 切换到第一个场景 ──
+  loadingText.textContent = '加载 3DGS 数据...';
+  await player.switchScene('kitchen');
+}
+
+main().catch((err) => {
+  console.error(err);
+  const errorEl = document.getElementById('error');
+  const loading = document.getElementById('loading');
+  loading.style.display = 'none';
+  errorEl.textContent = '❌ ' + (err instanceof Error ? err.message : String(err));
+  errorEl.style.display = 'block';
+});
+</script>
+</body>
+</html>

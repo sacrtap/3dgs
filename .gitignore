@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test / Coverage
+coverage/
+.nyc_output/
+
+# Playwright
+test-results/
+playwright-report/
+
+# Benchmark reports (keep scripts, ignore generated data)
+benchmarks/reports/
+
+# Large data files (use git-lfs or external storage for very large files)
+*.ply
+*.spz
+*.sog
+
+# Banks (internal database)
+banks/
+
+# pnpm
+.pnpm-debug.log
+
+# Vite
+*.local

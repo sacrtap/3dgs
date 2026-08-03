@@ -1,0 +1,25 @@
+{
+  "name": "@3dgs/core",
+  "version": "0.1.0",
+  "description": "3DGS 渲染引擎核心 — 框架无关的 TourPlayer、SceneManager、PluginSystem (无热点感知)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

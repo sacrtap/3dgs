@@ -1,0 +1,30 @@
+{
+  "name": "@3dgs/renderer-three",
+  "version": "0.1.0",
+  "description": "Three.js 渲染器适配层 — 使用 @sparkjsdev/spark 渲染 3DGS",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@3dgs/core": "workspace:*",
+    "@sparkjsdev/spark": "^2.1.0",
+    "three": "^0.185.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.0",
+    "typescript": "^5.5.0"
+  }
+}
