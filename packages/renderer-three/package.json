@@ -13,6 +13,25 @@
     }
   },
   "files": ["dist"],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sacrtap/3dgs.git",
+    "directory": "packages/renderer-three"
+  },
+  "homepage": "https://github.com/sacrtap/3dgs#readme",
+  "bugs": {
+    "url": "https://github.com/sacrtap/3dgs/issues"
+  },
+  "keywords": ["3dgs", "gaussian-splatting", "threejs", "three-js", "spark", "webgl", "webgpu", "renderer"],
+  "author": "sacrtap",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

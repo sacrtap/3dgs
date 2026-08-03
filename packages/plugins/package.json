@@ -1,7 +1,7 @@
 {
   "name": "@3dgs/plugins",
   "version": "0.1.0",
-  "description": "3DGS 漫游框架插件 — 热点系统、相机控制等领域功能",
+  "description": "3DGS 漫游框架插件 — 热点系统、相机控制、场景过渡、Shader 注入等领域功能",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -13,6 +13,25 @@
     }
   },
   "files": ["dist"],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sacrtap/3dgs.git",
+    "directory": "packages/plugins"
+  },
+  "homepage": "https://github.com/sacrtap/3dgs#readme",
+  "bugs": {
+    "url": "https://github.com/sacrtap/3dgs/issues"
+  },
+  "keywords": ["3dgs", "gaussian-splatting", "plugin", "hotspot", "touch", "fullscreen", "shader", "transition"],
+  "author": "sacrtap",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

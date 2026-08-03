@@ -94,6 +94,11 @@
 | **CameraControls** | 相机控制 — 鼠标拖拽旋转、滚轮缩放、阻尼平滑 |
 | **DepthOcclusion** | 深度遮挡检测 — WebGL2 `readPixels` 检测热点被高斯核遮挡，半透明显示 |
 | **TouchGestures** | 多指触摸手势 — 双指捏合缩放、双指旋转、惯性滚动 |
+| **SceneTransition** | 场景过渡动画 — fade / fly / instant 三种过渡模式 |
+| **Fullscreen** | 全屏切换 — 双击切换、ESC 退出、横屏锁定 |
+| **LoadingIndicator** | 加载指示器 — spinner 动画、进度显示、错误状态 |
+| **AutoRotate** | 自动旋转 — 可配置速度/延迟，交互时自动暂停 |
+| **ShaderInjection** | Shader 注入 — 自定义 GLSL 代码注入到顶点/片段着色器 |
 
 ---
 
@@ -133,21 +138,18 @@
 
 ## 快速开始
 
-### 环境要求
-
-- **Node.js** >= 18
-- **pnpm** >= 8（Monorepo 包管理器）
-
-### 安装依赖
+### 从 npm 安装
 
 ```bash
-cd 3dgs
-pnpm install
+npm install @3dgs/core @3dgs/renderer-three @3dgs/plugins three @sparkjsdev/spark
 ```
 
-### 构建所有包
+### 从源码构建
 
 ```bash
+git clone https://github.com/sacrtap/3dgs.git
+cd 3dgs
+pnpm install
 pnpm build
 ```
 
@@ -157,7 +159,7 @@ pnpm build
 pnpm --filter @3dgs/demo dev
 ```
 
-浏览器访问 `http://localhost:5173`，体验多场景漫游、热点跳转、深度遮挡、触摸手势等功能。
+浏览器访问 `http://localhost:5173`，体验多场景漫游、热点跳转、深度遮挡、触摸手势、Shader 效果等功能。
 
 > **注意**：Demo 需要 COOP/COEP 跨源隔离头（已在 Vite 配置中设置），以启用 `SharedArrayBuffer`（Spark 排序 Worker 依赖）。
 
@@ -170,17 +172,22 @@ pnpm --filter @3dgs/demo dev
 ├── packages/
 │   ├── core/              # 框架无关核心 — TourPlayer、SceneManager、PluginSystem
 │   ├── renderer-three/    # Three.js + Spark 渲染器适配层
-│   ├── plugins/           # 插件包 — 热点、相机控制、深度遮挡、触摸手势
+│   ├── plugins/           # 插件包 — 热点、相机控制、深度遮挡、触摸、过渡、Shader
 │   ├── convert/           # 数据转换 CLI + 编程 API
 │   ├── react/             # React 适配层 — <TourViewer /> 组件
 │   └── vue/               # Vue 3 适配层 — <TourViewer /> 组件
 ├── apps/
 │   └── demo/              # 在线演示应用 (Vite + Vanilla TS)
+├── examples/              # 9+ 示例代码
 ├── docs/                  # 项目文档
 │   ├── 01-调研说明文档.md
 │   ├── 02-产品说明文档.md
 │   ├── 03-详细技术方案.md
-│   └── 04-产品实现计划.md
+│   ├── 04-产品实现计划.md
+│   ├── 05-性能基准报告.md
+│   └── site/              # VitePress 文档站
+├── .changeset/            # Changesets 版本管理
+├── .github/               # CI/CD + Issue/PR 模板
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json
 └── package.json
@@ -204,6 +211,8 @@ pnpm --filter @3dgs/demo dev
 | `PluginSystem` | 类 | 插件注册、每帧更新、销毁管理 |
 | `RendererAdapter` | 接口 | 渲染器抽象接口 — 解耦 TourPlayer 与具体渲染后端 |
 | `DeviceTier` | 枚举 | 设备分级 — LOW / MEDIUM / HIGH / ULTRA |
+| `ShaderHookPoint` | 枚举 | Shader 注入点 — 顶点/片段着色器 6 个注入位置 |
+| `ShaderInjection` | 接口 | Shader 注入定义 — id + hook + code + uniforms |
 | `TourConfig` | 类型 | 声明式场景图配置格式 |
 | `TourPlugin` | 接口 | 插件接口 — `init` / `update` / `destroy` 生命周期 |
 | `validateTourConfig` | 函数 | 配置验证 |
@@ -252,6 +261,11 @@ interface RenderManagerOptions {
 | `createCameraControls(options?)` | 相机控制插件 — 拖拽旋转、滚轮缩放、阻尼平滑 |
 | `createDepthOcclusionPlugin(options?)` | 深度遮挡检测插件 — `readPixels` 检测遮挡，半透明显示 |
 | `createTouchGesturesPlugin(options?)` | 多指触摸手势插件 — 捏合缩放、双指旋转、惯性滚动 |
+| `createSceneTransitionPlugin(options?)` | 场景过渡动画插件 — fade / fly / instant |
+| `createFullscreenPlugin(options?)` | 全屏切换插件 — 双击切换、ESC 退出 |
+| `createLoadingIndicatorPlugin(options?)` | 加载指示器插件 — spinner + 进度百分比 |
+| `createAutoRotatePlugin(options?)` | 自动旋转插件 — 可配置速度/延迟/方向 |
+| `createShaderInjectionPlugin(options?)` | Shader 注入插件 — 自定义 GLSL 代码注入 |
 | `HotspotManager` | 热点管理器类 — 可独立使用 |
 
 ### @3dgs/convert
@@ -586,6 +600,9 @@ pnpm --filter @3dgs/demo dev
 | [产品说明文档](docs/02-产品说明文档.md) | 产品定位、功能规划、配置系统、插件生态 |
 | [详细技术方案](docs/03-详细技术方案.md) | 架构设计、核心模块实现、API 规格 |
 | [产品实现计划](docs/04-产品实现计划.md) | 分阶段实施计划与完成状态 |
+| [性能基准报告](docs/05-性能基准报告.md) | 性能测试结果与优化措施 |
+| [示例代码](examples/README.md) | 9+ 可运行示例代码 |
+| [贡献指南](CONTRIBUTING.md) | 开发环境、分支策略、插件开发、提交规范 |
 
 ---
 

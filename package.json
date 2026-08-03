@@ -3,16 +3,31 @@
   "version": "0.1.0",
   "private": true,
   "description": "轻量级 Web 3DGS 渲染引擎与漫游框架",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sacrtap/3dgs.git"
+  },
+  "homepage": "https://github.com/sacrtap/3dgs#readme",
+  "bugs": {
+    "url": "https://github.com/sacrtap/3dgs/issues"
+  },
+  "license": "MIT",
+  "author": "sacrtap",
+  "keywords": ["3dgs", "gaussian-splatting", "3d", "renderer", "tour", "panorama", "webgl", "webgpu"],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "pnpm -r run build",
     "dev": "pnpm -r --parallel run dev",
     "lint": "pnpm -r run lint",
-    "clean": "pnpm -r run clean"
-  },
-  "engines": {
-    "node": ">=18"
+    "clean": "pnpm -r run clean",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "publish": "changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.27.0",
     "playwright": "^1.62.1",
     "tsx": "^4.23.5"
   }
