@@ -69,6 +69,9 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
         <span class="ctrl-desc">双指旋转 — 画面旋转 (移动端)</span>
       </div>
       <div class="ctrl-row">
+        <span class="ctrl-desc">双击 — 全屏切换</span>
+      </div>
+      <div class="ctrl-row">
         <span class="ctrl-desc">点击热点 — 跳转场景</span>
       </div>
     </div>
@@ -79,7 +82,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
 <script type="module">
 import { TourPlayer } from '@3dgs/core';
 import { createRenderer, RenderManager } from '@3dgs/renderer-three';
-import { createHotspotSystem, createDepthOcclusionPlugin, createTouchGesturesPlugin } from '@3dgs/plugins';
+import { createHotspotSystem, createDepthOcclusionPlugin, createTouchGesturesPlugin, createFullscreenPlugin, createLoadingIndicatorPlugin, createAutoRotatePlugin } from '@3dgs/plugins';
 
 async function main() {
   const container = document.getElementById('viewer');
@@ -101,6 +104,9 @@ async function main() {
   player.use(createHotspotSystem());
   player.use(createDepthOcclusionPlugin({ sampleInterval: 2 }));
   player.use(createTouchGesturesPlugin());
+  player.use(createFullscreenPlugin({ enableDoubleClick: true }));
+  player.use(createLoadingIndicatorPlugin({ text: '加载中...', showProgress: true }));
+  player.use(createAutoRotatePlugin({ speed: 8, idleDelay: 5000, enabled: false }));
 
   // ── HUD: 设备信息 + FPS + WebGPU 状态 ──
   const tier = renderer.getDeviceTier();

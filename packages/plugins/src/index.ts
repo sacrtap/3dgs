@@ -39,3 +39,15 @@ export type { TouchGesturesOptions } from './touch-gestures/index.js';
 // 场景过渡动画
 export { createSceneTransitionPlugin } from './scene-transition/index.js';
 export type { SceneTransitionOptions } from './scene-transition/index.js';
+
+// 全屏
+export { createFullscreenPlugin } from './fullscreen/index.js';
+export type { FullscreenOptions } from './fullscreen/index.js';
+
+// 加载指示器
+export { createLoadingIndicatorPlugin } from './loading-indicator/index.js';
+export type { LoadingIndicatorOptions } from './loading-indicator/index.js';
+
+// 自动旋转
+export { createAutoRotatePlugin } from './auto-rotate/index.js';
+export type { AutoRotateOptions } from './auto-rotate/index.js';

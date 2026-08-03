@@ -247,6 +247,13 @@ async function batchConvert(
 
 /**
  * 生成 tour.json 配置模板
+ *
+ * 扫描目录下的场景文件, 生成完整的 tour.json 配置:
+ *   - 版本和元信息
+ *   - 默认相机和过渡动画设置
+ *   - 每个场景的初始视角
+ *   - 场景间导航热点 (自动链接相邻场景)
+ *   - 热点扩展配置
  */
 async function generateTour(
   dir: string,
@@ -254,6 +261,7 @@ async function generateTour(
 ): Promise<void> {
   const baseUrl = opts.baseUrl || './';
   const outputPath = opts.output || 'tour.json';
+  const title = opts.title || '3DGS 漫游';
 
   console.log(`\n📂 扫描目录: ${dir}`);
   const entries = await readdir(dir);
@@ -267,25 +275,91 @@ async function generateTour(
     return;
   }
 
-  const scenes = sceneFiles.map((file, i) => {
+  // 构建场景配置
+  const scenes: Record<string, unknown> = {};
+  const sceneIds: string[] = [];
+
+  for (const file of sceneFiles) {
     const id = basename(file, extname(file));
-    return {
-      id,
-      name: id.charAt(0).toUpperCase() + id.slice(1).replace(/[-_]/g, ' '),
+    sceneIds.push(id);
+
+    // 构建热点: 链接到相邻场景
+    const hotspots: unknown[] = [];
+
+    // 前一个场景 (返回)
+    const prevIdx = sceneFiles.indexOf(file) - 1;
+    if (prevIdx >= 0) {
+      const prevId = basename(sceneFiles[prevIdx], extname(sceneFiles[prevIdx]));
+      hotspots.push({
+        id: `hotspot-to-${prevId}`,
+        type: 'scene',
+        position: [1.0, 1.5, -2.0],
+        targetScene: prevId,
+        transition: { type: 'fade', duration: 600 },
+        style: { glow: true, pulse: true, color: '#80ff80', size: 36 },
+        onHover: { tooltip: `进入 ${prevId}` },
+      });
+    }
+
+    // 后一个场景 (前进)
+    const nextIdx = sceneFiles.indexOf(file) + 1;
+    if (nextIdx < sceneFiles.length) {
+      const nextId = basename(sceneFiles[nextIdx], extname(sceneFiles[nextIdx]));
+      hotspots.push({
+        id: `hotspot-to-${nextId}`,
+        type: 'scene',
+        position: [-1.0, 1.5, -2.0],
+        targetScene: nextId,
+        transition: { type: 'fade', duration: 600 },
+        style: { glow: true, pulse: true, color: '#80a0ff', size: 36 },
+        onHover: { tooltip: `进入 ${nextId}` },
+      });
+    }
+
+    // 信息热点
+    hotspots.push({
+      id: `hotspot-info-${id}`,
+      type: 'text',
+      position: [0.5, 1.2, -1.0],
+      onHover: { tooltip: `${id} 场景` },
+    });
+
+    scenes[id] = {
+      title: id.charAt(0).toUpperCase() + id.slice(1).replace(/[-_]/g, ' '),
       source: `${baseUrl}${file}`,
-      initialView: { yaw: 0, pitch: 0, fov: 75 },
+      initialView: { yaw: 0, pitch: 0, fov: 60 },
+      extensions: {
+        hotspot: { hotspots },
+      },
     };
-  });
+  }
 
   const tour = {
     version: '1.0',
+    meta: {
+      title,
+      description: `自动生成的 3DGS 漫游配置 (${sceneIds.length} 个场景)`,
+    },
+    defaults: {
+      camera: {
+        fov: 60,
+        minFov: 30,
+        maxFov: 90,
+        limitPitch: [-80, 80],
+      },
+      transition: {
+        type: 'fade',
+        duration: 800,
+      },
+    },
     scenes,
-    hotspots: [],
   };
 
   await writeFile(outputPath, JSON.stringify(tour, null, 2), 'utf-8');
   console.log(`\n✅ 生成配置: ${outputPath}`);
-  console.log(`   场景数: ${scenes.length}\n`);
+  console.log(`   场景数: ${sceneIds.length}`);
+  console.log(`   场景列表: ${sceneIds.join(', ')}`);
+  console.log(`   热点: 自动链接相邻场景\n`);
 }
 
 /**
