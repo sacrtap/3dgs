@@ -30,6 +30,38 @@ export interface LoadOptions {
   lodSource?: string;
 }
 
+// ─── Shader 注入 API ───────────────────────────────────────
+
+/** Shader 注入位置 — 对应 GLSL 着色器的关键插入点 */
+export enum ShaderHookPoint {
+  /** 顶点着色器: main() 开头 */
+  VERTEX_MAIN_BEGIN = 'vertex_main_begin',
+  /** 顶点着色器: 计算位置后, gl_Position 赋值前 */
+  VERTEX_BEFORE_POSITION = 'vertex_before_position',
+  /** 顶点着色器: main() 结尾 */
+  VERTEX_MAIN_END = 'vertex_main_end',
+  /** 片段着色器: main() 开头 */
+  FRAGMENT_MAIN_BEGIN = 'fragment_main_begin',
+  /** 片段着色器: 颜色计算后, 最终输出前 */
+  FRAGMENT_BEFORE_OUTPUT = 'fragment_before_output',
+  /** 片段着色器: main() 结尾 */
+  FRAGMENT_MAIN_END = 'fragment_main_end',
+}
+
+/** Shader 注入定义 */
+export interface ShaderInjection {
+  /** 唯一标识符 (用于移除) */
+  id: string;
+  /** 注入位置 */
+  hook: ShaderHookPoint;
+  /** 注入的 GLSL 代码 (会被插入到对应位置) */
+  code: string;
+  /** 额外的 uniform 声明 (可选, 如 'uniform float uTime;' ) */
+  uniforms?: Record<string, unknown>;
+  /** 每帧更新 uniform 值的回调 (可选) */
+  onUpdate?: (uniforms: Record<string, unknown>, deltaTime: number) => void;
+}
+
 export interface RendererAdapter {
   /** 挂载到 DOM 容器 */
   mount(container: HTMLElement): void;
@@ -63,6 +95,26 @@ export interface RendererAdapter {
    * 返回取消注册函数
    */
   onFrame(callback: (deltaTime: number) => void): () => void;
+
+  /**
+   * ★ Shader 注入 — 添加自定义 GLSL 代码到渲染管线
+   *
+   * 允许在不修改 Spark 核心代码的前提下, 向顶点/片段着色器注入自定义代码。
+   * 常用于: 后处理效果、颜色调整、动画效果、自定义光照等。
+   *
+   * @example
+   * ```typescript
+   * renderer.addShaderInjection({
+   *   id: 'color-shift',
+   *   hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
+   *   code: 'gl_FragColor.rgb = vec3(gl_FragColor.r, gl_FragColor.g * 0.8, gl_FragColor.b * 1.2);',
+   * });
+   * ```
+   */
+  addShaderInjection(injection: ShaderInjection): void;
+
+  /** 移除 Shader 注入 */
+  removeShaderInjection(id: string): void;
 
   /** 销毁释放所有 GPU 资源 */
   destroy(): void;

@@ -20,7 +20,7 @@
  */
 
 import type { RendererAdapter, LoadOptions } from '@3dgs/core';
-import { DeviceTier } from '@3dgs/core';
+import { DeviceTier, ShaderHookPoint, type ShaderInjection } from '@3dgs/core';
 import * as THREE from 'three';
 import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import { SplatFileType } from '@sparkjsdev/spark';
@@ -266,6 +266,11 @@ export class RenderManager implements RendererAdapter {
   // ★ dt 平滑 (指数移动平均, 用于移动和帧回调)
   private _smoothDt = 16.67;
 
+  // ★ Shader 注入
+  private _shaderInjections = new Map<string, ShaderInjection>();
+  private _compiledMaterials = new Set<THREE.Material>();
+  private _injectionUniforms = new Map<string, Record<string, THREE.IUniform>>();
+
   constructor(options: RenderManagerOptions = {}) {
     this.deviceProfile = detectDeviceTier();
     const tier = options.deviceTier ?? this.deviceProfile.tier;
@@ -391,6 +396,9 @@ export class RenderManager implements RendererAdapter {
         }
       }
 
+      // ★ Shader 注入 uniform 更新
+      this.updateInjectionUniforms(dt);
+
       this.adaptive?.sample();
 
       this.rafId = requestAnimationFrame(loop);
@@ -471,6 +479,9 @@ export class RenderManager implements RendererAdapter {
             this.buildLod(loadedMesh);
           }
 
+          // ★ 应用 Shader 注入
+          this.applyInjectionsToMaterial();
+
           resolve();
         },
       });
@@ -527,6 +538,8 @@ export class RenderManager implements RendererAdapter {
               if (this._enableLod) {
                 this.buildLod(loadedMesh);
               }
+              // ★ 应用 Shader 注入
+              this.applyInjectionsToMaterial();
             },
           });
         }
@@ -572,6 +585,8 @@ export class RenderManager implements RendererAdapter {
           if (this._enableLod) {
             this.buildLod(loadedMesh);
           }
+          // ★ 应用 Shader 注入
+          this.applyInjectionsToMaterial();
           resolve();
         },
       });
@@ -615,6 +630,215 @@ export class RenderManager implements RendererAdapter {
     return () => this.frameCallbacks.delete(callback);
   }
 
+  // ─── Shader 注入 API ──────────────────────────────────────
+
+  addShaderInjection(injection: ShaderInjection): void {
+    if (this._shaderInjections.has(injection.id)) {
+      console.warn(`[RenderManager] Shader 注入 '${injection.id}' 已存在, 将被覆盖`);
+      this.removeShaderInjection(injection.id);
+    }
+
+    this._shaderInjections.set(injection.id, injection);
+
+    // 为此注入创建 Three.js uniform 对象
+    const threeUniforms: Record<string, THREE.IUniform> = {};
+    if (injection.uniforms) {
+      for (const [key, value] of Object.entries(injection.uniforms)) {
+        threeUniforms[key] = { value };
+      }
+    }
+    this._injectionUniforms.set(injection.id, threeUniforms);
+
+    // 如果 SparkRenderer 已存在, 立即应用
+    if (this.spark) {
+      this.applyInjectionsToMaterial();
+    }
+  }
+
+  removeShaderInjection(id: string): void {
+    this._shaderInjections.delete(id);
+    this._injectionUniforms.delete(id);
+
+    // 需要重新编译材质 (移除注入)
+    if (this.spark) {
+      this._compiledMaterials.delete(this.spark.material);
+      this.spark.material.needsUpdate = true;
+      this.applyInjectionsToMaterial();
+    }
+  }
+
+  /**
+   * 将所有 Shader 注入应用到 SparkRenderer 的材质
+   *
+   * SparkRenderer 继承自 THREE.Mesh, 拥有 readonly material: THREE.ShaderMaterial。
+   * 通过 Three.js 的 onBeforeCompile 机制注入 GLSL 代码:
+   *   - 在 shader 编译前替换 shader 源码字符串
+   *   - 注入自定义 uniform
+   *   - 每帧通过 material.uniforms 更新 uniform 值
+   *
+   * [来源: SparkRenderer 类型 — @sparkjsdev/spark SparkRenderer.d.ts]
+   * [来源: Three.js 文档 — WebGLProgram / onBeforeCompile]
+   */
+  private applyInjectionsToMaterial(): void {
+    if (!this.spark) return;
+    const material = this.spark.material as THREE.ShaderMaterial;
+    if (!material) return;
+
+    // 避免重复绑定 onBeforeCompile
+    if (this._compiledMaterials.has(material)) return;
+    this._compiledMaterials.add(material);
+
+    const injections = Array.from(this._shaderInjections.values());
+    if (injections.length === 0) return;
+
+    // 合并所有注入的 uniforms
+    const allUniforms: Record<string, THREE.IUniform> = {};
+    for (const [, uniforms] of this._injectionUniforms) {
+      Object.assign(allUniforms, uniforms);
+    }
+
+    // 对于 ShaderMaterial, 直接修改 vertexShader/fragmentShader 和 uniforms
+    // ShaderMaterial 不触发 onBeforeCompile, 而是直接使用其 shader 源码
+    // 所以我们需要直接修改 material.vertexShader / fragmentShader / uniforms
+
+    // 保存原始 shader (仅在第一次注入时)
+    if (!(material as unknown as { _originalVertexShader?: string })._originalVertexShader) {
+      (material as unknown as { _originalVertexShader?: string })._originalVertexShader = material.vertexShader;
+      (material as unknown as { _originalFragmentShader?: string })._originalFragmentShader = material.fragmentShader;
+    }
+
+    const origVS = (material as unknown as { _originalVertexShader: string })._originalVertexShader;
+    const origFS = (material as unknown as { _originalFragmentShader: string })._originalFragmentShader;
+
+    let vs = origVS;
+    let fs = origFS;
+
+    // 收集 uniform 声明
+    const uniformDecls: string[] = [];
+    for (const injection of injections) {
+      if (injection.uniforms) {
+        for (const key of Object.keys(injection.uniforms)) {
+          const val = injection.uniforms[key];
+          const glslType = this.inferGLSLType(val);
+          if (glslType) {
+            uniformDecls.push(`uniform ${glslType} ${key};`);
+          }
+        }
+      }
+    }
+    const uniformBlock = uniformDecls.join('\n');
+
+    // 注入到着色器
+    for (const injection of injections) {
+      const code = `// --- injection: ${injection.id} ---\n${injection.code}\n// --- end injection: ${injection.id} ---`;
+      switch (injection.hook) {
+        case ShaderHookPoint.VERTEX_MAIN_BEGIN:
+          vs = this.injectAfterMainBegin(vs, code);
+          break;
+        case ShaderHookPoint.VERTEX_BEFORE_POSITION:
+          vs = this.injectBeforePattern(vs, /gl_Position\s*=/, code);
+          break;
+        case ShaderHookPoint.VERTEX_MAIN_END:
+          vs = this.injectBeforeMainEnd(vs, code);
+          break;
+        case ShaderHookPoint.FRAGMENT_MAIN_BEGIN:
+          fs = this.injectAfterMainBegin(fs, code);
+          break;
+        case ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT:
+          // 匹配 gl_FragColor 或 fragColor 或 pc_fragColor
+          fs = this.injectBeforePattern(fs, /(gl_FragColor|fragColor|pc_fragColor)\s*=/, code);
+          break;
+        case ShaderHookPoint.FRAGMENT_MAIN_END:
+          fs = this.injectBeforeMainEnd(fs, code);
+          break;
+      }
+    }
+
+    // 插入 uniform 声明
+    if (uniformBlock) {
+      vs = vs.replace(/(void\s+main\s*\(\s*\))/, `${uniformBlock}\n$1`);
+      fs = fs.replace(/(void\s+main\s*\(\s*\))/, `${uniformBlock}\n$1`);
+    }
+
+    material.vertexShader = vs;
+    material.fragmentShader = fs;
+
+    // 合并 uniforms 到材质
+    Object.assign(material.uniforms, allUniforms);
+
+    material.needsUpdate = true;
+  }
+
+  /** 在 main() 的开头插入代码 */
+  private injectAfterMainBegin(shader: string, code: string): string {
+    // 匹配 void main() {  (可能有空格/换行变体)
+    return shader.replace(
+      /(void\s+main\s*\(\s*(?:void)?\s*\)\s*\{)/,
+      `$1\n  ${code}`,
+    );
+  }
+
+  /** 在指定正则模式之前插入代码 */
+  private injectBeforePattern(shader: string, pattern: RegExp, code: string): string {
+    const match = shader.match(pattern);
+    if (!match || match.index === undefined) {
+      console.warn(`[RenderManager] Shader 注入: 未找到匹配模式 ${pattern}`);
+      return shader;
+    }
+    const idx = match.index;
+    return shader.slice(0, idx) + code + '\n' + shader.slice(idx);
+  }
+
+  /** 在 main() 的结尾 (最后的 }) 之前插入代码 */
+  private injectBeforeMainEnd(shader: string, code: string): string {
+    // 找到最后一个 } 的位置
+    const lastBrace = shader.lastIndexOf('}');
+    if (lastBrace === -1) return shader;
+    return shader.slice(0, lastBrace) + `  ${code}\n` + shader.slice(lastBrace);
+  }
+
+  /** 根据 JS 值推断 GLSL 类型 */
+  private inferGLSLType(value: unknown): string | null {
+    if (typeof value === 'number') return 'float';
+    if (value instanceof THREE.Vector2) return 'vec2';
+    if (value instanceof THREE.Vector3) return 'vec3';
+    if (value instanceof THREE.Vector4) return 'vec4';
+    if (value instanceof THREE.Matrix3) return 'mat3';
+    if (value instanceof THREE.Matrix4) return 'mat4';
+    if (value instanceof THREE.Color) return 'vec3';
+    if (Array.isArray(value)) {
+      if (value.length === 2) return 'vec2';
+      if (value.length === 3) return 'vec3';
+      if (value.length === 4) return 'vec4';
+    }
+    return null;
+  }
+
+  /** 每帧更新注入的 uniform 值 */
+  private updateInjectionUniforms(dt: number): void {
+    if (this._shaderInjections.size === 0 || !this.spark) return;
+
+    const material = this.spark.material as THREE.ShaderMaterial;
+    if (!material?.uniforms) return;
+
+    for (const [id, injection] of this._shaderInjections) {
+      if (!injection.onUpdate) continue;
+
+      const localUniforms = this._injectionUniforms.get(id);
+      if (!localUniforms) continue;
+
+      // 调用用户的 onUpdate 回调, 传入本地 uniform 值引用
+      injection.onUpdate(localUniforms, dt);
+
+      // 将更新后的值同步到材质 uniforms
+      for (const [key, uniform] of Object.entries(localUniforms)) {
+        if (material.uniforms[key]) {
+          material.uniforms[key].value = uniform.value;
+        }
+      }
+    }
+  }
+
   destroy(): void {
     this.stop();
     this._sogStreamer?.abort();
@@ -627,6 +851,7 @@ export class RenderManager implements RendererAdapter {
       this.currentSplat.dispose();
       this.currentSplat = undefined;
     }
+    this._compiledMaterials.clear();
     this.controls?.dispose();
     this.controls = undefined;
     this.spark?.parent?.remove(this.spark);

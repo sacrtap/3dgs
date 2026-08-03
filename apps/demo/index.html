@@ -76,13 +76,17 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
       </div>
     </div>
   </div>
+  <div id="shader-panel" style="position:absolute;top:50px;right:12px;background:rgba(0,0,0,0.7);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:12px 16px;font-size:12px;backdrop-filter:blur(6px);display:none;">
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:rgba(255,255,255,0.9);">Shader 效果</div>
+    <div id="shader-toggles" style="display:flex;flex-direction:column;gap:6px;"></div>
+  </div>
   <div id="error"></div>
 </div>
 
 <script type="module">
-import { TourPlayer } from '@3dgs/core';
+import { TourPlayer, ShaderHookPoint } from '@3dgs/core';
 import { createRenderer, RenderManager } from '@3dgs/renderer-three';
-import { createHotspotSystem, createDepthOcclusionPlugin, createTouchGesturesPlugin, createFullscreenPlugin, createLoadingIndicatorPlugin, createAutoRotatePlugin } from '@3dgs/plugins';
+import { createHotspotSystem, createDepthOcclusionPlugin, createTouchGesturesPlugin, createFullscreenPlugin, createLoadingIndicatorPlugin, createAutoRotatePlugin, createShaderInjectionPlugin } from '@3dgs/plugins';
 
 async function main() {
   const container = document.getElementById('viewer');
@@ -108,6 +112,65 @@ async function main() {
   player.use(createLoadingIndicatorPlugin({ text: '加载中...', showProgress: true }));
   player.use(createAutoRotatePlugin({ speed: 8, idleDelay: 5000, enabled: false }));
 
+  // ── Shader 效果定义 ──
+  // 预定义的 Shader 注入效果, 用户可通过面板切换
+  const shaderEffects = {
+    // 色调偏移 — 冷色调
+    'color-cool': {
+      id: 'color-cool',
+      hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
+      code: 'gl_FragColor.rgb = vec3(gl_FragColor.r * 0.8, gl_FragColor.g * 0.9, gl_FragColor.b * 1.2);',
+    },
+    // 色调偏移 — 暖色调
+    'color-warm': {
+      id: 'color-warm',
+      hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
+      code: 'gl_FragColor.rgb = vec3(gl_FragColor.r * 1.2, gl_FragColor.g * 1.0, gl_FragColor.b * 0.7);',
+    },
+    // 灰度模式
+    'grayscale': {
+      id: 'grayscale',
+      hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
+      code: 'float gray = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114)); gl_FragColor.rgb = vec3(gray);',
+    },
+    // 时间脉冲动画
+    'pulse': {
+      id: 'pulse',
+      hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
+      uniforms: { uTime: 0.0 },
+      code: 'gl_FragColor.rgb *= 0.75 + 0.25 * sin(uTime * 2.0);',
+      onUpdate: (u, dt) => { u.uTime.value += dt / 1000; },
+    },
+    // 边缘发光 (基于深度的伪边缘检测)
+    'vignette': {
+      id: 'vignette',
+      hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
+      uniforms: { uIntensity: 0.5 },
+      code: 'vec2 uv = gl_FragCoord.xy / vec2(1920.0, 1080.0); float dist = distance(uv, vec2(0.5)); gl_FragColor.rgb *= 1.0 - dist * uIntensity;',
+    },
+  };
+  const activeShaderEffects = new Set();
+
+  /**
+   * 切换 Shader 效果
+   * @param effectId 效果 ID
+   * @param enabled 是否启用
+   */
+  function toggleShaderEffect(effectId, enabled) {
+    const effect = shaderEffects[effectId];
+    if (!effect) return;
+
+    if (enabled) {
+      if (activeShaderEffects.has(effectId)) return;
+      activeShaderEffects.add(effectId);
+      renderer.addShaderInjection({ ...effect });
+    } else {
+      if (!activeShaderEffects.has(effectId)) return;
+      activeShaderEffects.delete(effectId);
+      renderer.removeShaderInjection(effectId);
+    }
+  }
+
   // ── HUD: 设备信息 + FPS + WebGPU 状态 ──
   const tier = renderer.getDeviceTier();
   const tierNames = ['LOW', 'MEDIUM', 'HIGH', 'ULTRA'];
@@ -119,6 +182,31 @@ async function main() {
     loading.style.display = 'none';
     hudEl.style.display = 'block';
     showInfo('拖拽旋转 / 滚轮前进后退 / WASD移动 / 双指缩放 / 点击热点跳转');
+
+    // 显示 Shader 面板
+    const shaderPanel = document.getElementById('shader-panel');
+    const shaderToggles = document.getElementById('shader-toggles');
+    if (shaderPanel && shaderToggles) {
+      shaderPanel.style.display = 'block';
+      const effectLabels = {
+        'color-cool': '❄️ 冷色调',
+        'color-warm': '🔥 暖色调',
+        'grayscale': '⚫ 灰度模式',
+        'pulse': '✨ 脉冲动画',
+        'vignette': '🔍 暗角效果',
+      };
+      for (const [id, label] of Object.entries(effectLabels)) {
+        const row = document.createElement('label');
+        row.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(255,255,255,0.8);';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.style.cssText = 'cursor:pointer;';
+        cb.onchange = () => toggleShaderEffect(id, cb.checked);
+        row.appendChild(cb);
+        row.appendChild(document.createTextNode(label));
+        shaderToggles.appendChild(row);
+      }
+    }
   });
 
   // FPS 监控 + 按键状态高亮 (挂载到渲染器帧回调)

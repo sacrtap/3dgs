@@ -51,3 +51,7 @@ export type { LoadingIndicatorOptions } from './loading-indicator/index.js';
 // 自动旋转
 export { createAutoRotatePlugin } from './auto-rotate/index.js';
 export type { AutoRotateOptions } from './auto-rotate/index.js';
+
+// Shader 注入
+export { createShaderInjectionPlugin, createShaderInjection } from './shader-injection/index.js';
+export type { ShaderInjectionPluginOptions } from './shader-injection/index.js';
