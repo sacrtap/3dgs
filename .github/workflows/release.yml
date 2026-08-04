@@ -11,7 +11,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -50,13 +50,16 @@ jobs:
         id: changesets
         uses: changesets/action@v1
         with:
-          publish: ${{ inputs.dry_run == true && 'echo "Dry run: skipping publish"' || 'pnpm publish -r --filter ./packages/*' }}
-          version: pnpm version -r
+          # version 字段省略, 使用默认值 'changeset version'
+          # dry_run=true  → 'true' (no-op, 无输出, changesets 会生成版本 PR)
+          # dry_run=false → 'changeset publish' (发布到 npm + 创建 git tag)
+          publish: ${{ inputs.dry_run == true && 'true' || 'changeset publish' }}
           commit: 'chore(release): version packages'
           title: 'chore(release): version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
 
       - name: Summary
