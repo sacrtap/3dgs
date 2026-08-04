@@ -17,6 +17,7 @@ jobs:
   release:
     name: Version & Publish
     runs-on: ubuntu-latest
+    environment: Release
     permissions:
       contents: write
       pull-requests: write
