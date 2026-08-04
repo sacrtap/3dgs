@@ -1,8 +1,13 @@
 name: Release
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry Run (仅生成版本 PR, 不发布到 npm)'
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -45,7 +50,7 @@ jobs:
         id: changesets
         uses: changesets/action@v1
         with:
-          publish: pnpm publish -r --filter './packages/*'
+          publish: ${{ inputs.dry_run == true && 'echo "Dry run: skipping publish"' || 'pnpm publish -r --filter ./packages/*' }}
           version: pnpm version -r
           commit: 'chore(release): version packages'
           title: 'chore(release): version packages'
@@ -53,3 +58,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
+
+      - name: Summary
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${{ inputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Published**: ${{ steps.changesets.outputs.published }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Has Changesets**: ${{ steps.changesets.outputs.hasChangesets }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Pull Request Number**: ${{ steps.changesets.outputs.pullRequestNumber }}" >> $GITHUB_STEP_SUMMARY
