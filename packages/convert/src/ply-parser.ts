@@ -42,7 +42,7 @@ export type PlyDataType =
 export interface PlyData {
   header: PlyHeader;
   /** element name → array of row objects (property name → value) */
-  data: Map<string, Record<string, number | number[]>>;
+  data: Map<string, Record<string, number | number[]>[]>;
 }
 
 const DATA_TYPE_SIZE: Record<PlyDataType, number> = {
@@ -62,7 +62,7 @@ export function parsePly(buffer: ArrayBuffer): PlyData {
   const headerResult = parsePlyHeader(buffer);
   const { header, headerEnd } = headerResult;
 
-  const data = new Map<string, Record<string, number | number[]>>();
+  const data = new Map<string, Record<string, number | number[]>[]>();
 
   const bodyBuffer = new Uint8Array(buffer, headerEnd);
 
@@ -89,7 +89,7 @@ function parsePlyHeader(buffer: ArrayBuffer): { header: PlyHeader; headerEnd: nu
   }
 
   const format: PlyFormat = 'binary_little_endian';
-  let version = '1.0';
+  const version = '1.0';
   const elements: PlyElement[] = [];
   const comments: string[] = [];
   let currentElement: PlyElement | null = null;
@@ -189,7 +189,7 @@ function parseAsciiBody(
   buffer: ArrayBuffer,
   headerEnd: number,
   header: PlyHeader,
-  data: Map<string, Record<string, number | number[]>>,
+  data: Map<string, Record<string, number | number[]>[]>,
 ): void {
   const text = new TextDecoder().decode(new Uint8Array(buffer, headerEnd));
   const lines = text.split('\n');
@@ -220,7 +220,7 @@ function parseAsciiBody(
       }
       rows.push(row);
     }
-    data.set(element.name, rows as any);
+    data.set(element.name, rows);
   }
 }
 
@@ -228,7 +228,7 @@ function parseAsciiBody(
 function parseBinaryBody(
   bytes: Uint8Array,
   header: PlyHeader,
-  data: Map<string, Record<string, number | number[]>>,
+  data: Map<string, Record<string, number | number[]>[]>,
 ): void {
   const littleEndian = header.format === 'binary_little_endian';
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -258,7 +258,7 @@ function parseBinaryBody(
       }
       rows.push(row);
     }
-    data.set(element.name, rows as any);
+    data.set(element.name, rows);
   }
 }
 

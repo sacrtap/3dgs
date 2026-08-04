@@ -181,7 +181,6 @@ export function createSceneTransitionPlugin(
 
       // 处理 fly 动画
       if (flyState) {
-        const now = performance.now();
         flyState.elapsed += frameCtx.deltaTime;
         const t = Math.min(flyState.elapsed / flyState.duration, 1);
         const eased = flyState.easing(t);

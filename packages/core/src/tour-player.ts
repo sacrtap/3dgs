@@ -92,10 +92,19 @@ export class TourPlayer {
 
     const scene = this.sceneManager.get(id);
     if (this.renderer && scene) {
-      // ★ 传递 lodSource — 若场景配置了 SOG 流式 LOD URL，渲染器将使用流式加载
+      const defaults = this.sceneManager.getMergedDefaults();
+
+      // ★ 传递 lodSource + defaults 中的 camera/quality 配置
       await this.renderer.loadScene(scene.config.source, {
         lodSource: scene.config.lodSource,
+        shDegree: defaults?.quality?.shDegree,
+        maxSplats: defaults?.quality?.maxSplats,
       });
+
+      // ★ 应用 camera 默认值 (fov / pitch 限制)
+      if (defaults?.camera) {
+        this.emit('camera:defaults', { camera: defaults.camera });
+      }
     }
 
     // ★ 发出场景切换事件 — 热点插件等监听此事件加载对应配置

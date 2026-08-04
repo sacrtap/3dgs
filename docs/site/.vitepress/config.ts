@@ -45,6 +45,7 @@ export default defineConfig({
             { text: '性能优化', link: '/guide/performance' },
             { text: '部署指南', link: '/guide/deployment' },
             { text: '插件开发', link: '/guide/plugin-dev' },
+            { text: '常见问题', link: '/guide/faq' },
           ],
         },
       ],

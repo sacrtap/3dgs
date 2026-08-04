@@ -35,14 +35,6 @@ interface PerspectiveCameraLike {
   updateProjectionMatrix(): void;
 }
 
-/** Euler 接口 */
-interface EulerLike {
-  x: number;
-  y: number;
-  z: number;
-  setFromQuaternion(q: { x: number; y: number; z: number; w: number }, order: string): void;
-}
-
 /**
  * 创建多指触摸手势插件
  *
@@ -82,7 +74,7 @@ export function createTouchGesturesPlugin(
   } | null = null;
 
   // 触摸状态
-  let touches: Map<number, Touch> = new Map();
+  const touches: Map<number, Touch> = new Map();
   let initialDistance = 0;
   let initialAngle = 0;
   let initialFov = 75;

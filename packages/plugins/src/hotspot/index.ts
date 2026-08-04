@@ -12,7 +12,7 @@
 
 import type { TourPlugin, FrameContext, TourPluginContext } from '@3dgs/core';
 import { HotspotManager } from './hotspot-manager.js';
-import type { HotspotConfig, HotspotExtension } from './hotspot-config.js';
+import type { HotspotExtension } from './hotspot-config.js';
 
 export interface HotspotSystemOptions {
   /** 是否自动预加载场景跳转目标 (默认 true) */

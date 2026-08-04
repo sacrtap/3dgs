@@ -10,7 +10,7 @@
  * [来源: Spark 源码 — node_modules/@sparkjsdev/spark/dist/spark.module.js SpzWriter]
  */
 
-import { parsePly, type PlyData } from './ply-parser.js';
+import { parsePly } from './ply-parser.js';
 
 /** 单个高斯核的完整属性 (归一化后) */
 export interface GaussianSplat {

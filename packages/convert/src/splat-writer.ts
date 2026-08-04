@@ -14,7 +14,7 @@
  * [来源: antimatter15/splat — github.com/antimatter15/splat]
  */
 
-import type { GaussianCloud, GaussianSplat } from './gaussian-loader.js';
+import type { GaussianCloud } from './gaussian-loader.js';
 
 /** .splat 每高斯核字节数 */
 export const SPLAT_BYTES_PER_SPLAT = 32;

@@ -38,12 +38,16 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@3dgs/core": "workspace:*",
+    "@3dgs/core": "workspace:*"
+  },
+  "peerDependencies": {
     "@sparkjsdev/spark": "^2.1.0",
     "three": "^0.185.0"
   },
   "devDependencies": {
+    "@sparkjsdev/spark": "^2.1.0",
     "@types/three": "^0.185.0",
+    "three": "^0.185.0",
     "typescript": "^5.5.0"
   }
 }

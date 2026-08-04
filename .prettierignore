@@ -1,0 +1,8 @@
+dist/
+node_modules/
+docs/site/.vitepress/
+pnpm-lock.yaml
+*.splat
+*.ply
+*.spz
+*.sog

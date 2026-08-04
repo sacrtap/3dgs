@@ -1,10 +1,9 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TourPlayer } from '@3dgs/core';
 import type {
   TourConfig,
   TourPlugin,
   RendererAdapter,
-  TourPlayerEventType,
   TourPlayerHandler,
 } from '@3dgs/core';
 
@@ -41,11 +40,19 @@ export function TourViewer({
   const playerRef = useRef<TourPlayer | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const setErrorSafe = useCallback((msg: string) => {
-    setError(msg);
-    onError?.(msg);
-    onEvent?.('error', { message: msg });
-  }, [onError, onEvent]);
+  // ★ 使用 ref 包裹回调, 避免回调变化导致 TourPlayer 重建
+  const callbacksRef = useRef({
+    onLoad,
+    onSceneSwitch,
+    onHotspotClick,
+    onError,
+    onEvent,
+  });
+  callbacksRef.current = { onLoad, onSceneSwitch, onHotspotClick, onError, onEvent };
+
+  // ★ 使用 ref 包裹 config 和 initialScene, 仅在真正变化时触发
+  const configRef = useRef(config);
+  const initialSceneRef = useRef(initialScene);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -68,39 +75,47 @@ export function TourViewer({
 
     const unsubs: (() => void)[] = [];
 
+    const cb = callbacksRef.current;
+
     unsubs.push(player.on('load', (data) => {
       setError(null);
-      onLoad?.(data);
-      onEvent?.('load', data);
+      cb.onLoad?.(data);
+      cb.onEvent?.('load', data);
 
-      if (initialScene) {
-        player.switchScene(initialScene).catch((err: unknown) => {
+      if (initialSceneRef.current) {
+        player.switchScene(initialSceneRef.current).catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
-          setErrorSafe(msg);
+          setError(msg);
+          cb.onError?.(msg);
+          cb.onEvent?.('error', { message: msg });
         });
       }
     }));
 
     unsubs.push(player.on('scene:switched', (data) => {
       const d = data as { sceneId: string };
-      onSceneSwitch?.(d.sceneId);
-      onEvent?.('scene:switched', data);
+      cb.onSceneSwitch?.(d.sceneId);
+      cb.onEvent?.('scene:switched', data);
     }));
 
     unsubs.push(player.on('hotspot:click', (data) => {
       const d = data as { id: string };
-      onHotspotClick?.(d.id);
-      onEvent?.('hotspot:click', data);
+      cb.onHotspotClick?.(d.id);
+      cb.onEvent?.('hotspot:click', data);
     }));
 
     unsubs.push(player.on('error', (data) => {
       const d = data as { message: string };
-      setErrorSafe(d.message);
+      setError(d.message);
+      cb.onError?.(d.message);
+      cb.onEvent?.('error', d);
     }));
 
-    player.load(config).catch((err: unknown) => {
+    player.load(configRef.current).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
-      setErrorSafe(msg);
+      setError(msg);
+      cb.onError?.(msg);
+      cb.onEvent?.('error', { message: msg });
     });
 
     return () => {
@@ -108,7 +123,28 @@ export function TourViewer({
       player.destroy();
       playerRef.current = null;
     };
-  }, [config, initialScene, renderer, plugins, onLoad, onSceneSwitch, onHotspotClick, onError, onEvent, setErrorSafe]);
+    // ★ 仅在 renderer 或 plugins 引用变化时重建 TourPlayer
+    // config 和回调通过 ref 传递, 不触发重建
+  }, [renderer, plugins]);
+
+  // ★ config 变化时重新加载 (不重建 TourPlayer)
+  useEffect(() => {
+    configRef.current = config;
+    const player = playerRef.current;
+    if (!player) return;
+
+    setError(null);
+    player.load(config).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      callbacksRef.current.onError?.(msg);
+    });
+  }, [config]);
+
+  // ★ initialScene 变化时更新 ref
+  useEffect(() => {
+    initialSceneRef.current = initialScene;
+  }, [initialScene]);
 
   return (
     <div

@@ -2,9 +2,12 @@
 
 > 轻量级、高性能、高可拓展的 Web 端 3D 高斯溅射（3DGS）渲染引擎与漫游框架
 
+[![CI](https://img.shields.io/github/actions/workflow/status/sacrtap/3dgs/ci.yml?branch=main&label=CI)](https://github.com/sacrtap/3dgs/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5%2B-blue.svg)](https://www.typescriptlang.org)
+[![Vitest](https://img.shields.io/badge/tested%20with-Vitest-6e9f18.svg)](https://vitest.dev)
+[![Lint](https://img.shields.io/badge/lint-ESLint%20%2B%20Prettier-4b32c3.svg)](https://eslint.org)
 
 ---
 
@@ -30,6 +33,9 @@
   - [配置系统](#配置系统)
   - [插件开发](#插件开发)
 - [开发指南](#开发指南)
+  - [代码质量](#代码质量)
+  - [CI/CD](#cicd)
+- [常见问题](#常见问题)
 - [浏览器兼容性](#浏览器兼容性)
 - [许可证](#许可证)
 
@@ -153,6 +159,8 @@ pnpm install
 pnpm build
 ```
 
+> **注意**：`three` 和 `@sparkjsdev/spark` 是 `@3dgs/renderer-three` 的 peerDependencies，安装时会自动作为 devDependencies 拉取。在宿主项目中使用时需自行安装。
+
 ### 启动 Demo
 
 ```bash
@@ -188,6 +196,9 @@ pnpm --filter @3dgs/demo dev
 │   └── site/              # VitePress 文档站
 ├── .changeset/            # Changesets 版本管理
 ├── .github/               # CI/CD + Issue/PR 模板
+├── eslint.config.js        # ESLint flat config (TypeScript + Prettier)
+├── .prettierrc.json        # Prettier 代码格式化配置
+├── vitest.config.ts        # Vitest 测试框架配置
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json
 └── package.json
@@ -354,23 +365,31 @@ await player.switchScene('kitchen');
 ### React
 
 ```tsx
+import { useMemo } from 'react';
 import { TourViewer } from '@3dgs/react';
 import { createRenderer } from '@3dgs/renderer-three';
 import { createHotspotSystem } from '@3dgs/plugins';
 
 function App() {
+  // ★ 使用 useMemo 稳定引用，避免 TourPlayer 不必要的重建
+  const renderer = useMemo(() => createRenderer().then((r) => r.renderer), []);
+  const plugins = useMemo(() => [createHotspotSystem()], []);
+
   return (
     <TourViewer
       config="/tour.json"
       initialScene="kitchen"
-      renderer={() => createRenderer().then((r) => r.renderer)}
-      plugins={[createHotspotSystem()]}
+      renderer={() => renderer}
+      plugins={plugins}
       onSceneSwitch={(sceneId) => console.log('切换场景:', sceneId)}
       onHotspotClick={(hotspotId) => console.log('点击热点:', hotspotId)}
       style={{ width: '100vw', height: '100vh' }}
     />
   );
 }
+```
+
+> **性能提示**：`renderer` 和 `plugins` props 必须使用稳定引用（`useMemo` / `useRef`），否则 TourViewer 会重建 TourPlayer。回调函数（`onLoad`、`onError` 等）内部已用 `useRef` 包裹，无需额外处理。
 ```
 
 ### Vue 3
@@ -592,6 +611,53 @@ pnpm dev
 pnpm --filter @3dgs/demo dev
 ```
 
+### 代码质量
+
+项目集成了完整的代码质量工具链：
+
+```bash
+# 类型检查 (tsc --noEmit)
+pnpm typecheck
+
+# 单元测试 (Vitest)
+pnpm test              # 单次运行
+pnpm test:watch        # 监听模式
+pnpm test:coverage     # 覆盖率报告
+
+# 代码检查 (ESLint)
+pnpm lint              # 检查
+pnpm lint:fix          # 自动修复
+
+# 代码格式化 (Prettier)
+pnpm format            # 格式化
+pnpm format:check      # 检查格式
+```
+
+**测试覆盖的核心模块：**
+
+| 包 | 测试文件 | 测试用例 |
+|------|----------|----------|
+| `@3dgs/core` | `tour-config.test.ts` | 7 |
+| `@3dgs/core` | `scene-manager.test.ts` | 13 |
+| `@3dgs/core` | `plugin-system.test.ts` | 6 |
+| `@3dgs/core` | `tour-loader.test.ts` | 5 |
+| `@3dgs/convert` | `ply-parser.test.ts` | 4 |
+| `@3dgs/convert` | `processing.test.ts` | 7 |
+
+### CI/CD
+
+GitHub Actions CI 流水线（`.github/workflows/ci.yml`）在每次 push / PR 时自动执行：
+
+| 步骤 | 说明 |
+|------|------|
+| **Lint** | ESLint 静态检查 (0 errors, 0 warnings) |
+| **Type Check** | `tsc --noEmit` 全量类型检查 |
+| **Unit Tests** | Vitest 42 个测试用例 |
+| **Build** | 全量构建所有包 + Demo |
+| **Benchmark** | Playwright 性能基准测试 (仅 push 触发) |
+
+> CI 运行在 `ubuntu-latest` 上，使用 pnpm + Node.js 20 + 冻结锁文件安装。
+
 ### 项目文档
 
 | 文档 | 说明 |
@@ -602,7 +668,20 @@ pnpm --filter @3dgs/demo dev
 | [产品实现计划](docs/04-产品实现计划.md) | 分阶段实施计划与完成状态 |
 | [性能基准报告](docs/05-性能基准报告.md) | 性能测试结果与优化措施 |
 | [示例代码](examples/README.md) | 9+ 可运行示例代码 |
+| [FAQ 常见问题](docs/site/guide/faq.md) | 部署、渲染、转换、插件、构建常见问题 |
 | [贡献指南](CONTRIBUTING.md) | 开发环境、分支策略、插件开发、提交规范 |
+
+---
+
+## 常见问题
+
+常见问题及解答请参考 [FAQ 文档](docs/site/guide/faq.md)，涵盖：
+
+- **部署** — COOP/COEP 配置、GitHub Pages 替代方案、CORS 问题
+- **渲染** — 移动端性能优化、摄像机定位、移动速度调整
+- **数据转换** — PLY → SPZ 压缩比、颜色异常、批量转换失败处理
+- **插件** — 热点不显示、React 组件重建、Shader 注入不生效
+- **构建** — TypeScript 类型报错、包体积优化、本地开发版本使用
 
 ---
 

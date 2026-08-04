@@ -48,7 +48,7 @@ export function pruneGaussians(
   } = options;
 
   const filtered: GaussianSplat[] = [];
-  let removedCount = 0;
+  
 
   for (const s of cloud.splats) {
     // 检查无效值
@@ -57,14 +57,14 @@ export function pruneGaussians(
           !isFinite(s.scaleX) || !isFinite(s.scaleY) || !isFinite(s.scaleZ) ||
           !isFinite(s.rotW) || !isFinite(s.rotX) || !isFinite(s.rotY) || !isFinite(s.rotZ) ||
           !isFinite(s.opacity)) {
-        removedCount++;
+        
         continue;
       }
     }
 
     // 检查不透明度
     if (removeTransparent && s.opacity < minOpacity) {
-      removedCount++;
+      
       continue;
     }
 
@@ -72,7 +72,7 @@ export function pruneGaussians(
     const maxS = Math.max(s.scaleX, s.scaleY, s.scaleZ);
     const minS = Math.min(s.scaleX, s.scaleY, s.scaleZ);
     if (maxS > maxScale || minS < minScale) {
-      removedCount++;
+      
       continue;
     }
 

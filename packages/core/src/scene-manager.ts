@@ -7,8 +7,6 @@ export interface SceneInstance {
   config: SceneConfig & { defaults?: TourDefaults };
   state: SceneLoadState;
   loadError?: string;
-  /** 加载后的 splat 渲染器实例 */
-  renderer?: unknown;
 }
 
 export type SceneEventType = 'scene:loaded' | 'scene:error' | 'scene:switched' | 'scene:progress';
@@ -57,11 +55,8 @@ export class SceneManager {
       const source = scene.config.source;
       if (!source) throw new Error(`场景 "${id}" 缺少 source`);
 
-      // 模拟异步加载（实际 splat 加载由渲染适配器完成）
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 100);
-      });
-
+      // 实际 splat 加载由渲染适配器 (RendererAdapter.loadScene) 完成
+      // SceneManager 仅管理场景元信息和状态
       this.emit({ type: 'scene:progress', sceneId: id, progress: 1 });
 
       scene.state = 'loaded';
@@ -75,21 +70,13 @@ export class SceneManager {
     }
   }
 
-  async switchTo(id: string, transition?: Partial<SceneTransition>): Promise<void> {
+  async switchTo(id: string, _transition?: Partial<SceneTransition>): Promise<void> {
     const scene = this.scenes.get(id);
     if (!scene) throw new Error(`场景 "${id}" 未注册`);
 
     if (scene.state !== 'loaded') {
       await this.loadScene(id);
     }
-
-    const _mergedTransition: SceneTransition = {
-      type: transition?.type ?? this.defaults?.transition?.type ?? 'fade',
-      duration: transition?.duration ?? this.defaults?.transition?.duration ?? 800,
-      targetYaw: transition?.targetYaw,
-      targetPitch: transition?.targetPitch,
-      targetFov: transition?.targetFov,
-    };
 
     this.currentSceneId = id;
     this.emit({ type: 'scene:switched', sceneId: id });
@@ -127,6 +114,14 @@ export class SceneManager {
 
   getCurrentId(): string | null {
     return this.currentSceneId;
+  }
+
+  /**
+   * 获取合并后的默认配置 (defaults.camera + defaults.quality)
+   * 供 TourPlayer 传递给渲染器
+   */
+  getMergedDefaults(): TourDefaults | undefined {
+    return this.defaults;
   }
 
   // ─── 事件系统 ────────────────────────────────────────────

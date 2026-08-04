@@ -13,9 +13,8 @@
  */
 
 import { Command } from 'commander';
-import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { join, extname, basename, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import {
   loadGaussiansFromPly,
@@ -156,12 +155,10 @@ async function convertPly(
   console.log(`📦 转换为 ${format.toUpperCase()}...`);
 
   let outputData: ArrayBuffer | Uint8Array;
-  let ext: string;
 
   switch (format) {
     case 'splat': {
       outputData = writeSplat(cloud);
-      ext = '.splat';
       break;
     }
     case 'spz': {
@@ -171,14 +168,12 @@ async function convertPly(
         shDegree: shDegree >= 0 ? shDegree : undefined,
         fractionalBits,
       });
-      ext = '.spz';
       break;
     }
     case 'sog': {
       const chunkSize = parseInt(String(opts.chunkSize || '16384'), 10);
       // SOG 已在上方完成 Morton 排序, 此处无需重复
       outputData = writeSog(cloud, { chunkSize, spatialSort: false });
-      ext = '.sog';
       break;
     }
   }

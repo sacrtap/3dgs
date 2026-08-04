@@ -13,14 +13,30 @@
   },
   "license": "MIT",
   "author": "sacrtap",
-  "keywords": ["3dgs", "gaussian-splatting", "3d", "renderer", "tour", "panorama", "webgl", "webgpu"],
+  "keywords": [
+    "3dgs",
+    "gaussian-splatting",
+    "3d",
+    "renderer",
+    "tour",
+    "panorama",
+    "webgl",
+    "webgpu"
+  ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "build": "pnpm -r run build",
     "dev": "pnpm -r --parallel run dev",
-    "lint": "pnpm -r run lint",
+    "lint": "eslint packages/*/src --max-warnings 0",
+    "lint:fix": "eslint packages/*/src --fix",
+    "format": "prettier --write \"packages/*/src/**/*.ts\" \"packages/*/src/**/*.tsx\"",
+    "format:check": "prettier --check \"packages/*/src/**/*.ts\" \"packages/*/src/**/*.tsx\"",
+    "typecheck": "pnpm --filter './packages/*' exec tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "clean": "pnpm -r run clean",
     "changeset": "changeset",
     "version": "changeset version",
@@ -28,7 +44,14 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.0",
+    "@eslint/js": "^10.0.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
     "playwright": "^1.62.1",
-    "tsx": "^4.23.5"
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.5",
+    "typescript-eslint": "^8.66.0",
+    "vitest": "^4.1.10"
   }
 }

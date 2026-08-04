@@ -66,8 +66,6 @@ export async function detectWebGPU(): Promise<WebGPUCapability> {
 
     // 4. 收集适配器信息
     let adapterInfo: WebGPUCapability['adapterInfo'];
-    let maxBufferSize: number | undefined;
-    let maxComputeWorkgroupsPerDimension: number | undefined;
 
     try {
       // adapter.info 在较新浏览器中可用
@@ -83,8 +81,8 @@ export async function detectWebGPU(): Promise<WebGPUCapability> {
       // 旧版浏览器可能不支持 adapter.info
     }
 
-    maxBufferSize = device.limits.maxBufferSize;
-    maxComputeWorkgroupsPerDimension = device.limits.maxComputeWorkgroupsPerDimension;
+    const maxBufferSize = device.limits.maxBufferSize;
+    const maxComputeWorkgroupsPerDimension = device.limits.maxComputeWorkgroupsPerDimension;
 
     device.destroy();
 

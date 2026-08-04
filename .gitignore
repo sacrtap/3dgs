@@ -43,6 +43,7 @@ benchmarks/reports/
 *.ply
 *.spz
 *.sog
+*.splat
 
 # Banks (internal database)
 banks/

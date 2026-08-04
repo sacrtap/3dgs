@@ -73,7 +73,6 @@ export function createShaderInjectionPlugin(
   options: ShaderInjectionPluginOptions,
 ): TourPlugin {
   const { injections } = options;
-  let registered = false;
 
   return {
     name: 'shader-injection',
@@ -95,7 +94,6 @@ export function createShaderInjectionPlugin(
       for (const injection of injections) {
         ctx.renderer.addShaderInjection(injection);
       }
-      registered = true;
     },
 
     destroy() {

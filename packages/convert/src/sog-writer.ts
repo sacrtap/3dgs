@@ -35,7 +35,7 @@
  */
 
 import type { GaussianCloud } from './gaussian-loader.js';
-import { writeSplat, SPLAT_BYTES_PER_SPLAT } from './splat-writer.js';
+import { writeSplat } from './splat-writer.js';
 import { mortonSortGaussians } from './processing.js';
 
 /** SOG 魔数 */
