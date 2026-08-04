@@ -6,7 +6,6 @@
 [![npm version](https://img.shields.io/npm/v/@3dgs/core?label=%403dgs%2Fcore)](https://www.npmjs.com/package/@3dgs/core)
 [![npm version](https://img.shields.io/npm/v/@3dgs/renderer-three?label=%403dgs%2Frenderer-three)](https://www.npmjs.com/package/@3dgs/renderer-three)
 [![npm downloads](https://img.shields.io/npm/dm/@3dgs/core?label=downloads)](https://www.npmjs.com/package/@3dgs/core)
-[![all-contributors](https://img.shields.io/badge/all_contributors-1-orange.svg)](#contributors-)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5%2B-blue.svg)](https://www.typescriptlang.org)
@@ -531,23 +530,6 @@ For common questions, see the [FAQ docs](docs/site/guide/faq.md) covering deploy
 | [Examples](examples/README.md) | 9 runnable code examples |
 | [FAQ](docs/site/guide/faq.md) | Deployment, rendering, conversion, plugins, build |
 | [Contributing](CONTRIBUTING.md) | Dev setup, branch strategy, plugin dev, commit conventions |
-
----
-
-## Contributors ✨
-
-<table>
-  <tr>
-    <td align="center">
-      <a href="https://github.com/sacrtap">
-        <img src="https://avatars.githubusercontent.com/u/sacrtap" width="60px" alt="sacrtap"/>
-        <br /><sub><b>sacrtap</b></sub>
-      </a>
-    </td>
-  </tr>
-</table>
-
-Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md).
 
 ---
 
