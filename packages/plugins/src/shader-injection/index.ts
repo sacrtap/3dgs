@@ -23,7 +23,7 @@
  *     id: 'time-pulse',
  *     hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
  *     uniforms: { uTime: 0.0 },
- *     code: 'gl_FragColor.rgb *= 0.8 + 0.2 * sin(uTime * 2.0);',
+ *     code: 'fragColor.rgb *= 0.8 + 0.2 * sin(uTime * 2.0);',,
  *     onUpdate: (uniforms, dt) => {
  *       uniforms.uTime.value += dt / 1000;
  *     },
@@ -53,7 +53,7 @@ export interface ShaderInjectionPluginOptions {
  *   injections: [{
  *     id: 'color-shift',
  *     hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
- *     code: 'gl_FragColor.rgb = vec3(gl_FragColor.r, gl_FragColor.g * 0.8, gl_FragColor.b * 1.2);',
+ *     code: 'fragColor.rgb = vec3(fragColor.r, fragColor.g * 0.8, fragColor.b * 1.2);',,
  *   }],
  * }));
  *
@@ -63,7 +63,7 @@ export interface ShaderInjectionPluginOptions {
  *     id: 'pulse',
  *     hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
  *     uniforms: { uTime: 0.0 },
- *     code: 'gl_FragColor.rgb *= 0.8 + 0.2 * sin(uTime * 3.0);',
+ *     code: 'fragColor.rgb *= 0.8 + 0.2 * sin(uTime * 3.0);',,
  *     onUpdate: (u, dt) => { u.uTime.value += dt / 1000; },
  *   }],
  * }));

@@ -44,6 +44,9 @@ jobs:
       - name: Build Demo
         run: pnpm --filter @3dgs/demo build
 
+      - name: Build Docs
+        run: pnpm --filter @3dgs/docs build
+
   benchmark:
     name: Performance Benchmark
     runs-on: ubuntu-latest

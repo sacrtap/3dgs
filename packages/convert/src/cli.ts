@@ -6,6 +6,8 @@
  *   ply-to-splat <input.ply>   转换 PLY 为 .splat 格式
  *   ply-to-spz <input.ply>     转换 PLY 为 .spz 格式 (gzip 压缩)
  *   ply-to-sog <input.ply>     转换 PLY 为 .sog 格式 (流式 LOD)
+ *   splat-to-spz <input.splat> 转换 .splat 为 .spz 格式
+ *   splat-to-sog <input.splat> 转换 .splat 为 .sog 格式
  *   batch <dir>                批量转换目录下所有 .ply 文件
  *   generate-tour <dir>        生成 tour.json 配置模板
  *
@@ -18,6 +20,7 @@ import { join, extname, basename, dirname } from 'node:path';
 
 import {
   loadGaussiansFromPly,
+  loadGaussiansFromSplat,
   writeSplat,
   writeSpz,
   writeSog,
@@ -75,6 +78,34 @@ program
     await convertPly(input, opts, 'sog');
   });
 
+// ── splat-to-spz ──
+program
+  .command('splat-to-spz')
+  .description('转换 .splat 为 .spz 格式 (gzip 压缩)')
+  .argument('<input>', '.splat 文件路径')
+  .option('-o, --output <path>', '输出文件路径')
+  .option('--fractional-bits <num>', '位置量化小数位 (默认 12)', '12')
+  .option('--prune', '启用冗余剔除')
+  .option('--min-opacity <num>', '最小不透明度阈值', '0.01')
+  .option('--sort', '启用 Morton Code 空间排序')
+  .action(async (input: string, opts: Record<string, string>) => {
+    await convertSplat(input, opts, 'spz');
+  });
+
+// ── splat-to-sog ──
+program
+  .command('splat-to-sog')
+  .description('转换 .splat 为 .sog 格式 (流式 LOD)')
+  .argument('<input>', '.splat 文件路径')
+  .option('-o, --output <path>', '输出文件路径')
+  .option('--chunk-size <num>', '每 chunk 的 splat 数 (默认 16384)', '16384')
+  .option('--prune', '启用冗余剔除')
+  .option('--min-opacity <num>', '最小不透明度阈值', '0.01')
+  .option('--no-sort', '禁用 Morton Code 空间排序 (SOG 默认启用)')
+  .action(async (input: string, opts: Record<string, string>) => {
+    await convertSplat(input, opts, 'sog');
+  });
+
 // ── batch ──
 program
   .command('batch')
@@ -126,9 +157,48 @@ async function convertPly(
 
   // 解析 PLY
   console.log('🔍 解析 PLY...');
-  let cloud = loadGaussiansFromPly(plyBuffer.buffer, { source: input });
+  const cloud = loadGaussiansFromPly(plyBuffer.buffer, { source: input });
   console.log(`   高斯核数: ${cloud.vertexCount.toLocaleString()}`);
   console.log(`   SH 阶数: ${cloud.shDegree}`);
+
+  await convertCloud(cloud, opts, format, input, plySize, startTime);
+}
+
+/**
+ * 转换 .splat 文件
+ */
+async function convertSplat(
+  input: string,
+  opts: Record<string, string | boolean>,
+  format: 'splat' | 'spz' | 'sog',
+): Promise<void> {
+  const startTime = Date.now();
+  console.log(`\n📋 读取 SPLAT: ${input}`);
+
+  const splatBuffer = await readFile(input);
+  const splatSize = splatBuffer.byteLength;
+  console.log(`   文件大小: ${(splatSize / 1024 / 1024).toFixed(2)} MB`);
+
+  // 解析 .splat
+  console.log('🔍 解析 SPLAT...');
+  const cloud = loadGaussiansFromSplat(splatBuffer.buffer, { source: input });
+  console.log(`   高斯核数: ${cloud.vertexCount.toLocaleString()}`);
+  console.log(`   SH 阶数: ${cloud.shDegree} (.splat 不含 SH)`);
+
+  await convertCloud(cloud, opts, format, input, splatSize, startTime);
+}
+
+/**
+ * 通用转换核心 — 接受已解析的 GaussianCloud, 执行剔除/排序/写入
+ */
+async function convertCloud(
+  cloud: import('./gaussian-loader.js').GaussianCloud,
+  opts: Record<string, string | boolean>,
+  format: 'splat' | 'spz' | 'sog',
+  input: string,
+  inputSize: number,
+  startTime: number,
+): Promise<void> {
 
   // 冗余剔除
   if (opts.prune) {
@@ -186,7 +256,7 @@ async function convertPly(
   await writeFile(outputPath, dataToWrite);
 
   const outputSize = dataToWrite.byteLength;
-  const compressionRatio = plySize / outputSize;
+  const compressionRatio = inputSize / outputSize;
   const elapsed = Date.now() - startTime;
 
   console.log(`\n✅ 转换完成!`);

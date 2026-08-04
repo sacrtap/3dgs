@@ -7,6 +7,12 @@ export default defineConfig({
   lastUpdated: true,
   cleanUrls: true,
 
+  vite: {
+    server: {
+      port: 5178,
+    },
+  },
+
   head: [
     ['meta', { name: 'theme-color', content: '#3c8772' }],
   ],

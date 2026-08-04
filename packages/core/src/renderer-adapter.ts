@@ -107,7 +107,7 @@ export interface RendererAdapter {
    * renderer.addShaderInjection({
    *   id: 'color-shift',
    *   hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
-   *   code: 'gl_FragColor.rgb = vec3(gl_FragColor.r, gl_FragColor.g * 0.8, gl_FragColor.b * 1.2);',
+   *   code: 'fragColor.rgb = vec3(fragColor.r, fragColor.g * 0.8, fragColor.b * 1.2);',
    * });
    * ```
    */

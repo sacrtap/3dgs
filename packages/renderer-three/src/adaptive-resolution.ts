@@ -8,15 +8,15 @@
  */
 
 export interface AdaptiveResolutionOptions {
-  /** 最低可接受的帧率 (默认 40) */
+  /** 最低可接受的帧率 (默认 28) — 低于此值时降低分辨率 */
   minFps: number;
-  /** 认为流畅的帧率 (默认 55) */
+  /** 认为流畅的帧率 (默认 45) — 高于此值时尝试恢复分辨率 */
   targetFps: number;
-  /** 最低分辨率缩放比 (默认 0.4) */
+  /** 最低分辨率缩放比 (默认 0.35) */
   minScale: number;
   /** 最高分辨率缩放比 (默认 1.0) */
   maxScale: number;
-  /** 调整间隔帧数 (默认 60 帧 ≈ 1 秒) */
+  /** 调整间隔帧数 (默认 45 帧 ≈ 0.75 秒) */
   adjustInterval: number;
   /** 每次调整的步长 (默认 0.1) */
   step: number;
@@ -36,11 +36,11 @@ export class AdaptiveResolution {
     options?: Partial<AdaptiveResolutionOptions>,
   ) {
     this.opts = {
-      minFps: options?.minFps ?? 40,
-      targetFps: options?.targetFps ?? 55,
-      minScale: options?.minScale ?? 0.4,
+      minFps: options?.minFps ?? 28,
+      targetFps: options?.targetFps ?? 45,
+      minScale: options?.minScale ?? 0.35,
       maxScale: options?.maxScale ?? 1.0,
-      adjustInterval: options?.adjustInterval ?? 60,
+      adjustInterval: options?.adjustInterval ?? 45,
       step: options?.step ?? 0.1,
     };
     this.currentScale = Math.max(this.opts.minScale, Math.min(this.opts.maxScale, initialScale));

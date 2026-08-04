@@ -11,6 +11,7 @@ npm install @3dgs/core @3dgs/renderer-three @3dgs/plugins @3dgs/vue
 ```vue
 <script setup lang="ts">
 import { TourViewer } from '@3dgs/vue';
+import { createRendererSync } from '@3dgs/renderer-three';
 import { createHotspotSystem } from '@3dgs/plugins';
 
 const config = {
@@ -24,9 +25,10 @@ const config = {
   },
 };
 
+const renderer = createRendererSync();
 const plugins = [createHotspotSystem()];
 
-function onSceneSwitched(sceneId: string) {
+function onSceneSwitch(sceneId: string) {
   console.log('切换到:', sceneId);
 }
 
@@ -39,8 +41,9 @@ function onError(err: Error) {
   <TourViewer
     :config="config"
     initial-scene="main"
+    :renderer="renderer"
     :plugins="plugins"
-    @scene-switched="onSceneSwitched"
+    @scene-switch="onSceneSwitch"
     @error="onError"
     style="width: 100%; height: 100vh;"
   />

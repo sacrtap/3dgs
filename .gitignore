@@ -54,9 +54,8 @@ banks/
 # Vite
 *.local
 
+# VitePress cache
+docs/site/.vitepress/cache/
+
 # Internal docs (local only, not published to remote)
-docs/01-调研说明文档.md
-docs/02-产品说明文档.md
-docs/03-详细技术方案.md
-docs/04-产品实现计划.md
-docs/05-性能基准报告.md
+docs/plan/

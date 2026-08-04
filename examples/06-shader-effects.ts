@@ -16,7 +16,7 @@ async function main() {
       id: 'pulse',
       hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
       uniforms: { uTime: 0.0 },
-      code: 'gl_FragColor.rgb *= 0.75 + 0.25 * sin(uTime * 2.0);',
+      code: 'fragColor.rgb *= 0.75 + 0.25 * sin(uTime * 2.0);',
       onUpdate: (u, dt) => { u.uTime.value += dt / 1000; },
     }],
   }));
@@ -27,7 +27,7 @@ async function main() {
     id: 'vignette',
     hook: ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT,
     uniforms: { uIntensity: 0.5 },
-    code: 'vec2 uv = gl_FragCoord.xy / vec2(1920.0, 1080.0); float dist = distance(uv, vec2(0.5)); gl_FragColor.rgb *= 1.0 - dist * uIntensity;',
+    code: 'vec2 uv = gl_FragCoord.xy / vec2(1920.0, 1080.0); float dist = distance(uv, vec2(0.5)); fragColor.rgb *= 1.0 - dist * uIntensity;',
   });
 
   await player.load({

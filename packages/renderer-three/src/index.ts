@@ -28,6 +28,7 @@ import { detectDeviceTier, getTierSettings, type DeviceProfile } from './device-
 import { AdaptiveResolution } from './adaptive-resolution.js';
 import { SogStreamer, type SogMetadata } from './sog-streamer.js';
 import { DragLookControls } from './drag-look-controls.js';
+import { concatChunksInWorker } from './sog-concat-worker.js';
 import { injectAfterMainBegin as injectAfterMainBeginFn, injectBeforePattern as injectBeforePatternFn, injectBeforeMainEnd as injectBeforeMainEndFn, inferGLSLType as inferGLSLTypeFn } from './shader-utils.js';
 
 export interface RenderManagerOptions {
@@ -183,7 +184,16 @@ export class RenderManager implements RendererAdapter {
     controls.rotateSpeed = 0.003;
     controls.wheelSpeed = 0.5;
 
-    const spark = new SparkRenderer({ renderer });
+    const spark = new SparkRenderer({
+      renderer,
+      // ★ P0: 根据 Tier 配置 LOD 和渲染参数
+      enableLod: this._enableLod,
+      lodSplatScale: this.tierSettings.lodSplatScale,
+      lodRenderScale: this.tierSettings.lodRenderScale,
+      maxStdDev: this.tierSettings.maxStdDev,
+      minPixelRadius: this.tierSettings.minPixelRadius,
+      clipXY: this.tierSettings.clipXY,
+    });
     spark.renderSize.set(this.cssWidth, this.cssHeight);
     scene.add(spark);
 
@@ -300,10 +310,21 @@ export class RenderManager implements RendererAdapter {
       }
     }
 
-    // 直接加载 source (原有逻辑)
+    // 直接加载 source
+    // P0: 对 .splat 文件执行 fetch + truncate, 确保实际限制 splat 数量
+    if (source.endsWith('.splat') && this.tierSettings.maxSplats < 10_000_000) {
+      try {
+        await this.loadSceneWithTruncatedSplat(source, options);
+        return;
+      } catch (err) {
+        console.warn('[RenderManager] 截断加载失败, 回退到 URL 直接加载:', err);
+      }
+    }
+
     return new Promise<void>((resolve, reject) => {
       new SplatMesh({
         url: source,
+        maxSplats: this.tierSettings.maxSplats,
         onProgress: (e: ProgressEvent) => {
           if (e.lengthComputable && options?.onProgress) {
             options.onProgress(e.loaded, e.total);
@@ -321,7 +342,7 @@ export class RenderManager implements RendererAdapter {
           // ★ Bug 2 修复: 基于包围盒自动定位摄像机
           this.positionCameraToBounds(loadedMesh);
 
-          // ★ Bug 4 修复: 构建 LOD 树
+          // ★ Bug 4 修复: 构建 LOD 树 (P0: 根据设备分级选择质量)
           if (this._enableLod) {
             this.buildLod(loadedMesh);
           }
@@ -336,6 +357,90 @@ export class RenderManager implements RendererAdapter {
       if (!source) {
         reject(new Error('loadScene: source 为空'));
       }
+    });
+  }
+
+  /**
+   * P0: 降采样加载 .splat 文件 — fetch + uniform subsample + fileBytes
+   *
+   * Spark 的 maxSplats 参数仅是预分配提示, 不会实际限制 splat 数量。
+   * 此方法通过 fetch 获取完整文件, 对 splat 进行均匀降采样后传入 Spark,
+   * 确保低端设备实际渲染的 splat 数量受控。
+   *
+   * ★ Bug 修复: 原截断方案取前 N 个 splat, 而 .splat 文件中 splat 顺序
+   *   与 PLY vertex 顺序一致 (训练序, 非空间排序), 导致截断后出现大面积
+   *   空间空洞 (黑色区域)。改为均匀降采样 (每隔 K 个取 1 个) 后,
+   *   空间覆盖均匀, 不会出现黑色区域。
+   *
+   * [来源: Spark SplatMeshOptions — maxSplats 为预分配, 不截断]
+   * [来源: .splat 格式 — 每 splat 固定 32 字节]
+   */
+  private async loadSceneWithTruncatedSplat(source: string, options?: LoadOptions): Promise<void> {
+    const response = await fetch(source);
+    if (!response.ok) {
+      throw new Error(`fetch ${source}: ${response.status}`);
+    }
+
+    // 读取完整文件
+    const arrayBuffer = await response.arrayBuffer();
+    const fullData = new Uint8Array(arrayBuffer);
+    const totalSplats = Math.floor(fullData.byteLength / 32);
+    const maxSplats = this.tierSettings.maxSplats;
+
+    // 如果 splat 数量未超限, 直接使用全量数据
+    if (totalSplats <= maxSplats) {
+      console.info(`[RenderManager] 全量加载: ${totalSplats.toLocaleString()} splats (无需降采样)`);
+      await this.createSplatMeshFromBytes(fullData, options);
+      return;
+    }
+
+    // ★ 均匀降采样: 每隔 step 个 splat 取 1 个, 保持空间覆盖均匀
+    const step = totalSplats / maxSplats;
+    const sampledSplats = Math.floor(totalSplats / step);
+    const sampledData = new Uint8Array(sampledSplats * 32);
+
+    for (let i = 0; i < sampledSplats; i++) {
+      const srcOffset = Math.floor(i * step) * 32;
+      const dstOffset = i * 32;
+      sampledData.set(fullData.subarray(srcOffset, srcOffset + 32), dstOffset);
+    }
+
+    console.info(
+      `[RenderManager] 降采样加载: ${sampledSplats.toLocaleString()} / ${totalSplats.toLocaleString()} splats ` +
+      `(step=${step.toFixed(2)}, 保留 ${(sampledSplats / totalSplats * 100).toFixed(1)}%)`,
+    );
+
+    if (options?.onProgress) {
+      options.onProgress(totalSplats, totalSplats);
+    }
+
+    await this.createSplatMeshFromBytes(sampledData, options);
+  }
+
+  /**
+   * 从 .splat 字节数据创建 SplatMesh 并添加到场景
+   */
+  private async createSplatMeshFromBytes(data: Uint8Array, _options?: LoadOptions): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      new SplatMesh({
+        fileBytes: data,
+        fileType: SplatFileType.SPLAT,
+        onLoad: async (loadedMesh: SplatMesh) => {
+          if (this._autoOrient) {
+            loadedMesh.rotation.x = Math.PI;
+          }
+          this.scene!.add(loadedMesh);
+          this.currentSplat = loadedMesh;
+          this.positionCameraToBounds(loadedMesh);
+          if (this._enableLod) {
+            this.buildLod(loadedMesh);
+          }
+          this.applyInjectionsToMaterial();
+          resolve();
+        },
+      });
+
+      setTimeout(() => reject(new Error('SplatMesh 创建超时')), 30000);
     });
   }
 
@@ -370,11 +475,13 @@ export class RenderManager implements RendererAdapter {
         chunkDataList[chunkIndex] = data;
 
         // ★ 首个 chunk 到达 → 立即创建 SplatMesh 渲染 (首帧快速显示)
+        // P1: 临时 Mesh 不构建 LOD, 避免浪费 (临时 Mesh 会被全量 Mesh 替换)
         if (!firstMeshReady && chunkIndex === 0) {
           firstMeshReady = true;
           new SplatMesh({
             fileBytes: new Uint8Array(data),
             fileType: SplatFileType.SPLAT,
+            maxSplats: this.tierSettings.maxSplats,
             onLoad: async (loadedMesh: SplatMesh) => {
               if (this._autoOrient) {
                 loadedMesh.rotation.x = Math.PI;
@@ -382,9 +489,7 @@ export class RenderManager implements RendererAdapter {
               this.scene!.add(loadedMesh);
               this.currentSplat = loadedMesh;
               this.positionCameraToBounds(loadedMesh);
-              if (this._enableLod) {
-                this.buildLod(loadedMesh);
-              }
+              // P1: 临时 Mesh 不构建 LOD — 全量 Mesh 会重建, 避免浪费 O(M log M)
               // ★ 应用 Shader 注入
               this.applyInjectionsToMaterial();
             },
@@ -408,20 +513,15 @@ export class RenderManager implements RendererAdapter {
       this.currentSplat = undefined;
     }
 
-    // 拼接所有 chunk 数据为完整的 .splat buffer
-    const totalBytes = chunkDataList.reduce((sum, buf) => sum + buf.byteLength, 0);
-    const fullBuffer = new Uint8Array(totalBytes);
-    let offset = 0;
-    for (const chunk of chunkDataList) {
-      fullBuffer.set(new Uint8Array(chunk), offset);
-      offset += chunk.byteLength;
-    }
+    // P1: 拼接所有 chunk 数据为完整的 .splat buffer (在 Web Worker 中执行, 避免阻塞主线程)
+    const fullBuffer = await concatChunksInWorker(chunkDataList);
 
     // 用完整数据创建最终 SplatMesh
     await new Promise<void>((resolve, reject) => {
       new SplatMesh({
         fileBytes: fullBuffer,
         fileType: SplatFileType.SPLAT,
+        maxSplats: this.tierSettings.maxSplats,
         onLoad: async (loadedMesh: SplatMesh) => {
           if (this._autoOrient) {
             loadedMesh.rotation.x = Math.PI;
@@ -506,10 +606,8 @@ export class RenderManager implements RendererAdapter {
     this._shaderInjections.delete(id);
     this._injectionUniforms.delete(id);
 
-    // 需要重新编译材质 (移除注入)
+    // 重新编译材质 (移除注入后重新应用所有剩余注入)
     if (this.spark) {
-      this._compiledMaterials.delete(this.spark.material);
-      this.spark.material.needsUpdate = true;
       this.applyInjectionsToMaterial();
     }
   }
@@ -518,25 +616,37 @@ export class RenderManager implements RendererAdapter {
    * 将所有 Shader 注入应用到 SparkRenderer 的材质
    *
    * SparkRenderer 继承自 THREE.Mesh, 拥有 readonly material: THREE.ShaderMaterial。
-   * 通过 Three.js 的 onBeforeCompile 机制注入 GLSL 代码:
-   *   - 在 shader 编译前替换 shader 源码字符串
-   *   - 注入自定义 uniform
-   *   - 每帧通过 material.uniforms 更新 uniform 值
+   * 通过直接修改 ShaderMaterial 的 vertexShader/fragmentShader 源码实现注入:
+   *   - 每次调用都从原始 shader 源码重新构建 (保证增删注入后状态一致)
+   *   - 注入自定义 uniform 声明和值
+   *   - 每帧通过 updateInjectionUniforms() 更新 uniform 值
    *
    * [来源: SparkRenderer 类型 — @sparkjsdev/spark SparkRenderer.d.ts]
-   * [来源: Three.js 文档 — WebGLProgram / onBeforeCompile]
+   * [来源: Three.js 文档 — ShaderMaterial.vertexShader / fragmentShader]
    */
   private applyInjectionsToMaterial(): void {
     if (!this.spark) return;
     const material = this.spark.material as THREE.ShaderMaterial;
     if (!material) return;
 
-    // 避免重复绑定 onBeforeCompile
-    if (this._compiledMaterials.has(material)) return;
-    this._compiledMaterials.add(material);
+    // 保存原始 shader (仅在第一次调用时保存, 后续始终从原始源码重建)
+    if (!(material as unknown as { _originalVertexShader?: string })._originalVertexShader) {
+      (material as unknown as { _originalVertexShader?: string })._originalVertexShader = material.vertexShader;
+      (material as unknown as { _originalFragmentShader?: string })._originalFragmentShader = material.fragmentShader;
+    }
+
+    const origVS = (material as unknown as { _originalVertexShader: string })._originalVertexShader;
+    const origFS = (material as unknown as { _originalFragmentShader: string })._originalFragmentShader;
 
     const injections = Array.from(this._shaderInjections.values());
-    if (injections.length === 0) return;
+
+    // 无注入时, 恢复原始 shader 源码
+    if (injections.length === 0) {
+      material.vertexShader = origVS;
+      material.fragmentShader = origFS;
+      material.needsUpdate = true;
+      return;
+    }
 
     // 合并所有注入的 uniforms
     const allUniforms: Record<string, THREE.IUniform> = {};
@@ -547,15 +657,6 @@ export class RenderManager implements RendererAdapter {
     // 对于 ShaderMaterial, 直接修改 vertexShader/fragmentShader 和 uniforms
     // ShaderMaterial 不触发 onBeforeCompile, 而是直接使用其 shader 源码
     // 所以我们需要直接修改 material.vertexShader / fragmentShader / uniforms
-
-    // 保存原始 shader (仅在第一次注入时)
-    if (!(material as unknown as { _originalVertexShader?: string })._originalVertexShader) {
-      (material as unknown as { _originalVertexShader?: string })._originalVertexShader = material.vertexShader;
-      (material as unknown as { _originalFragmentShader?: string })._originalFragmentShader = material.fragmentShader;
-    }
-
-    const origVS = (material as unknown as { _originalVertexShader: string })._originalVertexShader;
-    const origFS = (material as unknown as { _originalFragmentShader: string })._originalFragmentShader;
 
     let vs = origVS;
     let fs = origFS;
@@ -592,8 +693,18 @@ export class RenderManager implements RendererAdapter {
           fs = this.injectAfterMainBegin(fs, code);
           break;
         case ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT:
-          // 匹配 gl_FragColor 或 fragColor 或 pc_fragColor
-          fs = this.injectBeforePattern(fs, /(gl_FragColor|fragColor|pc_fragColor)\s*=/, code);
+          // ★ 在 main() 末尾注入 (fragColor 赋值之后)
+          //
+          // Spark 的 fragment shader 使用 GLSL ES 3.00 (glslVersion: THREE.GLSL3),
+          // 输出变量为 `out vec4 fragColor`, 在 main() 内通过 `fragColor = ...` 赋值。
+          //
+          // 如果在 `fragColor =` 之前注入, 则 fragColor 尚未赋值, 读取它属于未定义行为。
+          // 因此改为在 main() 末尾 (最后的 } 之前) 注入, 确保 fragColor 已被赋值,
+          // 注入代码可以安全地读取和修改 fragColor。
+          //
+          // [来源: Spark fragment shader — @sparkjsdev/spark splatFragment_default]
+          // [来源: Three.js GLSL3 — THREE.GLSL3, out vec4 fragColor]
+          fs = this.injectBeforeMainEnd(fs, code);
           break;
         case ShaderHookPoint.FRAGMENT_MAIN_END:
           fs = this.injectBeforeMainEnd(fs, code);
@@ -792,14 +903,18 @@ export class RenderManager implements RendererAdapter {
    * 调用 createLodSplats() 从现有数据构建 LOD 层级,
    * 使 Spark 的 LOD 系统能够根据距离动态调整 splat 数量。
    *
+   * P0 优化: 根据设备分级传入 quality 参数
+   *   - LOW/MEDIUM: quality=false (更快构建, 更激进裁剪)
+   *   - HIGH/ULTRA: quality=true (高质量 LOD)
+   *
    * [来源: Spark 源码 — spark.module.js: this.enableLod = options.enableLod ?? true]
-   * [来源: Spark 类型 — SplatMesh.createLodSplats({ rgbaArray?, quality? })]
+   * [来源: Spark 类型 — SplatMesh.createLodSplats({ rgbaArray?, quality?: boolean })]
    */
   private async buildLod(mesh: SplatMesh): Promise<void> {
     try {
-      await mesh.createLodSplats();
+      await mesh.createLodSplats({ quality: this.tierSettings.lodQuality });
       this._lodReady = true;
-      console.info('[RenderManager] LOD 树构建完成');
+      console.info(`[RenderManager] LOD 树构建完成 (quality=${this.tierSettings.lodQuality})`);
     } catch (err) {
       console.warn('[RenderManager] LOD 树构建失败 (不影响基础渲染):', err);
       this._lodReady = false;

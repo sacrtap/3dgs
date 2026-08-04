@@ -3,11 +3,13 @@
  *
  * 支持:
  *   - 标准 3DGS PLY (含 opacity, scale, rotation, SH 系数)
+ *   - SuperSplat 打包 PLY (packed_position/rotation/scale/color + chunk 元数据)
  *   - 简单点云 PLY (仅 position + color) — 自动生成默认高斯属性
  *
  * [来源: 3DGS 原始论文 — Kerbl et al. 2023]
  * [来源: SPZ 格式 — github.com/nianticlabs/spz]
  * [来源: Spark 源码 — node_modules/@sparkjsdev/spark/dist/spark.module.js SpzWriter]
+ * [来源: SuperSplat 打包格式 — node_modules/@sparkjsdev/spark/dist/spark.module.js decodeSuperSplat]
  */
 
 import { parsePly } from './ply-parser.js';
@@ -102,6 +104,18 @@ export function loadGaussiansFromPly(
   const hasColor = 'red' in firstRow && 'green' in firstRow && 'blue' in firstRow;
   const hasSHdc = 'f_dc_0' in firstRow;
   const hasSHrest = 'f_rest_0' in firstRow;
+
+  // ★ 检测 SuperSplat 打包格式
+  // [来源: Spark 源码 — decodeSuperSplat, spark.module.js:13167]
+  const isSuperSplat =
+    'packed_position' in firstRow &&
+    'packed_rotation' in firstRow &&
+    'packed_scale' in firstRow &&
+    'packed_color' in firstRow;
+
+  if (isSuperSplat) {
+    return loadSuperSplatPly(ply, vertices, source);
+  }
 
   // 确定 SH 阶数
   let shDegree = options.shDegree ?? 0;
@@ -213,6 +227,128 @@ export function loadGaussiansFromPly(
   return {
     splats,
     shDegree,
+    vertexCount: vertices.length,
+    source,
+  };
+}
+
+// ─── SuperSplat 打包格式支持 ───────────────────────────────
+
+/**
+ * SuperSplat 打包 PLY 的 chunk 元数据
+ */
+interface SuperSplatChunk {
+  min_x: number; min_y: number; min_z: number;
+  max_x: number; max_y: number; max_z: number;
+  min_scale_x: number; min_scale_y: number; min_scale_z: number;
+  max_scale_x: number; max_scale_y: number; max_scale_z: number;
+  min_r: number; min_g: number; min_b: number;
+  max_r: number; max_g: number; max_b: number;
+}
+
+const SQRT2 = Math.sqrt(2);
+
+/**
+ * 从 SuperSplat 打包 PLY 加载 GaussianCloud
+ *
+ * SuperSplat 格式使用 chunk 分块量化:
+ *   - 每 256 个顶点为一个 chunk, chunk 存储各属性的 min/max 范围
+ *   - packed_position (uint32): x=11bit(21-31), y=10bit(11-20), z=11bit(0-10)
+ *   - packed_rotation (uint32): r0=10bit(20-29), r1=10bit(10-19), r2=10bit(0-9), order=2bit(30-31)
+ *   - packed_scale (uint32): 同 position 布局, 值在 log 空间
+ *   - packed_color (uint32): r=8bit(24-31), g=8bit(16-23), b=8bit(8-15), a=8bit(0-7)
+ *
+ * [来源: Spark 源码 — decodeSuperSplat, spark.module.js:13167-13260]
+ */
+function loadSuperSplatPly(
+  ply: { data: Map<string, Record<string, number | number[]>[]> },
+  vertices: Record<string, number | number[]>[],
+  source: string,
+): GaussianCloud {
+  // 读取 chunk 元数据
+  const chunkData = ply.data.get('chunk');
+  if (!chunkData) {
+    throw new Error('SuperSplat PLY 缺少 chunk element');
+  }
+
+  const ssChunks: SuperSplatChunk[] = chunkData.map((row) => ({
+    min_x: Number(row.min_x), min_y: Number(row.min_y), min_z: Number(row.min_z),
+    max_x: Number(row.max_x), max_y: Number(row.max_y), max_z: Number(row.max_z),
+    min_scale_x: Number(row.min_scale_x), min_scale_y: Number(row.min_scale_y), min_scale_z: Number(row.min_scale_z),
+    max_scale_x: Number(row.max_scale_x), max_scale_y: Number(row.max_scale_y), max_scale_z: Number(row.max_scale_z),
+    min_r: Number(row.min_r), min_g: Number(row.min_g), min_b: Number(row.min_b),
+    max_r: Number(row.max_r), max_g: Number(row.max_g), max_b: Number(row.max_b),
+  }));
+
+  const splats: GaussianSplat[] = [];
+
+  for (let i = 0; i < vertices.length; i++) {
+    const row = vertices[i];
+
+    // chunk 索引 = vertex 索引 >>> 8 (每 256 顶点一个 chunk)
+    const chunk = ssChunks[i >>> 8];
+    if (!chunk) {
+      throw new Error(`SuperSplat PLY: 顶点 ${i} 缺少 chunk (index >>> 8 = ${i >>> 8})`);
+    }
+
+    const packed_position = Number(row.packed_position) >>> 0; // 确保无符号 32 位
+    const packed_rotation = Number(row.packed_rotation) >>> 0;
+    const packed_scale = Number(row.packed_scale) >>> 0;
+    const packed_color = Number(row.packed_color) >>> 0;
+
+    // ── 位置解包 ──
+    // x: bits 21-31 (11 bits, 0-2047), y: bits 11-20 (10 bits, 0-1023), z: bits 0-10 (11 bits, 0-2047)
+    const x = ((packed_position >>> 21) & 2047) / 2047 * (chunk.max_x - chunk.min_x) + chunk.min_x;
+    const y = ((packed_position >>> 11) & 1023) / 1023 * (chunk.max_y - chunk.min_y) + chunk.min_y;
+    const z = (packed_position & 2047) / 2047 * (chunk.max_z - chunk.min_z) + chunk.min_z;
+
+    // ── 旋转解包 (smallest-three 编码) ──
+    // r0: bits 20-29, r1: bits 10-19, r2: bits 0-9, order: bits 30-31
+    const r0 = (((packed_rotation >>> 20) & 1023) / 1023 - 0.5) * SQRT2;
+    const r1 = (((packed_rotation >>> 10) & 1023) / 1023 - 0.5) * SQRT2;
+    const r2 = ((packed_rotation & 1023) / 1023 - 0.5) * SQRT2;
+    const rr = Math.sqrt(Math.max(0, 1 - r0 * r0 - r1 * r1 - r2 * r2));
+    const rOrder = packed_rotation >>> 30;
+
+    // 根据 rOrder 确定四元数分量顺序
+    const rotX = rOrder === 0 ? r0 : rOrder === 1 ? rr : r1;
+    const rotY = rOrder <= 1 ? r1 : rOrder === 2 ? rr : r2;
+    const rotZ = rOrder <= 2 ? r2 : rr;
+    const rotW = rOrder === 0 ? rr : r0;
+
+    // ── 缩放解包 (log 空间) ──
+    const scaleX = Math.exp(
+      ((packed_scale >>> 21) & 2047) / 2047 * (chunk.max_scale_x - chunk.min_scale_x) + chunk.min_scale_x,
+    );
+    const scaleY = Math.exp(
+      ((packed_scale >>> 11) & 1023) / 1023 * (chunk.max_scale_y - chunk.min_scale_y) + chunk.min_scale_y,
+    );
+    const scaleZ = Math.exp(
+      (packed_scale & 2047) / 2047 * (chunk.max_scale_z - chunk.min_scale_z) + chunk.min_scale_z,
+    );
+
+    // ── 颜色 + 不透明度解包 ──
+    // r: bits 24-31, g: bits 16-23, b: bits 8-15, opacity: bits 0-7
+    const colorR = ((packed_color >>> 24) & 255) / 255 * (chunk.max_r - chunk.min_r) + chunk.min_r;
+    const colorG = ((packed_color >>> 16) & 255) / 255 * (chunk.max_g - chunk.min_g) + chunk.min_g;
+    const colorB = ((packed_color >>> 8) & 255) / 255 * (chunk.max_b - chunk.min_b) + chunk.min_b;
+    const opacity = (packed_color & 255) / 255;
+
+    splats.push({
+      x, y, z,
+      scaleX, scaleY, scaleZ,
+      rotW, rotX, rotY, rotZ,
+      colorR: clamp01(colorR),
+      colorG: clamp01(colorG),
+      colorB: clamp01(colorB),
+      opacity: clamp01(opacity),
+      shDegree: 0,
+    });
+  }
+
+  return {
+    splats,
+    shDegree: 0,
     vertexCount: vertices.length,
     source,
   };

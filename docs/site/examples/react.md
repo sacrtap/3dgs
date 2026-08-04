@@ -9,7 +9,9 @@ npm install @3dgs/core @3dgs/renderer-three @3dgs/plugins @3dgs/react
 ## 基础用法
 
 ```tsx
+import { useMemo } from 'react';
 import { TourViewer } from '@3dgs/react';
+import { createRendererSync } from '@3dgs/renderer-three';
 import { createHotspotSystem } from '@3dgs/plugins';
 
 function App() {
@@ -24,12 +26,17 @@ function App() {
     },
   };
 
+  // ★ 使用 useMemo 稳定引用, 避免每次渲染重建 TourPlayer
+  const renderer = useMemo(() => createRendererSync(), []);
+  const plugins = useMemo(() => [createHotspotSystem()], []);
+
   return (
     <TourViewer
       config={config}
       initialScene="main"
-      plugins={[createHotspotSystem()]}
-      onSceneSwitched={(sceneId) => console.log('切换到:', sceneId)}
+      renderer={renderer}
+      plugins={plugins}
+      onSceneSwitch={(sceneId) => console.log('切换到:', sceneId)}
       onError={(err) => console.error(err)}
       style={{ width: '100%', height: '100vh' }}
     />

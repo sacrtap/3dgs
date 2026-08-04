@@ -35,7 +35,9 @@
 - [开发指南](#开发指南)
   - [代码质量](#代码质量)
   - [CI/CD](#cicd)
+  - [文档站点](#文档站点)
 - [常见问题](#常见问题)
+- [数据格式选择指南](#数据格式选择指南)
 - [浏览器兼容性](#浏览器兼容性)
 - [许可证](#许可证)
 
@@ -653,20 +655,34 @@ GitHub Actions CI 流水线（`.github/workflows/ci.yml`）在每次 push / PR �
 | **Lint** | ESLint 静态检查 (0 errors, 0 warnings) |
 | **Type Check** | `tsc --noEmit` 全量类型检查 |
 | **Unit Tests** | Vitest 42 个测试用例 |
-| **Build** | 全量构建所有包 + Demo |
+| **Build** | 全量构建所有包 + Demo + 文档站点 |
 | **Benchmark** | Playwright 性能基准测试 (仅 push 触发) |
 
 > CI 运行在 `ubuntu-latest` 上，使用 pnpm + Node.js 20 + 冻结锁文件安装。
+
+### 文档站点
+
+项目使用 [VitePress](https://vitepress.dev) 构建文档站点，包含完整的指南、API 参考和示例代码。
+
+```bash
+# 启动开发服务器（热更新，访问 http://localhost:5178）
+pnpm --filter @3dgs/docs dev
+
+# 构建静态站点（输出到 docs/site/.vitepress/dist/）
+pnpm --filter @3dgs/docs build
+
+# 本地预览构建产物
+pnpm --filter @3dgs/docs preview
+```
+
+> 文档源码位于 `docs/site/` 目录，配置文件为 `docs/site/.vitepress/config.ts`。
+> 开发服务器端口为 **5178**（在 config.ts 中配置），避免与其他服务冲突。
 
 ### 项目文档
 
 | 文档 | 说明 |
 |------|------|
-| [调研说明文档](docs/01-调研说明文档.md) | 3DGS 技术调研、竞品分析、技术选型 |
-| [产品说明文档](docs/02-产品说明文档.md) | 产品定位、功能规划、配置系统、插件生态 |
-| [详细技术方案](docs/03-详细技术方案.md) | 架构设计、核心模块实现、API 规格 |
-| [产品实现计划](docs/04-产品实现计划.md) | 分阶段实施计划与完成状态 |
-| [性能基准报告](docs/05-性能基准报告.md) | 性能测试结果与优化措施 |
+| [文档站点（在线）](docs/site/) | VitePress 文档 — 指南、API 参考、示例 |
 | [示例代码](examples/README.md) | 9+ 可运行示例代码 |
 | [FAQ 常见问题](docs/site/guide/faq.md) | 部署、渲染、转换、插件、构建常见问题 |
 | [贡献指南](CONTRIBUTING.md) | 开发环境、分支策略、插件开发、提交规范 |
@@ -682,6 +698,63 @@ GitHub Actions CI 流水线（`.github/workflows/ci.yml`）在每次 push / PR �
 - **数据转换** — PLY → SPZ 压缩比、颜色异常、批量转换失败处理
 - **插件** — 热点不显示、React 组件重建、Shader 注入不生效
 - **构建** — TypeScript 类型报错、包体积优化、本地开发版本使用
+
+---
+
+## 数据格式选择指南
+
+3DGS 渲染引擎支持三种 Web 加载格式: `.splat`、`.spz`、`.sog`。三者的**稳态渲染 FPS 基本一致**（差异 < 5%），格式选择主要影响加载体验和 LOD 质量。
+
+### 格式特性对比
+
+| 特性 | .splat | .spz | .sog |
+|------|--------|------|------|
+| **每 splat 字节** | 32 B | ~16 B (压缩前) | 32 B (同 .splat) |
+| **压缩** | 无 | gzip + 量化 | 无 (分块传输) |
+| **SH 球谐系数** | ✗ | ✓ (degree 0-3) | ✗ |
+| **流式加载** | ✗ | ✗ | ✓ (HTTP Range) |
+| **Morton 排序** | ✗ | ✗ | ✓ (LOD 友好) |
+| **位置精度** | Float32 | 24bit 定点 | Float32 |
+| **网络传输** | 全量 | 全量 (压缩) | 渐进式 |
+| **CPU 解码开销** | 最低 | 中 (解压+反量化) | 低 |
+
+### 按使用场景推荐
+
+| 使用场景 | 推荐格式 | 原因 |
+|---------|---------|------|
+| 桌面端 / 高带宽 | `.splat` | 无解码开销，加载最简单 |
+| 移动端 / 4G 网络 | `.spz` | 传输量减半，加载更快 |
+| 大场景 (> 1M splats) | `.sog` | 首帧快速渲染 + LOD 效率高 |
+| 需要球谐光照 | `.spz` | 唯一支持 SH 的格式 |
+| 漫游多场景 | `.sog` | Morton 排序提升 LOD 质量 |
+
+### 按设备分级推荐
+
+| 设备分级 | 推荐格式 | 原因 |
+|---------|---------|------|
+| LOW (250K max) | `.spz` | 传输量小 + maxSplats 裁剪后数据量可控 |
+| MEDIUM (500K max) | `.spz` / `.sog` | 平衡传输和加载体验 |
+| HIGH (1M max) | `.sog` | LOD 效率高，渲染更流畅 |
+| ULTRA (2.5M max) | `.splat` / `.sog` | 无传输瓶颈，LOD 提升渲染质量 |
+
+### 格式转换
+
+```bash
+# PLY → SPLAT
+npx 3dgs-convert ply-to-splat input.ply -o output.splat
+
+# PLY → SPZ (gzip 压缩)
+npx 3dgs-convert ply-to-spz input.ply -o output.spz --sh-degree 1
+
+# PLY → SOG (流式 LOD)
+npx 3dgs-convert ply-to-sog input.ply -o output.sog
+
+# .splat → .spz / .sog (反向转换)
+npx 3dgs-convert splat-to-spz input.splat -o output.spz
+npx 3dgs-convert splat-to-sog input.splat -o output.sog
+```
+
+> 详见 [渲染性能深度分析与优化方案](docs/06-渲染性能深度分析与优化方案.md)。
 
 ---
 

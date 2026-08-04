@@ -40,6 +40,10 @@ export type {
 // .splat 写入器
 export { writeSplat, SPLAT_BYTES_PER_SPLAT } from './splat-writer.js';
 
+// .splat 读取器 (从 .splat 反向加载为 GaussianCloud)
+export { loadGaussiansFromSplat } from './splat-reader.js';
+export type { LoadSplatOptions } from './splat-reader.js';
+
 // SPZ 写入器
 export {
   writeSpz,
