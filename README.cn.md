@@ -1,0 +1,556 @@
+# 3DGS Web 渲染引擎
+
+> 轻量级、高性能、高可拓展的 Web 端 3D 高斯溅射（3DGS）渲染引擎与漫游框架
+
+[![CI](https://img.shields.io/github/actions/workflow/status/sacrtap/3dgs/ci.yml?branch=main&label=CI)](https://github.com/sacrtap/3dgs/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@3dgs/core?label=%403dgs%2Fcore)](https://www.npmjs.com/package/@3dgs/core)
+[![npm version](https://img.shields.io/npm/v/@3dgs/renderer-three?label=%403dgs%2Frenderer-three)](https://www.npmjs.com/package/@3dgs/renderer-three)
+[![npm downloads](https://img.shields.io/npm/dm/@3dgs/core?label=downloads)](https://www.npmjs.com/package/@3dgs/core)
+[![all-contributors](https://img.shields.io/badge/all_contributors-1-orange.svg)](#contributors-)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D18-green.svg)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.5%2B-blue.svg)](https://www.typescriptlang.org)
+
+[English](README.md) | **中文**
+
+---
+
+## 快速开始
+
+### 1. 安装
+
+```bash
+npm install @3dgs/core @3dgs/renderer-three @3dgs/plugins three @sparkjsdev/spark
+```
+
+> **React 项目** 额外需要 `npm install react`（≥ 18）
+> **Vue 项目** 额外需要 `npm install vue`（≥ 3.4）
+
+### 2. 3 行代码嵌入 3DGS 场景
+
+```typescript
+import { TourPlayer } from '@3dgs/core';
+import { createRenderer } from '@3dgs/renderer-three';
+
+const player = new TourPlayer(document.getElementById('viewer'));
+const { renderer } = await createRenderer();
+player.setRenderer(renderer);
+await player.load('/tour.json');  // 加载场景配置，立即渲染
+```
+
+### 3. 在线体验 Demo
+
+```bash
+git clone https://github.com/sacrtap/3dgs.git
+cd 3dgs && pnpm install && pnpm --filter @3dgs/demo dev
+```
+
+浏览器访问 `http://localhost:5173`，体验多场景漫游、热点跳转、深度遮挡、触摸手势等功能。
+
+<details>
+<summary>📦 需要了解的依赖说明</summary>
+
+- `three` 和 `@sparkjsdev/spark` 是 `@3dgs/renderer-three` 的 peerDependencies，需手动安装
+- Demo 需要 COOP/COEP 跨源隔离头（已在 Vite 配置中设置），以启用 `SharedArrayBuffer`
+
+</details>
+
+---
+
+## 目录
+
+- [快速开始](#快速开始)
+- [核心特性](#核心特性)
+- [框架集成](#框架集成)
+  - [React](#react)
+  - [Vue 3](#vue-3)
+- [数据转换工具](#数据转换工具)
+- [配置系统](#配置系统)
+- [插件](#插件)
+- [数据格式选择指南](#数据格式选择指南)
+- [浏览器兼容性](#浏览器兼容性)
+- [开发指南](#开发指南)
+- [常见问题](#常见问题)
+- [许可证](#许可证)
+
+---
+
+## 核心特性
+
+### 渲染引擎
+
+- **WebGL2 + Spark** — 基于 `@sparkjsdev/spark` 实现 3DGS 渲染，覆盖 98%+ 浏览器
+- **设备分级** — 自动检测硬件能力（CPU 核心数、内存、GPU 型号），动态选择渲染参数
+- **自适应分辨率** — 帧率低于阈值时自动降低渲染分辨率，保障流畅度
+- **DragLookControls** — 拖拽式视角控制，类似全景查看器交互
+- **键盘移动** — WASD 水平移动 + QE 升降，带速度插值平滑
+
+### 漫游框架
+
+- **声明式配置** — `tour.json` 定义场景拓扑、相机参数、质量设置
+- **多场景管理** — 场景注册、切换、预加载
+- **插件系统** — 热点、相机控制、深度遮挡等均为可插拔插件
+- **事件总线** — 插件间通信与外部事件监听
+
+### 数据格式
+
+| 格式 | 说明 | 压缩比 |
+|------|------|--------|
+| **PLY** | 原始 3DGS 训练输出格式 | 1× |
+| **SPLAT** | antimatter15 格式（32 字节/splat） | ~1× |
+| **SPZ** | Niantic SPZ v2 格式（gzip 压缩） | ~10× |
+| **SOG** | Spatially Ordered Gaussians（流式 LOD） | 按需加载 |
+
+### 插件生态
+
+| 插件 | 说明 |
+|------|------|
+| **HotspotSystem** | 热点系统 — 场景跳转、信息标注、URL 链接、自动预加载 |
+| **CameraControls** | 相机控制 — 鼠标拖拽旋转、滚轮缩放、阻尼平滑 |
+| **DepthOcclusion** | 深度遮挡检测 — 热点被遮挡时半透明显示 |
+| **TouchGestures** | 多指触摸手势 — 捏合缩放、双指旋转、惯性滚动 |
+| **SceneTransition** | 场景过渡动画 — fade / fly / instant |
+| **Fullscreen** | 全屏切换 — 双击切换、ESC 退出 |
+| **LoadingIndicator** | 加载指示器 — spinner 动画、进度显示 |
+| **AutoRotate** | 自动旋转 — 可配置速度/延迟 |
+| **ShaderInjection** | Shader 注入 — 自定义 GLSL 代码注入 |
+
+---
+
+## 框架集成
+
+### React
+
+```tsx
+import { useMemo } from 'react';
+import { TourViewer } from '@3dgs/react';
+import { createRenderer } from '@3dgs/renderer-three';
+import { createHotspotSystem } from '@3dgs/plugins';
+
+function App() {
+  const renderer = useMemo(() => createRenderer().then((r) => r.renderer), []);
+  const plugins = useMemo(() => [createHotspotSystem()], []);
+
+  return (
+    <TourViewer
+      config="/tour.json"
+      initialScene="kitchen"
+      renderer={() => renderer}
+      plugins={plugins}
+      onSceneSwitch={(sceneId) => console.log('切换场景:', sceneId)}
+      onHotspotClick={(hotspotId) => console.log('点击热点:', hotspotId)}
+      style={{ width: '100vw', height: '100vh' }}
+    />
+  );
+}
+```
+
+> **性能提示**：`renderer` 和 `plugins` props 必须使用稳定引用（`useMemo` / `useRef`），否则 TourViewer 会重建 TourPlayer。
+
+### Vue 3
+
+```vue
+<script setup lang="ts">
+import { TourViewer } from '@3dgs/vue';
+import { createRenderer } from '@3dgs/renderer-three';
+import { createHotspotSystem } from '@3dgs/plugins';
+import type { TourConfig } from '@3dgs/core';
+
+const config: TourConfig = {
+  version: '1.0',
+  scenes: {
+    kitchen: {
+      source: '/kitchen.splat',
+      initialView: { yaw: 0, pitch: 0, fov: 60 },
+    },
+  },
+};
+
+function createRendererInstance() {
+  return createRenderer().then((r) => r.renderer);
+}
+
+const plugins = [createHotspotSystem()];
+</script>
+
+<template>
+  <TourViewer
+    :config="config"
+    :renderer="createRendererInstance"
+    :plugins="plugins"
+    initial-scene="kitchen"
+    @scene-switch="(id) => console.log('切换场景:', id)"
+    @hotspot-click="(id) => console.log('点击热点:', id)"
+    style="width: 100vw; height: 100vh;"
+  />
+</template>
+```
+
+### Vanilla JS / TS
+
+```typescript
+import { TourPlayer } from '@3dgs/core';
+import { createRenderer } from '@3dgs/renderer-three';
+import {
+  createHotspotSystem,
+  createDepthOcclusionPlugin,
+  createTouchGesturesPlugin,
+} from '@3dgs/plugins';
+
+const player = new TourPlayer(document.getElementById('viewer'));
+const { renderer } = await createRenderer();
+player.setRenderer(renderer);
+
+player.use(createHotspotSystem());
+player.use(createDepthOcclusionPlugin({ sampleInterval: 2 }));
+player.use(createTouchGesturesPlugin());
+
+player.on('load', () => console.log('加载完成'));
+player.on('scene:switched', (data) => console.log('切换场景:', data));
+player.on('hotspot:click', (data) => console.log('点击热点:', data));
+
+await player.load('/tour.json');
+await player.switchScene('kitchen');
+
+// player.destroy();
+```
+
+---
+
+## 数据转换工具
+
+将 PLY 文件转换为优化的 Web 加载格式：
+
+```bash
+# PLY → SPLAT (无压缩，最快加载)
+npx 3dgs-convert ply-to-splat input.ply -o output.splat
+
+# PLY → SPZ (gzip 压缩，~10x 压缩比)
+npx 3dgs-convert ply-to-spz input.ply -o output.spz --sh-degree 1
+
+# PLY → SOG (流式 LOD，支持渐进式加载)
+npx 3dgs-convert ply-to-sog input.ply -o output.sog
+
+# .splat → .spz / .sog (反向转换)
+npx 3dgs-convert splat-to-spz input.splat -o output.spz
+npx 3dgs-convert splat-to-sog input.splat -o output.sog
+
+# 批量转换目录下所有 PLY 文件
+npx 3dgs-convert batch ./scenes/ --format spz --sh-degree 1
+
+# 生成 tour.json 配置模板
+npx 3dgs-convert generate-tour ./scenes/ -o tour.json
+
+# 查看文件信息
+npx 3dgs-convert info input.ply
+```
+
+<details>
+<summary>CLI 选项说明</summary>
+
+| 选项 | 说明 |
+|------|------|
+| `-o, --output <path>` | 输出文件路径 |
+| `--prune` | 启用冗余剔除（过滤低透明度/异常高斯核） |
+| `--min-opacity <num>` | 最小不透明度阈值（默认 0.01） |
+| `--sort` | 启用 Morton Code 空间排序 |
+| `--no-sort` | 禁用排序（仅 SOG 命令，SOG 默认启用排序） |
+| `--sh-degree <num>` | SH 阶数 0-3（默认自动检测） |
+| `--fractional-bits <num>` | SPZ 位置量化小数位（默认 12） |
+| `--chunk-size <num>` | SOG 每 chunk 的 splat 数（默认 16384） |
+
+</details>
+
+---
+
+## 配置系统
+
+漫游配置使用声明式 JSON 格式（`tour.json`），定义场景拓扑、相机参数、质量设置：
+
+```json
+{
+  "version": "1.0",
+  "meta": { "title": "虚拟看房", "description": "三室一厅漫游" },
+  "defaults": {
+    "camera": { "fov": 60, "minFov": 30, "maxFov": 90, "limitPitch": [-80, 80] },
+    "transition": { "type": "fade", "duration": 800 },
+    "quality": { "maxSplats": 1000000, "shDegree": 1, "resolution": 1.0 }
+  },
+  "scenes": {
+    "kitchen": {
+      "title": "厨房",
+      "source": "/kitchen.spz",
+      "initialView": { "yaw": 0, "pitch": 0, "fov": 60 },
+      "extensions": {
+        "hotspot": {
+          "hotspots": [
+            {
+              "id": "to-living",
+              "type": "scene",
+              "position": [1.0, 1.5, -2.0],
+              "targetScene": "living",
+              "style": { "glow": true, "color": "#80a0ff", "size": 36 },
+              "onHover": { "tooltip": "点击进入客厅" }
+            }
+          ]
+        }
+      }
+    },
+    "living": {
+      "title": "客厅",
+      "source": "/living.spz",
+      "initialView": { "yaw": 90, "pitch": 0, "fov": 60 }
+    }
+  }
+}
+```
+
+**热点类型：** `scene`（场景跳转）、`text`（信息标注）、`url`（链接跳转）、`image`（图片）、`custom`（自定义）
+
+---
+
+## 插件
+
+### 使用内置插件
+
+```typescript
+import {
+  createHotspotSystem,
+  createCameraControls,
+  createDepthOcclusionPlugin,
+  createTouchGesturesPlugin,
+  createSceneTransitionPlugin,
+  createFullscreenPlugin,
+  createLoadingIndicatorPlugin,
+  createAutoRotatePlugin,
+} from '@3dgs/plugins';
+
+player.use(createHotspotSystem());
+player.use(createCameraControls({ enableDamping: true }));
+player.use(createLoadingIndicatorPlugin());
+```
+
+### 开发自定义插件
+
+```typescript
+import type { TourPlugin, FrameContext, TourPluginContext } from '@3dgs/core';
+
+function createMyPlugin(): TourPlugin {
+  return {
+    name: 'my-plugin',
+    version: '1.0.0',
+    init(ctx: TourPluginContext) {
+      // ctx.player / ctx.renderer / ctx.container / ctx.sceneManager
+    },
+    update(frameCtx: FrameContext) {
+      // frameCtx.camera / frameCtx.vpMatrix / frameCtx.size / frameCtx.deltaTime
+    },
+    destroy() {
+      // 清理资源
+    },
+  };
+}
+
+player.use(createMyPlugin());
+```
+
+<details>
+<summary>包 API 参考</summary>
+
+### @3dgs/core
+
+| 导出 | 类型 | 说明 |
+|------|------|------|
+| `TourPlayer` | 类 | 漫游播放器 — 帧循环管理、场景切换、插件编排、事件总线 |
+| `SceneManager` | 类 | 场景注册、加载、切换、预加载 |
+| `TourLoader` | 类 | 从 URL 或对象加载 TourConfig |
+| `PluginSystem` | 类 | 插件注册、每帧更新、销毁管理 |
+| `RendererAdapter` | 接口 | 渲染器抽象接口 |
+| `DeviceTier` | 枚举 | 设备分级 — LOW / MEDIUM / HIGH / ULTRA |
+| `TourConfig` | 类型 | 声明式场景图配置格式 |
+| `TourPlugin` | 接口 | 插件接口 — `init` / `update` / `destroy` |
+| `validateTourConfig` | 函数 | 配置验证 |
+
+### @3dgs/renderer-three
+
+| 导出 | 类型 | 说明 |
+|------|------|------|
+| `RenderManager` | 类 | WebGL2 + Spark 渲染管理器 |
+| `createRenderer` | 函数 | 异步渲染器工厂 — 自动检测 WebGPU，不可用回退 WebGL2 |
+| `createRendererSync` | 函数 | 同步渲染器工厂 — 直接使用 WebGL2 |
+| `detectWebGPU` | 函数 | WebGPU 能力检测 |
+| `detectDeviceTier` | 函数 | 设备分级检测 |
+| `SogStreamer` | 类 | SOG 流式 LOD 客户端 |
+
+### @3dgs/convert
+
+| 导出 | 说明 |
+|------|------|
+| `loadGaussiansFromPly(buffer, options?)` | 从 PLY 解析高斯数据 |
+| `loadGaussiansFromSplat(buffer, options?)` | 从 `.splat` 反向加载为 GaussianCloud |
+| `writeSplat(cloud)` | 写入 `.splat` 格式 |
+| `writeSpz(cloud, options?)` | 写入 `.spz` 格式（gzip 压缩） |
+| `writeSog(cloud, options?)` | 写入 `.sog` 格式（流式 LOD） |
+| `pruneGaussians(cloud, options?)` | 冗余高斯核剔除 |
+| `mortonSortGaussians(cloud, options?)` | Morton Code 空间排序 |
+| `parsePly(buffer)` | 底层 PLY 解析器 |
+| `parseSogMetadata(buffer)` | 解析 SOG 文件元数据 |
+
+</details>
+
+---
+
+## 数据格式选择指南
+
+三者的**稳态渲染 FPS 基本一致**（差异 < 5%），格式选择主要影响加载体验和 LOD 质量。
+
+### 按使用场景推荐
+
+| 使用场景 | 推荐格式 | 原因 |
+|---------|---------|------|
+| 桌面端 / 高带宽 | `.splat` | 无解码开销，加载最简单 |
+| 移动端 / 4G 网络 | `.spz` | 传输量减半，加载更快 |
+| 大场景 (> 1M splats) | `.sog` | 首帧快速渲染 + LOD 效率高 |
+| 需要球谐光照 | `.spz` | 唯一支持 SH 的格式 |
+| 漫游多场景 | `.sog` | Morton 排序提升 LOD 质量 |
+
+### 按设备分级推荐
+
+| 设备分级 | 推荐格式 | 原因 |
+|---------|---------|------|
+| LOW (250K max) | `.spz` | 传输量小 + maxSplats 裁剪后数据量可控 |
+| MEDIUM (500K max) | `.spz` / `.sog` | 平衡传输和加载体验 |
+| HIGH (1M max) | `.sog` | LOD 效率高，渲染更流畅 |
+| ULTRA (2.5M max) | `.splat` / `.sog` | 无传输瓶颈，LOD 提升渲染质量 |
+
+<details>
+<summary>格式特性详细对比</summary>
+
+| 特性 | .splat | .spz | .sog |
+|------|--------|------|------|
+| **每 splat 字节** | 32 B | ~16 B (压缩前) | 32 B (同 .splat) |
+| **压缩** | 无 | gzip + 量化 | 无 (分块传输) |
+| **SH 球谐系数** | ✗ | ✓ (degree 0-3) | ✗ |
+| **流式加载** | ✗ | ✗ | ✓ (HTTP Range) |
+| **Morton 排序** | ✗ | ✗ | ✓ (LOD 友好) |
+| **位置精度** | Float32 | 24bit 定点 | Float32 |
+| **网络传输** | 全量 | 全量 (压缩) | 渐进式 |
+| **CPU 解码开销** | 最低 | 中 (解压+反量化) | 低 |
+
+</details>
+
+---
+
+## 浏览器兼容性
+
+| 浏览器 | 最低版本 | 说明 |
+|--------|---------|------|
+| Chrome / Edge | 113+ | WebGL2 + SharedArrayBuffer（COOP/COEP） |
+| Firefox | 113+ | WebGL2 + SharedArrayBuffer |
+| Safari | 16.4+ | WebGL2（部分功能受限） |
+| 移动端 Chrome | 113+ | 支持触摸手势 |
+| 移动端 Safari | 16.4+ | 支持触摸手势 |
+
+> **跨源隔离要求**：服务端需设置以下 HTTP 头以启用 `SharedArrayBuffer`：
+> ```
+> Cross-Origin-Opener-Policy: same-origin
+> Cross-Origin-Embedder-Policy: require-corp
+> Cross-Origin-Resource-Policy: cross-origin
+> ```
+
+---
+
+## 开发指南
+
+<details>
+<summary>展开开发指南</summary>
+
+### 构建
+
+```bash
+pnpm build                          # 构建所有包
+pnpm --filter @3dgs/core build      # 构建单个包
+pnpm --filter @3dgs/core dev        # 监听模式
+```
+
+### 代码质量
+
+```bash
+pnpm typecheck       # 类型检查
+pnpm test            # 单元测试 (42 个用例)
+pnpm test:coverage   # 覆盖率报告
+pnpm lint            # ESLint 检查
+pnpm lint:fix        # 自动修复
+pnpm format          # Prettier 格式化
+```
+
+### 文档站点
+
+```bash
+pnpm --filter @3dgs/docs dev        # 开发服务器 (http://localhost:5178)
+pnpm --filter @3dgs/docs build      # 构建静态站点
+pnpm --filter @3dgs/docs preview    # 预览构建产物
+```
+
+### CI/CD
+
+GitHub Actions CI 流水线在每次 push / PR 时自动执行 Lint、Type Check、Unit Tests、Build、Benchmark。
+
+</details>
+
+---
+
+## 常见问题
+
+常见问题请参考 [FAQ 文档](docs/site/guide/faq.md)，涵盖部署、渲染、数据转换、插件、构建等方面。
+
+---
+
+## Monorepo 结构
+
+```
+3dgs/
+├── packages/
+│   ├── core/              # 框架无关核心 — TourPlayer、SceneManager、PluginSystem
+│   ├── renderer-three/    # Three.js + Spark 渲染器适配层
+│   ├── plugins/           # 插件包 — 热点、相机控制、深度遮挡、触摸、过渡、Shader
+│   ├── convert/           # 数据转换 CLI + 编程 API
+│   ├── react/             # React 适配层 — <TourViewer /> 组件
+│   └── vue/               # Vue 3 适配层 — <TourViewer /> 组件
+├── apps/
+│   └── demo/              # 在线演示应用 (Vite + Vanilla TS)
+├── examples/              # 9 个示例代码
+├── docs/site/             # VitePress 文档站
+├── .changeset/            # Changesets 版本管理
+└── .github/               # CI/CD + Issue/PR 模板
+```
+
+| 文档 | 说明 |
+|------|------|
+| [文档站点](docs/site/) | VitePress 文档 — 指南、API 参考、示例 |
+| [示例代码](examples/README.md) | 9 个可运行示例代码 |
+| [FAQ 常见问题](docs/site/guide/faq.md) | 部署、渲染、转换、插件、构建常见问题 |
+| [贡献指南](CONTRIBUTING.md) | 开发环境、分支策略、插件开发、提交规范 |
+
+---
+
+## Contributors ✨
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/sacrtap">
+        <img src="https://avatars.githubusercontent.com/u/sacrtap" width="60px" alt="sacrtap"/>
+        <br /><sub><b>sacrtap</b></sub>
+      </a>
+    </td>
+  </tr>
+</table>
+
+欢迎贡献！请阅读 [贡献指南](CONTRIBUTING.md)。
+
+---
+
+## 许可证
+
+[MIT](LICENSE)
