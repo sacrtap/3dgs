@@ -59,3 +59,4 @@ docs/site/.vitepress/cache/
 
 # Internal docs (local only, not published to remote)
 docs/plan/
+README-backup.md
