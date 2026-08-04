@@ -3,6 +3,8 @@
 > 轻量级、高性能、高可拓展的 Web 端 3D 高斯溅射（3DGS）渲染引擎与漫游框架
 
 [![CI](https://img.shields.io/github/actions/workflow/status/sacrtap/3dgs/ci.yml?branch=main&label=CI)](https://github.com/sacrtap/3dgs/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@3dgs/core?label=%403dgs%2Fcore)](https://www.npmjs.com/package/@3dgs/core)
+[![npm version](https://img.shields.io/npm/v/@3dgs/renderer-three?label=%403dgs%2Frenderer-three)](https://www.npmjs.com/package/@3dgs/renderer-three)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5%2B-blue.svg)](https://www.typescriptlang.org)
@@ -161,7 +163,7 @@ pnpm install
 pnpm build
 ```
 
-> **注意**：`three` 和 `@sparkjsdev/spark` 是 `@3dgs/renderer-three` 的 peerDependencies，安装时会自动作为 devDependencies 拉取。在宿主项目中使用时需自行安装。
+> **注意**：`three` 和 `@sparkjsdev/spark` 是 `@3dgs/renderer-three` 的 peerDependencies，需要在宿主项目中手动安装（`npm install three @sparkjsdev/spark`）。React 适配层需要 `react`（≥ 18），Vue 适配层需要 `vue`（≥ 3.4）。
 
 ### 启动 Demo
 
@@ -190,11 +192,13 @@ pnpm --filter @3dgs/demo dev
 │   └── demo/              # 在线演示应用 (Vite + Vanilla TS)
 ├── examples/              # 9+ 示例代码
 ├── docs/                  # 项目文档
-│   ├── 01-调研说明文档.md
-│   ├── 02-产品说明文档.md
-│   ├── 03-详细技术方案.md
-│   ├── 04-产品实现计划.md
-│   ├── 05-性能基准报告.md
+│   ├── plan/              # 设计文档与性能分析
+│   │   ├── 01-调研说明文档.md
+│   │   ├── 02-产品说明文档.md
+│   │   ├── 03-详细技术方案.md
+│   │   ├── 04-产品实现计划.md
+│   │   ├── 05-性能基准报告.md
+│   │   └── 06-渲染性能深度分析与优化方案.md
 │   └── site/              # VitePress 文档站
 ├── .changeset/            # Changesets 版本管理
 ├── .github/               # CI/CD + Issue/PR 模板
@@ -290,6 +294,7 @@ interface RenderManagerOptions {
 | 导出 | 说明 |
 |------|------|
 | `loadGaussiansFromPly(buffer, options?)` | 从 PLY 解析高斯数据 |
+| `loadGaussiansFromSplat(buffer, options?)` | 从 `.splat` 文件反向加载为 GaussianCloud |
 | `writeSplat(cloud)` | 写入 `.splat` 格式 |
 | `writeSpz(cloud, options?)` | 写入 `.spz` 格式（gzip 压缩） |
 | `writeSog(cloud, options?)` | 写入 `.sog` 格式（流式 LOD） |
@@ -392,7 +397,6 @@ function App() {
 ```
 
 > **性能提示**：`renderer` 和 `plugins` props 必须使用稳定引用（`useMemo` / `useRef`），否则 TourViewer 会重建 TourPlayer。回调函数（`onLoad`、`onError` 等）内部已用 `useRef` 包裹，无需额外处理。
-```
 
 ### Vue 3
 
@@ -452,6 +456,10 @@ npx 3dgs-convert batch ./scenes/ --format spz --sh-degree 1
 
 # 生成 tour.json 配置模板
 npx 3dgs-convert generate-tour ./scenes/ --output tour.json --base-url ./
+
+# .splat → .spz / .sog (反向转换)
+npx 3dgs-convert splat-to-spz input.splat -o output.spz
+npx 3dgs-convert splat-to-sog input.splat -o output.sog
 
 # 查看文件信息
 npx 3dgs-convert info input.ply
@@ -683,9 +691,10 @@ pnpm --filter @3dgs/docs preview
 | 文档 | 说明 |
 |------|------|
 | [文档站点（在线）](docs/site/) | VitePress 文档 — 指南、API 参考、示例 |
-| [示例代码](examples/README.md) | 9+ 可运行示例代码 |
+| [示例代码](examples/README.md) | 9 个可运行示例代码 |
 | [FAQ 常见问题](docs/site/guide/faq.md) | 部署、渲染、转换、插件、构建常见问题 |
 | [贡献指南](CONTRIBUTING.md) | 开发环境、分支策略、插件开发、提交规范 |
+| [渲染性能深度分析](docs/plan/06-渲染性能深度分析与优化方案.md) | P0/P1/P2 优化方案与基准测试报告 |
 
 ---
 
