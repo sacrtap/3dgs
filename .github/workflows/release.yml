@@ -50,10 +50,13 @@ jobs:
         id: changesets
         uses: changesets/action@v1
         with:
-          # version 字段省略, 使用默认值 'changeset version'
-          # dry_run=true  → 'true' (no-op, 无输出, changesets 会生成版本 PR)
-          # dry_run=false → 'changeset publish' (发布到 npm + 创建 git tag)
-          publish: ${{ inputs.dry_run == true && 'true' || 'changeset publish' }}
+          # ★ 必须用 pnpm 前缀, 否则 action 找不到 changeset 可执行文件
+          #   (pnm 将二进制安装到 node_modules/.bin/, 不在 action 的默认 PATH 中)
+          # version: pnpm changeset version (处理 changeset → 生成版本 PR)
+          # dry_run=true  → publish 设为 'true' (no-op, 仅生成版本 PR)
+          # dry_run=false → publish 设为 'pnpm changeset publish' (发布到 npm)
+          version: pnpm changeset version
+          publish: ${{ inputs.dry_run == true && 'true' || 'pnpm changeset publish' }}
           commit: 'chore(release): version packages'
           title: 'chore(release): version packages'
         env:
