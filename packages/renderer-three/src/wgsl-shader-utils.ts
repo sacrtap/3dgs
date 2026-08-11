@@ -50,7 +50,7 @@ export function injectWgslBeforeMainEnd(shader: string, fnName: string, code: st
   }
 
   // 找到函数体的开始大括号
-  let braceStart = shader.indexOf('{', fnMatch.index);
+  const braceStart = shader.indexOf('{', fnMatch.index);
   if (braceStart === -1) return shader;
 
   // 找到匹配的结束大括号
