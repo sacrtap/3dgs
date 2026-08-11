@@ -457,6 +457,212 @@ All three formats have **similar steady-state FPS** (variance < 5%). Format choi
 > Cross-Origin-Resource-Policy: cross-origin
 > ```
 
+### Development Environment Configuration
+
+If you are building a custom app (not using this repo's demo), you need to configure COOP/COEP headers in your dev server:
+
+<details>
+<summary>Vite</summary>
+
+```javascript
+// vite.config.js
+export default {
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    },
+  },
+  // preview server also needs these headers
+  preview: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    },
+  },
+  // Spark WASM must not be pre-bundled
+  optimizeDeps: {
+    exclude: ['@sparkjsdev/spark'],
+  },
+};
+```
+
+> [Source: project source — `apps/demo/vite.config.js`]
+
+</details>
+
+<details>
+<summary>Webpack (webpack-dev-server v5)</summary>
+
+```javascript
+// webpack.config.js
+module.exports = {
+  devServer: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    },
+  },
+};
+```
+
+</details>
+
+<details>
+<summary>Express / Node.js</summary>
+
+```javascript
+app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
+```
+
+</details>
+
+> **Without these headers, `SharedArrayBuffer` is undefined and Spark falls back to single-threaded sorting, causing significant performance degradation.**
+
+### Production Deployment Guide
+
+Without these headers, the renderer falls back to single-threaded sorting, causing significant performance degradation. Below are configuration examples for common hosting platforms:
+
+<details>
+<summary>Nginx</summary>
+
+Add `add_header` directives to your `server` or `location` block:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name your-domain.com;
+
+    # Cross-origin isolation headers (required for SharedArrayBuffer)
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Embedder-Policy "require-corp" always;
+    add_header Cross-Origin-Resource-Policy "cross-origin" always;
+
+    # Static assets for 3DGS files (.splat, .spz, .sog, .ply)
+    location ~* \.(splat|spz|sog|ply)$ {
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+        add_header Cross-Origin-Embedder-Policy "require-corp" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        gzip off;  # .spz is already gzip-compressed; .sog uses chunked transfer
+    }
+
+    location / {
+        root /var/www/3dgs-demo;
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+> **Note:** Use `always` to ensure headers are sent even on error responses (404, 500). Nginx `add_header` does not inherit from outer blocks by default — repeat headers in nested `location` blocks.
+
+</details>
+
+<details>
+<summary>Vercel</summary>
+
+Create a `vercel.json` in your project root:
+
+```json
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Embedder-Policy", "value": "require-corp" },
+        { "key": "Cross-Origin-Resource-Policy", "value": "cross-origin" }
+      ]
+    }
+  ]
+}
+```
+
+> **Note:** Vercel automatically applies `Content-Encoding: gzip` for `.spz` files. No additional compression configuration needed.
+
+</details>
+
+<details>
+<summary>Netlify</summary>
+
+Create a `netlify.toml` in your project root:
+
+```toml
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"
+    Cross-Origin-Resource-Policy = "cross-origin"
+
+# Optional: long-cache for 3DGS data files
+[[headers]]
+  for = "/*.splat"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.spz"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.sog"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+```
+
+</details>
+
+<details>
+<summary>Cloudflare Pages</summary>
+
+Create a `_headers` file in your build output directory (usually `public/` or `dist/`):
+
+```
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: cross-origin
+
+/*.splat
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.spz
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.sog
+  Cache-Control: public, max-age=31536000, immutable
+```
+
+> **Note:** Cloudflare's auto-minify and Rocket Loader features may interfere with 3DGS rendering. Disable them for your 3DGS deployment in the Cloudflare dashboard.
+
+</details>
+
+<details>
+<summary>Verification</summary>
+
+After deployment, verify cross-origin isolation is active:
+
+1. Open browser DevTools → Console
+2. Run: `self.crossOriginIsolated`
+3. Should return `true`
+
+If `false`:
+- Check that **all three** headers are present (COOP, COEP, CORP)
+- Use DevTools → Network → click any request → Response Headers to verify
+- Ensure no `Cross-Origin-Embedder-Policy: unsafe-none` is set by a CDN or framework
+
+</details>
+
 ---
 
 ## Development

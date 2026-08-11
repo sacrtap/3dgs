@@ -28,6 +28,12 @@ export interface LoadOptions {
    * 若未提供或加载失败，回退到 source 直接加载。
    */
   lodSource?: string;
+  /**
+   * 首帧渲染回调 (可选)。
+   * 当 SOG 流式加载的第一个 chunk 渲染到屏幕时触发。
+   * 用于在首帧显示后立即隐藏加载遮罩, 避免等待全量数据。
+   */
+  onFirstFrame?: () => void;
 }
 
 // ─── Shader 注入 API ───────────────────────────────────────

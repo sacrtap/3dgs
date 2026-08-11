@@ -1,22 +1,20 @@
 /**
  * 渲染器工厂 — 自动选择 WebGPU / WebGL2 后端
  *
+ * ★ P3-1: 真正的双后端切换
+ *
  * 策略:
  *   1. 检测 WebGPU 可用性
- *   2. 如果 WebGPU 可用且用户偏好 WebGPU → 使用 WebGPU 后端
- *   3. 否则 → 使用 WebGL2 后端 (Spark, 当前实现)
- *
- * 注意:
- *   当前 WebGPU 后端仍使用 Spark (WebGL2) 进行 splat 渲染,
- *   因为 Spark 尚不支持 WebGPU。WebGPU 检测和工厂架构已就位,
- *   未来集成 SuperSplat WGSL 着色器时可无缝切换。
+ *   2. 如果 WebGPU 可用且用户偏好 WebGPU → 使用 WebGPURenderManager
+ *   3. 否则 → 使用 RenderManager (WebGL2 + Spark)
  *
  * [来源: 项目源码 — packages/core/src/renderer-adapter.ts]
- * [来源: Spark README — "仅 WebGL2 (目标 98%+ 兼容性)"]
+ * [来源: P3-1 优化方案 — docs/plan/07-性能深度分析与优化执行方案.md §11.1]
  */
 
 import type { RendererAdapter } from '@3dgs/core';
 import { RenderManager, type RenderManagerOptions } from './index.js';
+import { WebGPURenderManager, type WebGPURenderManagerOptions } from './webgpu-render-manager.js';
 import { detectWebGPU, isWebGPUMaybeAvailable, type WebGPUCapability } from './webgpu-detector.js';
 
 /** 渲染后端类型 */
@@ -28,6 +26,8 @@ export interface CreateRendererOptions extends RenderManagerOptions {
   preferredBackend?: RendererBackend;
   /** 是否强制使用指定后端 (不回退, 默认 false) */
   forceBackend?: boolean;
+  /** 是否启用 GPU 排序 (仅 WebGPU 后端, 默认 true) */
+  enableGpuSort?: boolean;
 }
 
 /** 渲染器工厂结果 */
@@ -43,6 +43,9 @@ export interface CreateRendererResult {
 /**
  * 创建渲染器 — 自动选择最佳后端
  *
+ * ★ P3-1: 当 WebGPU 可用时, 使用 WebGPURenderManager 进行原生 WebGPU 渲染;
+ *          否则回退到 RenderManager (WebGL2 + Spark)。
+ *
  * @param options 渲染器选项
  * @returns 渲染器实例 + 后端信息
  *
@@ -50,6 +53,13 @@ export interface CreateRendererResult {
  * ```typescript
  * const { renderer, backend } = await createRenderer({ preferredBackend: 'webgpu' });
  * console.log(`使用 ${backend} 后端`);
+ *
+ * // WebGPU 后端需要先调用 init()
+ * if (backend === 'webgpu') {
+ *   await (renderer as WebGPURenderManager).init();
+ * }
+ * renderer.mount(container);
+ * renderer.start();
  * ```
  */
 export async function createRenderer(
@@ -58,6 +68,7 @@ export async function createRenderer(
   const {
     preferredBackend = 'webgpu',
     forceBackend = false,
+    enableGpuSort = true,
     ...renderOptions
   } = options;
 
@@ -84,21 +95,59 @@ export async function createRenderer(
     );
   }
 
-  // 创建渲染器
-  // 当前: 无论选择哪个后端, 都使用 RenderManager (WebGL2 + Spark)
-  // 未来: 当 SuperSplat WGSL 核心集成后, WebGPU 后端将使用独立的 WebGPURenderManager
-  const renderer = new RenderManager(renderOptions);
+  // 创建渲染器 — 根据后端选择不同的实现
+  let renderer: RendererAdapter;
 
   if (backend === 'webgpu') {
-    // 标记为 WebGPU 模式 (当前仍使用 WebGL2 渲染, 但架构已准备就绪)
+    // ★ P3-1: 使用 WebGPURenderManager 进行原生 WebGPU 渲染
+    const webgpuOptions: WebGPURenderManagerOptions = {
+      deviceTier: renderOptions.deviceTier,
+      pixelRatio: renderOptions.pixelRatio,
+      resolutionScale: renderOptions.resolutionScale,
+      adaptiveResolution: renderOptions.adaptiveResolution,
+      clearColor: renderOptions.clearColor,
+      enableKeyboardControls: renderOptions.enableKeyboardControls,
+      moveSpeed: renderOptions.moveSpeed,
+      verticalSpeed: renderOptions.verticalSpeed,
+      autoOrient: renderOptions.autoOrient,
+      enableLod: renderOptions.enableLod,
+      enableGpuSort,
+    };
+
+    renderer = new WebGPURenderManager(webgpuOptions);
+
+    // ★ 跨机型兼容: 应用 GPU 能力检测结果
+    // 根据 GPU 类型 (集成/离散/移动/软件) 调整 maxSplats, resolutionScale, sortIntervalMs
+    if (typeof (renderer as WebGPURenderManager).applyCapability === 'function') {
+      (renderer as WebGPURenderManager).applyCapability(webgpuCapability);
+    }
+
+    // 打印 GPU 信息
+    const gpuTypeLabel = webgpuCapability.gpuType
+      ? ` | 类型: ${webgpuCapability.gpuType}`
+      : '';
     console.info(
-      `[3dgs] WebGPU 检测通过, 当前使用 WebGL2+Spark 渲染 (WebGPU splat 渲染为未来增强)`,
+      `[3dgs] 使用 WebGPU 原生渲染后端 (GPU 排序: ${enableGpuSort ? '启用' : '禁用'}${gpuTypeLabel})`,
     );
     if (webgpuCapability.adapterInfo) {
       console.info(
         `[3dgs] GPU: ${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}`,
       );
     }
+    if (webgpuCapability.limits) {
+      console.info(
+        `[3dgs] GPU 限制: maxBufferSize=${(webgpuCapability.limits.maxBufferSize / 1024 / 1024).toFixed(0)}MB | ` +
+        `maxBindGroups=${webgpuCapability.limits.maxBindGroups} | ` +
+        `maxStorageBuffersPerShaderStage=${webgpuCapability.limits.maxStorageBuffersPerShaderStage}`,
+      );
+    }
+
+    // 注意: WebGPURenderManager 需要调用者手动调用 init() 后再 mount/start
+    // 这里不自动调用 init(), 因为它可能失败并需要回退
+  } else {
+    // WebGL2 后端: 使用 RenderManager (Spark)
+    renderer = new RenderManager(renderOptions);
+    console.info('[3dgs] 使用 WebGL2 + Spark 渲染后端');
   }
 
   return { renderer, backend, webgpuCapability };

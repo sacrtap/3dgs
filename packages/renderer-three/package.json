@@ -12,7 +12,10 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist/**/*.js", "dist/**/*.d.ts"],
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
   "sideEffects": false,
   "publishConfig": {
     "access": "public"
@@ -26,7 +29,16 @@
   "bugs": {
     "url": "https://github.com/sacrtap/3dgs/issues"
   },
-  "keywords": ["3dgs", "gaussian-splatting", "threejs", "three-js", "spark", "webgl", "webgpu", "renderer"],
+  "keywords": [
+    "3dgs",
+    "gaussian-splatting",
+    "threejs",
+    "three-js",
+    "spark",
+    "webgl",
+    "webgpu",
+    "renderer"
+  ],
   "author": "sacrtap",
   "license": "MIT",
   "engines": {
@@ -47,6 +59,7 @@
   "devDependencies": {
     "@sparkjsdev/spark": "^2.1.0",
     "@types/three": "^0.185.0",
+    "@webgpu/types": "^0.1.71",
     "three": "^0.185.0",
     "typescript": "^5.5.0"
   }

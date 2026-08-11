@@ -457,6 +457,212 @@ player.use(createMyPlugin());
 > Cross-Origin-Resource-Policy: cross-origin
 > ```
 
+### 开发环境配置
+
+如果你在构建自定义应用（非使用本仓库 Demo），需要在开发服务器中配置 COOP/COEP 头：
+
+<details>
+<summary>Vite</summary>
+
+```javascript
+// vite.config.js
+export default {
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    },
+  },
+  // preview 服务器同样需要配置
+  preview: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    },
+  },
+  // Spark WASM 不能被预构建
+  optimizeDeps: {
+    exclude: ['@sparkjsdev/spark'],
+  },
+};
+```
+
+> [来源: 项目源码 — `apps/demo/vite.config.js`]
+
+</details>
+
+<details>
+<summary>Webpack (webpack-dev-server v5)</summary>
+
+```javascript
+// webpack.config.js
+module.exports = {
+  devServer: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+    },
+  },
+};
+```
+
+</details>
+
+<details>
+<summary>Express / Node.js</summary>
+
+```javascript
+app.use((req, res, next) => {
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
+```
+
+</details>
+
+> **缺少这些头时，`SharedArrayBuffer` 不可用，Spark 回退到单线程排序，性能显著下降。**
+
+### 生产部署指南
+
+缺少这些 HTTP 头时，渲染器会回退到单线程排序，导致性能显著下降。以下是常见托管平台的配置示例：
+
+<details>
+<summary>Nginx</summary>
+
+在 `server` 或 `location` 块中添加 `add_header` 指令：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name your-domain.com;
+
+    # 跨源隔离头 (启用 SharedArrayBuffer 必须)
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Embedder-Policy "require-corp" always;
+    add_header Cross-Origin-Resource-Policy "cross-origin" always;
+
+    # 3DGS 数据文件 (.splat, .spz, .sog, .ply)
+    location ~* \.(splat|spz|sog|ply)$ {
+        add_header Cross-Origin-Opener-Policy "same-origin" always;
+        add_header Cross-Origin-Embedder-Policy "require-corp" always;
+        add_header Cross-Origin-Resource-Policy "cross-origin" always;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        gzip off;  # .spz 已 gzip 压缩; .sog 使用分块传输
+    }
+
+    location / {
+        root /var/www/3dgs-demo;
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+> **注意：** 使用 `always` 确保错误响应 (404, 500) 也携带头信息。Nginx 的 `add_header` 默认不继承外层块 — 在嵌套 `location` 块中需重复声明。
+
+</details>
+
+<details>
+<summary>Vercel</summary>
+
+在项目根目录创建 `vercel.json`：
+
+```json
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
+        { "key": "Cross-Origin-Embedder-Policy", "value": "require-corp" },
+        { "key": "Cross-Origin-Resource-Policy", "value": "cross-origin" }
+      ]
+    }
+  ]
+}
+```
+
+> **注意：** Vercel 会自动对 `.spz` 文件应用 `Content-Encoding: gzip`，无需额外压缩配置。
+
+</details>
+
+<details>
+<summary>Netlify</summary>
+
+在项目根目录创建 `netlify.toml`：
+
+```toml
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"
+    Cross-Origin-Resource-Policy = "cross-origin"
+
+# 可选：3DGS 数据文件长期缓存
+[[headers]]
+  for = "/*.splat"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.spz"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.sog"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+```
+
+</details>
+
+<details>
+<summary>Cloudflare Pages</summary>
+
+在构建输出目录 (通常是 `public/` 或 `dist/`) 中创建 `_headers` 文件：
+
+```
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: cross-origin
+
+/*.splat
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.spz
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.sog
+  Cache-Control: public, max-age=31536000, immutable
+```
+
+> **注意：** Cloudflare 的 Auto Minify 和 Rocket Loader 功能可能干扰 3DGS 渲染，请在 Cloudflare 控制台中为 3DGS 部署禁用这些功能。
+
+</details>
+
+<details>
+<summary>验证方法</summary>
+
+部署后，验证跨源隔离是否生效：
+
+1. 打开浏览器 DevTools → 控制台
+2. 执行：`self.crossOriginIsolated`
+3. 应返回 `true`
+
+如果返回 `false`：
+- 检查**三个头**是否都已设置 (COOP、COEP、CORP)
+- 使用 DevTools → Network → 点击任意请求 → Response Headers 验证
+- 确认 CDN 或框架未覆盖 `Cross-Origin-Embedder-Policy` 为 `unsafe-none`
+
+</details>
+
 ---
 
 ## 开发指南

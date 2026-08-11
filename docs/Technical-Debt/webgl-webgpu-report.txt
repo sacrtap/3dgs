@@ -1,0 +1,148 @@
+WebGL 与 WebGPU 报告
+生成于 2026/8/11 17:27:27 - app.cinevva.com/tools/webgl-webgpu-checker
+
+你已准备好运行现代网页 3D
+WebGPU 和 WebGL 2 都能在此浏览器中、在你的 GPU 上运行。
+
+GPU: ANGLE (Intel, ANGLE Metal Renderer: Intel(R) Iris(TM) Plus Graphics 655, Unspecified Version) (Google Inc. (Intel))
+实时渲染: WebGPU 约 60 FPS
+
+支持情况
+  [x] WebGPU
+  [x] WebGL 2
+  [ ] WebGL 1
+
+纹理压缩
+  [x] BC / S3TC（桌面端）
+  [ ] ETC2（Android/移动端）
+  [ ] ASTC（移动端）
+  [x] BC 切片 3D
+  [ ] ASTC 切片 3D
+
+WEBGPU 适配器
+  vendor: intel
+  architecture: gen-9
+  isFallbackAdapter: undefined
+
+WEBGPU 功能
+ 纹理压缩
+  [x] BC / S3TC（桌面端）
+  [ ] ETC2（Android）
+  [ ] ASTC（移动端）
+ 着色器与计算
+  [x] 着色器中的 16 位浮点（f16）
+  [ ] 子组（Subgroups）
+  [x] 可过滤的 float32 纹理
+ 渲染与混合
+  [x] 可混合的 float32 目标
+  [x] 可渲染的 rg11b10ufloat
+  [x] BGRA8 存储纹理
+  [x] 双源混合
+ 深度与裁剪
+  [x] 深度裁剪控制
+  [x] 32 位深度 + stencil8
+  [x] 裁剪距离
+ 性能分析与核心
+  [x] 时间戳查询（性能分析）
+  [x] 间接首实例
+  [x] 核心功能与限制
+
+全部 WEBGPU 功能（22 项中的 16 项）
+  [x] core-features-and-limits
+  [x] depth-clip-control
+  [x] depth32float-stencil8
+  [x] texture-compression-bc
+  [x] texture-compression-bc-sliced-3d
+  [ ] texture-compression-etc2
+  [ ] texture-compression-astc
+  [ ] texture-compression-astc-sliced-3d
+  [x] timestamp-query
+  [x] indirect-first-instance
+  [x] shader-f16
+  [x] rg11b10ufloat-renderable
+  [x] bgra8unorm-storage
+  [x] float32-filterable
+  [x] float32-blendable
+  [x] clip-distances
+  [x] dual-source-blending
+  [ ] subgroups
+  [ ] primitive-index
+  [x] texture-component-swizzle
+  [x] texture-formats-tier1
+  [ ] texture-formats-tier2
+
+WEBGPU 限制
+ 纹理
+  maxTextureDimension1D: 16384
+  maxTextureDimension2D: 16384
+  maxTextureDimension3D: 2048
+  maxTextureArrayLayers: 2048
+  maxSampledTexturesPerShaderStage: 48
+  maxSamplersPerShaderStage: 16
+  maxStorageTexturesPerShaderStage: 8
+ 缓冲区
+  maxBufferSize: 2 GB
+  maxUniformBufferBindingSize: 64 KB
+  maxStorageBufferBindingSize: 2 GB
+  maxUniformBuffersPerShaderStage: 12
+  maxStorageBuffersPerShaderStage: 10
+  maxDynamicUniformBuffersPerPipelineLayout: 10
+  maxDynamicStorageBuffersPerPipelineLayout: 8
+  minUniformBufferOffsetAlignment: 256 B
+  minStorageBufferOffsetAlignment: 256 B
+ 绑定组
+  maxBindGroups: 4
+  maxBindGroupsPlusVertexBuffers: 24
+  maxBindingsPerBindGroup: 1000
+ 顶点阶段
+  maxVertexBuffers: 8
+  maxVertexAttributes: 30
+  maxVertexBufferArrayStride: 2048
+  maxInterStageShaderVariables: 28
+ 颜色附件
+  maxColorAttachments: 8
+  maxColorAttachmentBytesPerSample: 128 B
+ 计算
+  maxComputeWorkgroupStorageSize: 32 KB
+  maxComputeInvocationsPerWorkgroup: 1024
+  maxComputeWorkgroupSizeX: 1024
+  maxComputeWorkgroupSizeY: 1024
+  maxComputeWorkgroupSizeZ: 64
+  maxComputeWorkgroupsPerDimension: 65535
+
+WGSL 语言功能
+  [x] 可读写存储纹理
+  [x] 打包 4x8 整数点积（DP4a）
+  [x] 无限制指针参数
+  [x] 指针复合访问
+  [x] immediate_address_space
+  [x] linear_indexing
+  [x] subgroup_id
+  [x] subgroup_uniformity
+  [x] texture_and_sampler_let
+  [x] uniform_buffer_standard_layout
+
+杂项
+  首选画布格式: bgra8unorm
+  回退（CPU）适配器: 无
+  WebXR immersive-vr: 不支持
+
+WEBGL 2
+  GPU 厂商: Google Inc. (Intel)
+  GPU 渲染器: ANGLE (Intel, ANGLE Metal Renderer: Intel(R) Iris(TM) Plus Graphics 655, Unspecified Version)
+  版本: WebGL 2.0 (OpenGL ES 3.0 Chromium)
+  着色语言: WebGL GLSL ES 3.00 (OpenGL ES GLSL ES 3.0 Chromium)
+  最大纹理尺寸: 16384 px
+  最大立方体贴图尺寸: 16384 px
+  最大渲染缓冲区: 16384 px
+  最大顶点属性数: 16
+  最大纹理单元数: 32
+
+设备
+  设备像素比: 1
+  逻辑 CPU 核心数: 4
+  设备内存: ~8 GB
+  屏幕: 1920 x 1080
+  触控点数: 0
+
+标准 WebGPU 功能名称依据 W3C WebGPU 规范。在本地生成；未上传任何内容。

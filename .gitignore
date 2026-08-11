@@ -6,6 +6,7 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+*.tgz
 
 # IDE
 .vscode/
@@ -31,6 +32,7 @@ pnpm-debug.log*
 # Test / Coverage
 coverage/
 .nyc_output/
+.cache/
 
 # Playwright
 test-results/
@@ -44,19 +46,24 @@ benchmarks/reports/
 *.spz
 *.sog
 *.splat
+# Keep kitchen demo data (~18 MB) for quick developer testing
+!apps/demo/public/kitchen.sog
+!apps/demo/public/kitchen.splat
+!apps/demo/public/kitchen.spz
 
 # Banks (internal database)
 banks/
-
-# pnpm
-.pnpm-debug.log
-
-# Vite
-*.local
 
 # VitePress cache
 docs/site/.vitepress/cache/
 
 # Internal docs (local only, not published to remote)
+docs/party-mode-memories
+docs/party-mode-report
 docs/plan/
+
+# Local debug scripts (hardcoded paths, do not publish to remote)
+check_sog.py
+
+# Backup files
 README-backup.md

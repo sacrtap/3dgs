@@ -57,7 +57,12 @@ export interface SpzWriterOptions {
 /**
  * 将 GaussianCloud 写入 SPZ v2 格式
  *
- * 返回 gzip 压缩后的 Uint8Array, 可直接写入 .spz 文件
+ * 返回 Header (未压缩) + Body (gzip 压缩) 的 Uint8Array, 可直接写入 .spz 文件
+ *
+ * ★ M5 修复: 原代码 gzipCompress(u8) 压缩了整个 buffer (header + body),
+ *   导致前 4 字节为 gzip magic 而非 SPZ magic, 解码器 magic 校验失败。
+ *   修复后仅压缩 body 部分, header 16 字节保持未压缩。
+ *   [来源: SPZ v2 格式规范 — Header (16 bytes, 未压缩) + Body (gzip compressed)]
  *
  * @param cloud 高斯核集合
  * @param options 写入选项
@@ -175,8 +180,15 @@ export async function writeSpz(
     }
   }
 
-  // ── Gzip compress entire buffer ──
-  return gzipCompress(u8);
+  // ── M5 修复: 仅压缩 body 部分, header 保持未压缩 ──
+  // SPZ v2 格式规范: Header (16 bytes, 未压缩) + Body (gzip compressed)
+  // 原代码 gzipCompress(u8) 压缩整个 buffer → magic 不匹配 → 解码失败
+  const headerBytes = u8.slice(0, headerSize);
+  const compressedBody = await gzipCompress(u8.slice(headerSize));
+  const result = new Uint8Array(headerSize + compressedBody.byteLength);
+  result.set(headerBytes, 0);
+  result.set(compressedBody, headerSize);
+  return result;
 }
 
 /** 位置量化: round(x * fraction), clamped to ±8388607 (24-bit signed) */

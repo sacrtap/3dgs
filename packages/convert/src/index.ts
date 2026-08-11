@@ -54,7 +54,28 @@ export {
 export type { SpzWriterOptions } from './spz-writer.js';
 
 // SOG 写入器
-export { writeSog, parseSogMetadata } from './sog-writer.js';
+export {
+  writeSog,
+  parseSogMetadata,
+  buildLodLevels,
+  serializeLodTree,
+  deserializeLodTree,
+  SOG_MAGIC_V1,
+  SOG_MAGIC_V2,
+  SOG_VERSION_V1,
+  SOG_VERSION_V2,
+  SOG_HEADER_SIZE,
+  SOG_COMPRESSION_NONE,
+  SOG_COMPRESSION_GZIP,
+  SOG_POSITION_QUANT_OFF,
+  SOG_POSITION_QUANT_24BIT,
+  SOG_COMPACT_BYTES_PER_SPLAT,
+  DEFAULT_LOD_LEVELS,
+  DEFAULT_LOD_BASE_QUALITY,
+  DEFAULT_LOD_BASE_FAST,
+  MIN_LOD_SPLATS,
+  LOD_TREE_HEADER_SIZE,
+} from './sog-writer.js';
 export type {
   SogWriterOptions,
   SogChunkEntry,

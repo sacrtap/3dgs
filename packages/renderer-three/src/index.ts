@@ -27,9 +27,17 @@ import { SplatFileType } from '@sparkjsdev/spark';
 import { detectDeviceTier, getTierSettings, type DeviceProfile } from './device-tier.js';
 import { AdaptiveResolution } from './adaptive-resolution.js';
 import { SogStreamer, type SogMetadata } from './sog-streamer.js';
+// ★ H3+H4: 接入 FrustumCulling 和 SplatBufferPool (原孤儿模块)
+import { FrustumCulling } from './frustum-culling.js';
+import { SplatBufferPool } from './buffer-pool.js';
 import { DragLookControls } from './drag-look-controls.js';
 import { concatChunksInWorker } from './sog-concat-worker.js';
+import { decodeSpzInWorker, parseSpzHeader } from './spz-decoder-worker.js';
 import { injectAfterMainBegin as injectAfterMainBeginFn, injectBeforePattern as injectBeforePatternFn, injectBeforeMainEnd as injectBeforeMainEndFn, inferGLSLType as inferGLSLTypeFn } from './shader-utils.js';
+// ★ M4: 共享模块
+import { KeyboardControls } from './keyboard-controls.js';
+import { FrameCallbackManager } from './frame-callback-manager.js';
+import { CameraMatrixCache } from './camera-matrix-cache.js';
 
 export interface RenderManagerOptions {
   /** 强制设备分级 (默认自动检测) */
@@ -69,14 +77,10 @@ export class RenderManager implements RendererAdapter {
   private _running = false;
   private _destroyed = false;
 
-  // 帧回调 (替代双 RAF)
-  private frameCallbacks = new Set<(deltaTime: number) => void>();
-
-  // 矩阵缓存
-  private vpMatrix = new Float32Array(16);
-  private camPos = { x: 0, y: 0, z: 0 };
-  private tmpV3 = new THREE.Vector3();
-  private tmpM4 = new THREE.Matrix4();
+  // ★ M4: 共享模块实例
+  private _frameCallbacks = new FrameCallbackManager();
+  private _cameraCache = new CameraMatrixCache();
+  private _keyboard: KeyboardControls;
 
   // 设备信息
   private deviceProfile: DeviceProfile;
@@ -90,26 +94,33 @@ export class RenderManager implements RendererAdapter {
   private cssWidth = 0;
   private cssHeight = 0;
 
-  // 键盘移动控制
-  private keysDown = new Set<string>();
-  private _enableKeyboard: boolean;
-  private _moveSpeed: number;
-  private _verticalSpeed: number;
-  private _keyHandler?: (e: KeyboardEvent) => void;
-  private _keyUpHandler?: (e: KeyboardEvent) => void;
-  private _blurHandler?: () => void;
-
-  // ★ 速度平滑: 当前速度向量 (连续指数插值)
-  private _currentVel = new THREE.Vector3();
-  private _targetVel = new THREE.Vector3();
-
   // 坐标矫正 & LOD
   private _autoOrient: boolean;
   private _enableLod: boolean;
   private _lodReady = false;
+  /** ★ M2 衍生: 预构建 SOG LOD 层级 (累计 splat 数), undefined = 无预构建 */
+  private _sogLodLevels?: number[];
+  /** ★ M2 衍生: LOD 缩减因子 */
+  private _sogLodBase?: number;
 
   // ★ SOG 流式加载器 (用于 abort)
   private _sogStreamer?: SogStreamer;
+
+  // ★ H2: WebGL context lost/restore 处理
+  private _currentSceneSource?: string;
+  private _currentSceneOptions?: LoadOptions;
+  private _contextLostHandler?: (e: Event) => void;
+  private _contextRestoredHandler?: (e: Event) => void;
+
+  // ★ H3: FrustumCulling 视锥剔除 (可见性监控)
+  private _frustumCulling?: FrustumCulling;
+  private _frustumFrameCounter = 0;
+
+  // ★ H4: SplatBufferPool 缓冲池
+  private _bufferPool = new SplatBufferPool({ maxPoolSize: 8 });
+
+  // ★ H5: _lodReady 信号消费
+  private _lodReadyLogged = false;
 
   // ★ dt 平滑 (指数移动平均, 用于移动和帧回调)
   private _smoothDt = 16.67;
@@ -128,9 +139,11 @@ export class RenderManager implements RendererAdapter {
     const pixelRatio = options.pixelRatio ?? this.tierSettings.pixelRatio;
 
     this._pixelRatio = pixelRatio;
-    this._enableKeyboard = options.enableKeyboardControls ?? true;
-    this._moveSpeed = options.moveSpeed ?? 5.0;
-    this._verticalSpeed = options.verticalSpeed ?? 3.0;
+    this._keyboard = new KeyboardControls({
+      moveSpeed: options.moveSpeed ?? 5.0,
+      verticalSpeed: options.verticalSpeed ?? 3.0,
+      enabled: options.enableKeyboardControls ?? true,
+    });
     this._autoOrient = options.autoOrient ?? true;
     this._enableLod = options.enableLod ?? true;
 
@@ -193,6 +206,33 @@ export class RenderManager implements RendererAdapter {
       maxStdDev: this.tierSettings.maxStdDev,
       minPixelRadius: this.tierSettings.minPixelRadius,
       clipXY: this.tierSettings.clipXY,
+      // ★ P0-3: 排序节流 — 减少排序频率以提升帧率
+      //   LOW=100ms (6-10fps sort), MEDIUM=50ms (20fps sort)
+      //   HIGH=33ms (30fps sort), ULTRA=16ms (60fps sort)
+      minSortIntervalMs: this.tierSettings.minSortIntervalMs,
+      // ★ P0-4: 注视点渲染 (Foveated Rendering) — 中心高分辨率, 边缘降分辨率
+      //   减少 overdraw, 在低端设备上可提升 20-40% 帧率
+      //   [来源: Spark API — SparkRendererOptions.coneFov0/coneFov/coneFoveate/behindFoveate]
+      coneFov0: this.tierSettings.coneFov0,
+      coneFov: this.tierSettings.coneFov,
+      coneFoveate: this.tierSettings.coneFoveate,
+      behindFoveate: this.tierSettings.behindFoveate,
+      // ★ P1-1: PagedSplats GPU 内存页池大小 + 并行 chunk 获取器
+      //   [来源: Spark API — SparkRendererOptions.maxPagedSplats/numLodFetchers]
+      maxPagedSplats: this.tierSettings.maxPagedSplats,
+      numLodFetchers: this.tierSettings.numLodFetchers,
+      // ★ L1: Splat 模糊量 — 添加到 2D 协方差对角线, 产生抗锯齿效果
+      //   LOW=0.1 (减少 overdraw), MEDIUM=0.2, HIGH/ULTRA=0.3 (Spark 默认)
+      //   [来源: Spark 源码 — spark.module.js:9874 this.blurAmount = options.blurAmount ?? 0.3]
+      blurAmount: this.tierSettings.blurAmount,
+      // ★ L1 衡生: 最小 alpha 渲染阈值 — 低于此值的 splat 被 discard
+      //   LOW=5/255 (激进裁剪), MEDIUM=2/255, HIGH=1/255, ULTRA=0.5/255 (Spark 默认)
+      //   [来源: Spark 类型 — SparkRenderer.d.ts:73 minAlpha?: number]
+      minAlpha: this.tierSettings.minAlpha,
+      // ★ L1 衡生: 投影 splat 缩放校正值 — 控制锐利度
+      //   LOW/MEDIUM=1.0 (Spark 默认), HIGH=1.5, ULTRA=2.0 (匹配 PlayCanvas)
+      //   [来源: Spark 类型 — SparkRenderer.d.ts:130 focalAdjustment?: number]
+      focalAdjustment: this.tierSettings.focalAdjustment,
     });
     spark.renderSize.set(this.cssWidth, this.cssHeight);
     scene.add(spark);
@@ -206,8 +246,8 @@ export class RenderManager implements RendererAdapter {
 
     this.updateRenderSize();
 
-    if (this._enableKeyboard) {
-      this.setupKeyboardControls();
+    if (this._keyboard.isEnabled) {
+      this._keyboard.setup();
     }
 
     // ★ 单一 RAF 循环
@@ -230,33 +270,41 @@ export class RenderManager implements RendererAdapter {
       this._smoothDt = this._smoothDt * 0.9 + rawDt * 0.1;
       const dt = Math.min(this._smoothDt, 50);
 
-      // ★ 键盘移动 (连续指数平滑, 在 controls.update 前应用)
-      this.applyKeyboardMovement(dt);
+      // ★ M4: 键盘移动 (共享模块)
+      this._keyboard.applyMovement(camera, dt);
 
       controls.update();
       renderer.render(scene, camera);
 
-      // 更新矩阵缓存
-      this.tmpM4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-      this.tmpM4.toArray(this.vpMatrix);
-      camera.getWorldPosition(this.tmpV3);
-      this.camPos.x = this.tmpV3.x;
-      this.camPos.y = this.tmpV3.y;
-      this.camPos.z = this.tmpV3.z;
+      // ★ M4: 更新矩阵缓存 (共享模块)
+      this._cameraCache.update(camera);
 
-      // 帧回调
-      for (const cb of this.frameCallbacks) {
-        try {
-          cb(dt);
-        } catch {
-          /* 安全 */
-        }
-      }
+      // ★ M4: 帧回调 (共享模块)
+      this._frameCallbacks.invoke(dt);
 
       // ★ Shader 注入 uniform 更新
       this.updateInjectionUniforms(dt);
 
       this.adaptive?.sample();
+
+      // ★ H3: FrustumCulling 可见性监控 (每 60 帧 ≈1s 采样一次)
+      if (this._frustumCulling && this._frustumFrameCounter++ % 60 === 0) {
+        try {
+          const ratio = this._frustumCulling.getVisibleRatio(this._cameraCache.vpMatrixTHREE);
+          const visible = Math.round(ratio * this._frustumCulling.getTotalSplats());
+          console.debug(
+            `[RenderManager] FrustumCulling: ${(ratio * 100).toFixed(1)}% visible (${visible.toLocaleString()} / ${this._frustumCulling.getTotalSplats().toLocaleString()} splats)`,
+          );
+        } catch {
+          /* 安全 */
+        }
+      }
+
+      // ★ H5: _lodReady 信号消费 — LOD 就绪时通知一次
+      if (this._enableLod && !this._lodReadyLogged && this._lodReady) {
+        this._lodReadyLogged = true;
+        console.info('[RenderManager] LOD 构建完成, 渲染质量已提升');
+      }
 
       this.rafId = requestAnimationFrame(loop);
     };
@@ -272,6 +320,45 @@ export class RenderManager implements RendererAdapter {
       this.updateRenderSize();
     });
     this.ro.observe(this.container);
+
+    // ★ H2: WebGL context lost/restore 事件处理
+    //   context 丢失后 GPU buffer 全部失效, 需重新加载场景
+    //   移动端和集显设备在内存压力下高发
+    this._contextLostHandler = (e: Event) => {
+      e.preventDefault();
+      console.warn('[RenderManager] WebGL context lost — GPU 资源已释放, 等待 restore...');
+      this._running = false;
+    };
+    this._contextRestoredHandler = () => {
+      console.info('[RenderManager] WebGL context restored — 重新加载场景');
+      this._running = true;
+      if (this._currentSceneSource) {
+        this.loadScene(this._currentSceneSource, this._currentSceneOptions).catch((err) => {
+          console.error('[RenderManager] context restored 后重载场景失败:', err);
+        });
+      }
+      // 重启 RAF 循环
+      if (this.rafId === 0) {
+        let lastTime = performance.now();
+        const loop = () => {
+          if (!this._running || this._destroyed) return;
+          const now = performance.now();
+          this._smoothDt = this._smoothDt * 0.9 + (now - lastTime) * 0.1;
+          lastTime = now;
+          const dt = Math.min(this._smoothDt, 50);
+          this._keyboard.applyMovement(this.camera!, dt);
+          this.controls?.update();
+          if (this.renderer && this.scene && this.camera) {
+            this.renderer.render(this.scene, this.camera);
+          }
+          this.adaptive?.sample();
+          this.rafId = requestAnimationFrame(loop);
+        };
+        this.rafId = requestAnimationFrame(loop);
+      }
+    };
+    renderer.domElement.addEventListener('webglcontextlost', this._contextLostHandler);
+    renderer.domElement.addEventListener('webglcontextrestored', this._contextRestoredHandler);
   }
 
   stop(): void {
@@ -295,6 +382,14 @@ export class RenderManager implements RendererAdapter {
     }
 
     this._lodReady = false;
+    this._lodReadyLogged = false;
+    // ★ M2 衍生: 重置预构建 LOD 数据
+    this._sogLodLevels = undefined;
+    this._sogLodBase = undefined;
+
+    // ★ H2: 记录当前场景信息, 供 context restored 后重载
+    this._currentSceneSource = source;
+    this._currentSceneOptions = options;
 
     // ★ 若提供 lodSource (SOG 流式 LOD URL)，优先使用流式加载
     if (options?.lodSource) {
@@ -307,6 +402,16 @@ export class RenderManager implements RendererAdapter {
           err instanceof Error ? err.message : err,
         );
         // 回退到 source 直接加载
+      }
+    }
+
+    // ★ P1-4: 对 .spz 文件使用 Worker 解码, 避免主线程阻塞
+    if (source.endsWith('.spz')) {
+      try {
+        await this.loadSceneWithSpz(source, options);
+        return;
+      } catch (err) {
+        console.warn('[RenderManager] SPZ Worker 解码失败, 回退到 URL 直接加载:', err);
       }
     }
 
@@ -397,7 +502,8 @@ export class RenderManager implements RendererAdapter {
     // ★ 均匀降采样: 每隔 step 个 splat 取 1 个, 保持空间覆盖均匀
     const step = totalSplats / maxSplats;
     const sampledSplats = Math.floor(totalSplats / step);
-    const sampledData = new Uint8Array(sampledSplats * 32);
+    // ★ H4: 使用 SplatBufferPool 复用 ArrayBuffer, 减少 GC 压力
+    const sampledData = new Uint8Array(this._bufferPool.acquire(sampledSplats * 32));
 
     for (let i = 0; i < sampledSplats; i++) {
       const srcOffset = Math.floor(i * step) * 32;
@@ -431,6 +537,12 @@ export class RenderManager implements RendererAdapter {
           }
           this.scene!.add(loadedMesh);
           this.currentSplat = loadedMesh;
+          // ★ H3: 从 splat 数据创建 FrustumCulling 实例, 用于可见性监控
+          try {
+            this._frustumCulling = new FrustumCulling(data);
+          } catch {
+            this._frustumCulling = undefined;
+          }
           this.positionCameraToBounds(loadedMesh);
           if (this._enableLod) {
             this.buildLod(loadedMesh);
@@ -445,18 +557,198 @@ export class RenderManager implements RendererAdapter {
   }
 
   /**
-   * ★ SOG 流式加载 — 首帧快速渲染 + 渐进补全
+   * ★ P1-4: SPZ Worker 解码加载
    *
    * 工作流程:
-   *   1. SogStreamer 获取 header + chunk index
-   *   2. 加载第一个 chunk → 从 .splat 数据创建 SplatMesh → 立即渲染 (首帧)
-   *   3. 继续加载剩余 chunk → 累积数据
-   *   4. 所有 chunk 加载完成 → 用完整数据替换 SplatMesh (补全细节)
+   *   1. fetch 获取 SPZ 文件 (支持进度回调)
+   *   2. 在 Web Worker 中执行 gzip 解压 + 反量化 → .splat 格式字节
+   *   3. 若 splat 数量超过 maxSplats, 均匀降采样
+   *   4. 创建 SplatMesh({ fileBytes, fileType: SPLAT })
    *
-   * [来源: SOG 格式 — packages/convert/src/sog-writer.ts]
-   * [来源: SplatMesh fileBytes API — @sparkjsdev/spark SplatMeshOptions]
+   * 优势 (相比 Spark URL 直接加载):
+   *   ✅ 主线程不阻塞 — gzip 解压 + 反量化在 Worker 中执行
+   *   ✅ 支持 maxSplats 截断 — 与 .splat 加载路径一致的降采样逻辑
+   *   ✅ 进度回调 — fetch 阶段可报告下载进度
+   *
+   * 注意: 解码为 .splat 格式后不支持 SH 球谐系数。
+   *       如需 SH, 请使用 Spark URL 直接加载 (回退路径)。
+   *
+   * [来源: SPZ 格式 — github.com/nianticlabs/spz]
+   * [来源: 项目源码 — packages/renderer-three/src/spz-decoder-worker.ts]
+   */
+  private async loadSceneWithSpz(source: string, options?: LoadOptions): Promise<void> {
+    // 1. fetch 获取 SPZ 文件 (支持进度回调)
+    const response = await fetch(source);
+    if (!response.ok) {
+      throw new Error(`fetch ${source}: ${response.status}`);
+    }
+
+    const contentLength = parseInt(response.headers.get('Content-Length') || '0', 10);
+    const reader = response.body?.getReader();
+
+    if (!reader) {
+      // 无 body stream, 直接读取
+      const spzData = await response.arrayBuffer();
+      const splatBytes = await decodeSpzInWorker(spzData);
+      await this.createSplatMeshFromSplatBytes(splatBytes, options);
+      return;
+    }
+
+    // 分块读取, 报告下载进度
+    const chunks: Uint8Array[] = [];
+    let receivedLength = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        chunks.push(value);
+        receivedLength += value.byteLength;
+        if (options?.onProgress && contentLength > 0) {
+          options.onProgress(receivedLength, contentLength);
+        }
+      }
+    }
+
+    // 合并 chunks
+    const spzData = new Uint8Array(receivedLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      spzData.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    // 2. 解析 header (获取 splat 数量, 用于日志)
+    const header = parseSpzHeader(spzData);
+    console.info(
+      `[RenderManager] SPZ 文件已下载: ${header.numSplats.toLocaleString()} splats, ` +
+      `${(spzData.byteLength / 1024 / 1024).toFixed(2)} MB (压缩)`,
+    );
+
+    // 3. 在 Worker 中解码 SPZ → .splat 格式
+    const splatBytes = await decodeSpzInWorker(spzData.buffer.slice(spzData.byteOffset, spzData.byteOffset + spzData.byteLength));
+
+    // 4. 若 splat 数量超过 maxSplats, 均匀降采样
+    const maxSplats = this.tierSettings.maxSplats;
+    if (header.numSplats > maxSplats) {
+      const step = header.numSplats / maxSplats;
+      const sampledSplats = Math.floor(header.numSplats / step);
+      // ★ H4: 使用 SplatBufferPool 复用 ArrayBuffer
+      const sampledData = new Uint8Array(this._bufferPool.acquire(sampledSplats * 32));
+
+      for (let i = 0; i < sampledSplats; i++) {
+        const srcOffset = Math.floor(i * step) * 32;
+        const dstOffset = i * 32;
+        sampledData.set(splatBytes.subarray(srcOffset, srcOffset + 32), dstOffset);
+      }
+
+      console.info(
+        `[RenderManager] SPZ 降采样: ${sampledSplats.toLocaleString()} / ${header.numSplats.toLocaleString()} splats ` +
+        `(step=${step.toFixed(2)}, 保留 ${(sampledSplats / header.numSplats * 100).toFixed(1)}%)`,
+      );
+
+      if (options?.onProgress) {
+        options.onProgress(header.numSplats, header.numSplats);
+      }
+
+      await this.createSplatMeshFromSplatBytes(sampledData, options);
+    } else {
+      console.info(
+        `[RenderManager] SPZ 全量加载: ${header.numSplats.toLocaleString()} splats (无需降采样)`,
+      );
+
+      if (options?.onProgress) {
+        options.onProgress(header.numSplats, header.numSplats);
+      }
+
+      await this.createSplatMeshFromSplatBytes(splatBytes, options);
+    }
+  }
+
+  /**
+   * 从 .splat 字节数据创建 SplatMesh 并添加到场景
+   * (复用 createSplatMeshFromBytes 的逻辑, 但不使用 options 参数)
+   */
+  private async createSplatMeshFromSplatBytes(data: Uint8Array, _options?: LoadOptions): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      new SplatMesh({
+        fileBytes: data,
+        fileType: SplatFileType.SPLAT,
+        maxSplats: this.tierSettings.maxSplats,
+        onLoad: async (loadedMesh: SplatMesh) => {
+          if (this._autoOrient) {
+            loadedMesh.rotation.x = Math.PI;
+          }
+          this.scene!.add(loadedMesh);
+          this.currentSplat = loadedMesh;
+          // ★ H3: 从 splat 数据创建 FrustumCulling 实例
+          try {
+            this._frustumCulling = new FrustumCulling(data);
+          } catch {
+            this._frustumCulling = undefined;
+          }
+          this.positionCameraToBounds(loadedMesh);
+          if (this._enableLod) {
+            this.buildLod(loadedMesh);
+          }
+          this.applyInjectionsToMaterial();
+          resolve();
+        },
+      });
+
+      setTimeout(() => reject(new Error('SplatMesh 创建超时 (SPZ)')), 30000);
+    });
+  }
+
+  /**
+   * ★ SOG 流式加载 — 使用 SogStreamer 全量加载 + SplatMesh 创建
+   *
+   * 设计决策: 不使用 Spark PagedSplats 分页加载, 原因如下 (M1 技术债务已关闭):
+   *
+   *   Spark PagedSplats 要求每个 chunk 的解码结果包含 extra.lodTree (Uint32Array),
+   *   这是 Spark RAD 格式的预构建 LOD 树数据。SplatPager.processFetched() 将其放入
+   *   lodTreeUpdates, SparkRenderer.consumeLodTreeUpdates() 仅在
+   *   `if (lodTree && chunk === 0)` 时设置 record.rootPage。
+   *
+   *   SOG 格式存储 Morton 排序的 .splat 数据, 不包含 Spark 兼容的 LOD 树。
+   *   unpackSplats() 解码 .splat 数据后 extra.lodTree 为 undefined →
+   *   rootPage 永不设置 → mesh 被 updateLodInstances 永久排除 → 黑屏。
+   *
+   *   这不是 API 使用错误, 而是格式层面的不兼容。修复需要:
+   *   - 在 SOG chunk 中嵌入 Spark LOD 树 (关联 M2 技术债务), 或
+   *   - 运行时用 Spark WASM 构建 LOD 树 (深度耦合 Spark 内部实现)
+   *
+   * 当前方案: 直接使用 SogStreamer 全量加载所有 chunk, 拼接后创建常规 SplatMesh。
+   *   - 首个 chunk 到达即创建临时 Mesh (首帧快速可见)
+   *   - 全量 chunk 拼接后替换为完整 Mesh
+   *   - 使用 positionCameraToBounds() 基于实际 Mesh 包围盒定位相机 (正确处理 Y 翻转)
+   *   - 与 .splat 文件加载路径完全一致, 已验证可靠
+   *
+   * [来源: Spark 源码 — spark.module.js:10474 consumeLodTreeUpdates rootPage 检查]
+   * [来源: Spark 源码 — spark.module.js:10559 updateLodInstances rootPage 排除逻辑]
+   * [来源: Spark 类型 — defines.d.ts:63 PackedExtra.lodTree?: Uint32Array]
+   * [来源: SogStreamer — packages/renderer-three/src/sog-streamer.ts]
    */
   private async loadSceneWithSog(
+    lodSource: string,
+    options?: LoadOptions,
+  ): Promise<void> {
+    await this.loadSceneWithSogFallback(lodSource, options);
+  }
+
+  /**
+   * ★ SOG 流式加载实现 — SogStreamer 全量加载 + 双 Mesh 方案
+   *
+   * 工作流程:
+   *   1. SogStreamer 并行加载所有 chunk (4 路并行, HTTP Range 请求)
+   *   2. 首个 chunk (chunk 0) 到达后立即创建临时 SplatMesh → 首帧可见
+   *   3. 所有 chunk 加载完成后, 使用 concatChunksInWorker 拼接为完整 buffer
+   *   4. 移除临时 Mesh, 创建包含全量数据的 SplatMesh
+   *   5. 使用 positionCameraToBounds() 基于实际 Mesh 包围盒定位相机
+   *
+   * 此方法是 SOG 加载的唯一路径。
+   */
+  private async loadSceneWithSogFallback(
     lodSource: string,
     options?: LoadOptions,
   ): Promise<void> {
@@ -466,6 +758,12 @@ export class RenderManager implements RendererAdapter {
 
     const streamer = new SogStreamer({
       url: lodSource,
+      parallel: true,
+      parallelCount: 4,
+      // ★ P2: 早期终止加载 — 只加载足够提供 maxSplats 个 splat 的前 N 个 chunk
+      //   SOG 数据是 Morton 排序的, 前 N 个 chunk 包含空间均匀分布的子集
+      //   例如: Garden 5.83M splats, maxSplats=500K → 只需 31/357 chunks (8.7%)
+      maxSplats: this.tierSettings.maxSplats,
       onProgress: (loadedChunks, totalChunks, loadedSplats, totalSplats) => {
         if (options?.onProgress) {
           options.onProgress(loadedSplats, totalSplats);
@@ -473,11 +771,9 @@ export class RenderManager implements RendererAdapter {
       },
       onChunkLoaded: (chunkIndex, data, _count) => {
         chunkDataList[chunkIndex] = data;
-
-        // ★ 首个 chunk 到达 → 立即创建 SplatMesh 渲染 (首帧快速显示)
-        // P1: 临时 Mesh 不构建 LOD, 避免浪费 (临时 Mesh 会被全量 Mesh 替换)
         if (!firstMeshReady && chunkIndex === 0) {
           firstMeshReady = true;
+          options?.onFirstFrame?.();
           new SplatMesh({
             fileBytes: new Uint8Array(data),
             fileType: SplatFileType.SPLAT,
@@ -489,8 +785,6 @@ export class RenderManager implements RendererAdapter {
               this.scene!.add(loadedMesh);
               this.currentSplat = loadedMesh;
               this.positionCameraToBounds(loadedMesh);
-              // P1: 临时 Mesh 不构建 LOD — 全量 Mesh 会重建, 避免浪费 O(M log M)
-              // ★ 应用 Shader 注入
               this.applyInjectionsToMaterial();
             },
           });
@@ -502,24 +796,47 @@ export class RenderManager implements RendererAdapter {
     });
 
     this._sogStreamer = streamer;
-
-    // 启动流式加载 (会阻塞到所有 chunk 加载完成)
     metadata = await streamer.start();
 
-    // ★ 所有 chunk 加载完成 → 用完整数据替换 SplatMesh
     if (this.currentSplat) {
       this.scene!.remove(this.currentSplat);
       this.currentSplat.dispose();
       this.currentSplat = undefined;
     }
 
-    // P1: 拼接所有 chunk 数据为完整的 .splat buffer (在 Web Worker 中执行, 避免阻塞主线程)
     const fullBuffer = await concatChunksInWorker(chunkDataList);
 
-    // 用完整数据创建最终 SplatMesh
+    // ★ P0: SOG 降采样 — 与 .splat 加载路径一致的降采样逻辑
+    //   maxSplats 仅是预分配提示, 不会实际限制 splat 数量。
+    //   P2 早期终止加载后, 加载的 splat 数可能略超 maxSplats (因为按 chunk 粒度截断)。
+    //   SOG 数据是 Morton 排序的, 均匀降采样能保持空间覆盖均匀。
+    //   [来源: 项目源码 — packages/renderer-three/src/index.ts loadSceneWithTruncatedSplat]
+    const fullData = new Uint8Array(fullBuffer);
+    const loadedSplats = Math.floor(fullData.byteLength / 32);
+    const maxSplats = this.tierSettings.maxSplats;
+    let meshData: Uint8Array = fullData;
+
+    if (loadedSplats > maxSplats) {
+      const step = loadedSplats / maxSplats;
+      const sampledSplats = Math.floor(loadedSplats / step);
+      const sampledData = new Uint8Array(this._bufferPool.acquire(sampledSplats * 32));
+
+      for (let i = 0; i < sampledSplats; i++) {
+        const srcOffset = Math.floor(i * step) * 32;
+        const dstOffset = i * 32;
+        sampledData.set(fullData.subarray(srcOffset, srcOffset + 32), dstOffset);
+      }
+
+      console.info(
+        `[RenderManager] SOG 降采样: ${sampledSplats.toLocaleString()} / ${loadedSplats.toLocaleString()} splats ` +
+        `(step=${step.toFixed(2)}, 保留 ${(sampledSplats / loadedSplats * 100).toFixed(1)}%)`,
+      );
+      meshData = sampledData;
+    }
+
     await new Promise<void>((resolve, reject) => {
       new SplatMesh({
-        fileBytes: fullBuffer,
+        fileBytes: meshData,
         fileType: SplatFileType.SPLAT,
         maxSplats: this.tierSettings.maxSplats,
         onLoad: async (loadedMesh: SplatMesh) => {
@@ -530,32 +847,32 @@ export class RenderManager implements RendererAdapter {
           this.currentSplat = loadedMesh;
           this.positionCameraToBounds(loadedMesh);
           if (this._enableLod) {
-            this.buildLod(loadedMesh);
+            this.buildLodNonBlocking(loadedMesh, metadata);
           }
-          // ★ 应用 Shader 注入
           this.applyInjectionsToMaterial();
           resolve();
         },
       });
 
-      // 超时保护 (10s)
       setTimeout(() => {
         reject(new Error('SOG 完整 mesh 创建超时'));
       }, 10000);
     });
 
+    const compressionStr = metadata.compression === 1 ? 'gzip' : 'none';
+    const quantStr = metadata.positionQuantization === 1 ? '24bit' : 'off';
     console.info(
-      `[RenderManager] SOG 流式加载完成: ${metadata.numSplats.toLocaleString()} splats, ` +
-      `${metadata.numChunks} chunks`,
+      `[RenderManager] SOG 回退加载完成: ${metadata.numSplats.toLocaleString()} splats, ` +
+      `${metadata.numChunks} chunks, compression=${compressionStr}, posQuant=${quantStr}, v${metadata.version}`,
     );
   }
 
   getViewProjectionMatrix(): Float32Array {
-    return this.vpMatrix;
+    return this._cameraCache.vpMatrix;
   }
 
   getCameraPosition(): { x: number; y: number; z: number } {
-    return this.camPos;
+    return this._cameraCache.camPos;
   }
 
   getSize(): { width: number; height: number } {
@@ -573,8 +890,7 @@ export class RenderManager implements RendererAdapter {
   }
 
   onFrame(callback: (deltaTime: number) => void): () => void {
-    this.frameCallbacks.add(callback);
-    return () => this.frameCallbacks.delete(callback);
+    return this._frameCallbacks.onFrame(callback);
   }
 
   // ─── Shader 注入 API ──────────────────────────────────────
@@ -776,7 +1092,7 @@ export class RenderManager implements RendererAdapter {
     this.stop();
     this._sogStreamer?.abort();
     this._sogStreamer = undefined;
-    this.teardownKeyboardControls();
+    this._keyboard.teardown();
     this.ro?.disconnect();
     this.ro = undefined;
     if (this.currentSplat) {
@@ -790,10 +1106,25 @@ export class RenderManager implements RendererAdapter {
     this.spark?.parent?.remove(this.spark);
     this.spark?.dispose();
     this.spark = undefined;
+
+    // ★ H2: 移除 context lost/restore 事件监听 (需在 renderer dispose 前执行)
+    if (this._contextLostHandler && this.renderer) {
+      this.renderer.domElement?.removeEventListener('webglcontextlost', this._contextLostHandler);
+      this._contextLostHandler = undefined;
+    }
+    if (this._contextRestoredHandler && this.renderer) {
+      this.renderer.domElement?.removeEventListener('webglcontextrestored', this._contextRestoredHandler);
+      this._contextRestoredHandler = undefined;
+    }
+
     this.renderer?.dispose();
     this.renderer?.domElement?.remove();
     this.renderer = undefined;
-    this.frameCallbacks.clear();
+    this._frameCallbacks.clear();
+
+    // ★ H3: 清理 FrustumCulling
+    this._frustumCulling = undefined;
+
     this._destroyed = true;
   }
 
@@ -803,6 +1134,11 @@ export class RenderManager implements RendererAdapter {
     return this.deviceProfile;
   }
 
+  // ★ H4: 暴露 BufferPool 统计信息, 便于性能分析
+  getBufferPoolStats() {
+    return this._bufferPool.getStats();
+  }
+
   getResolutionScale(): number {
     return this.adaptive?.currentResolutionScale ?? this.resolutionScale;
   }
@@ -810,6 +1146,29 @@ export class RenderManager implements RendererAdapter {
   /** LOD 树是否已构建完成 */
   isLodReady(): boolean {
     return this._lodReady;
+  }
+
+  /**
+   * ★ M2 衍生: 获取预构建 SOG LOD 层级
+   *
+   * @returns LOD 层级数组 (累计 splat 数), 或 undefined 表示无预构建 LOD
+   *
+   * 层级含义:
+   *   levels[0] = 最粗 LOD (最少 splats, 远距离使用)
+   *   levels[last] = 全部 splats (近距离使用)
+   *
+   * 可用于实现基于距离的自适应 LOD 切换:
+   *   1. 计算摄像机到场景中心的距离
+   *   2. 根据距离选择合适的 LOD 层级
+   *   3. 截取 SplatMesh 数据为该层级的 splat 数
+   */
+  getSogLodLevels(): number[] | undefined {
+    return this._sogLodLevels;
+  }
+
+  /** ★ M2 衍生: 获取 LOD 缩减因子 */
+  getSogLodBase(): number | undefined {
+    return this._sogLodBase;
   }
 
   // ─── 内部方法 ────────────────────────────────────────────
@@ -874,8 +1233,8 @@ export class RenderManager implements RendererAdapter {
 
       // ★ 根据场景大小自适应移动速度
       // 每秒移动场景最大维度的 6%, 保底 5.0
-      this._moveSpeed = Math.max(maxDim * 0.06, 5.0);
-      this._verticalSpeed = Math.max(maxDim * 0.04, 3.0);
+      this._keyboard.setMoveSpeed(Math.max(maxDim * 0.06, 5.0));
+      this._keyboard.setVerticalSpeed(Math.max(maxDim * 0.04, 3.0));
 
       // ★ 根据场景大小自适应滚轮速度
       this.controls.setWheelSpeed(Math.max(maxDim * 0.005, 0.5));
@@ -884,7 +1243,7 @@ export class RenderManager implements RendererAdapter {
 
       console.info(
         `[RenderManager] 摄像机已定位: pos=(${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}), ` +
-        `sceneSize=${maxDim.toFixed(2)}, moveSpeed=${this._moveSpeed.toFixed(1)}`,
+        `sceneSize=${maxDim.toFixed(2)}, moveSpeed=${this._keyboard.moveSpeed.toFixed(1)}`,
       );
     } catch (err) {
       console.warn('[RenderManager] 摄像机自动定位失败:', err);
@@ -921,164 +1280,110 @@ export class RenderManager implements RendererAdapter {
     }
   }
 
-  // ─── 键盘移动控制 ────────────────────────────────────────
+  /**
+   * ★ P1-3: 非阻塞式 LOD 构建
+   *
+   * 与 buildLod() 的区别:
+   *   - buildLod(): await → 阻塞 loadScene Promise (用于 .splat 直加载)
+   *   - buildLodNonBlocking(): 不 await → 用户立即可交互 (用于 SOG 流式加载)
+   *
+   * ★ M2 衍生: 预构建 LOD 驱动集成
+   *
+   * 若 SOG 元数据包含 lodLevels (M2 预构建 LOD 索引), 跳过 Spark WASM
+   * createLodSplats() 调用 (节省 8-80 秒构建时间), 直接标记 LOD 就绪。
+   *
+   * 预构建 LOD 层级基于 Morton 排序的前缀子集, 存储在 SOG 文件中。
+   * levels[0] = 最粗 LOD (最少数 splats), levels[last] = 全部 splats。
+   *
+   * 注意: 跳过 createLodSplats() 意味着 Spark 内置 LOD 驱动不生效,
+   * 渲染器将渲染全量 splats (最高质量)。预构建 LOD 层级通过
+   * getSogLodLevels() 暴露, 供未来基于距离的自适应 LOD 切换使用。
+   *
+   * 若无预构建 LOD (旧版 SOG 或 lodTreeSize=0), 回退到 createLodSplats()。
+   *
+   * [来源: Spark 源码 — createLodSplats 在 Web Worker 中执行, 耗时 8-80s]
+   * [来源: SOG LOD 格式 — packages/convert/src/sog-writer.ts buildLodLevels()]
+   * [来源: 基准测试 — benchmarks/reports/benchmark-report.md LOD 构建日志]
+   */
+  private buildLodNonBlocking(mesh: SplatMesh, metadata: SogMetadata | null): void {
+    // ★ M2 衍生: 预构建 LOD 集成
+    //
+    // Option A (修复性能回归): 即使有预建 LOD Levels 仍调用 createLodSplats()
+    // 原因: 跳过 WASM 调用会禁用 Spark 的 LOD 消隐机制 → 场景过大时帧率暴跌 (27→2 FPS)
+    //
+    // Option B (原方案): 完全跳过 createLodSplats() 并使用自定义 LOD 切换 (开发量大)
+    //
+    // 当前选择 Option A: 保留预建 LOD 对快速初始化的优势 (节省 buildLodLevels 计算),
+    // 同时确保 Spark 的 LOD 系统持续生效 (消隐)。
+    //
+    // 预建 levels 仍通过 getSogLodLevels() 暴露, 供未来质量提示使用。
+    //
+    // [来源: 基准测试 — benchmarks/reports/benchmark-report.md SOG Garden FPS 27.0→2.1]
+
+    // 始终调用 createLodSplats() 以确保 LOD 消隐生效
+    const useSogQuality = metadata && metadata.lodQuality !== undefined;
+    const quality = useSogQuality
+      ? metadata!.lodQuality === 1
+      : this.tierSettings.lodQuality;
+
+    // 若存在预建 LOD 数据, 缓存并日志提示
+    if (metadata?.lodLevels && metadata.lodLevels.length > 0) {
+      this._sogLodLevels = metadata.lodLevels;
+      this._sogLodBase = metadata.lodBase;
+      const levelsStr = metadata.lodLevels
+        .map(n => n.toLocaleString())
+        .join(' → ');
+      console.info(
+        `[RenderManager] 预构建 LOD 就绪: ` +
+        `${metadata.lodLevels.length} 层, base=${metadata.lodBase?.toFixed(2) ?? '?'}, ` +
+        `层级=[${levelsStr}] (仍调用 WASM 以保消隐)`,
+      );
+    }
+
+    // 非阻塞: 不 await, 立即返回
+    mesh.createLodSplats({ quality })
+      .then(() => {
+        this._lodReady = true;
+        console.info(
+          `[RenderManager] LOD 树非阻塞构建完成 (quality=${quality}, ` +
+          `source=${useSogQuality ? 'SOG' : 'tier'})`,
+        );
+      })
+      .catch((err) => {
+        console.warn('[RenderManager] LOD 树非阻塞构建失败 (不影响基础渲染):', err);
+        this._lodReady = false;
+      });
+  }
+
+  // ─── 键盘移动控制 (★ M4: 委托共享模块) ─────────────────
 
   setKeyboardEnabled(enabled: boolean): void {
-    this._enableKeyboard = enabled;
-    if (enabled && this._running) {
-      this.setupKeyboardControls();
-    } else if (!enabled) {
-      this.teardownKeyboardControls();
+    if (enabled) {
+      if (this._running) this._keyboard.setup();
+    } else {
+      this._keyboard.teardown();
     }
   }
 
   setMoveSpeed(speed: number): void {
-    this._moveSpeed = speed;
+    this._keyboard.setMoveSpeed(speed);
   }
 
   setVerticalSpeed(speed: number): void {
-    this._verticalSpeed = speed;
+    this._keyboard.setVerticalSpeed(speed);
   }
 
   getActiveMoveKeys(): string[] {
-    return Array.from(this.keysDown);
-  }
-
-  private setupKeyboardControls(): void {
-    if (this._keyHandler) return;
-
-    this._keyHandler = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
-      if (MOVE_KEYS.has(key)) {
-        this.keysDown.add(key);
-        e.preventDefault();
-      }
-    };
-
-    this._keyUpHandler = (e: KeyboardEvent) => {
-      this.keysDown.delete(e.key.toLowerCase());
-    };
-
-    this._blurHandler = () => {
-      this.keysDown.clear();
-    };
-
-    window.addEventListener('keydown', this._keyHandler);
-    window.addEventListener('keyup', this._keyUpHandler);
-    window.addEventListener('blur', this._blurHandler);
-  }
-
-  private teardownKeyboardControls(): void {
-    if (this._keyHandler) {
-      window.removeEventListener('keydown', this._keyHandler);
-      this._keyHandler = undefined;
-    }
-    if (this._keyUpHandler) {
-      window.removeEventListener('keyup', this._keyUpHandler);
-      this._keyUpHandler = undefined;
-    }
-    if (this._blurHandler) {
-      window.removeEventListener('blur', this._blurHandler);
-      this._blurHandler = undefined;
-    }
-    this.keysDown.clear();
-    this._currentVel.set(0, 0, 0);
-  }
-
-  /**
-   * ★ 连续指数平滑移动 (替代固定时间步长)
-   *
-   * 原理:
-   *   1. 按键状态 → 目标速度 (本地空间: x=右, y=上, z=前)
-   *   2. 连续指数插值: currentVel += (targetVel - currentVel) × (1 - exp(-dt/τ))
-   *      τ = 时间常数, 控制加速/减速的平滑程度
-   *   3. 本地空间平移: camera.translateX/Y/Z (自动跟随相机朝向, 无需每帧重算方向向量)
-   *
-   * 优势:
-   *   - 帧率无关: 30fps / 60fps / 144fps 下加速度曲线精确一致
-   *   - 无量化跳变: 每帧连续更新, 不存在步长累加器的跳步问题
-   *   - 方向无抖动: translateX/Y/Z 使用相机本地坐标系, 不受阻尼微调影响
-   *
-   * [来源: three/examples/jsm/controls/FirstPersonControls.js — translateX/Y/Z + lerp]
-   * [来源: https://www.gamedeveloper.com/programming/frame-rate-independent-damping]
-   */
-  private applyKeyboardMovement(dtMs: number): void {
-    if (!this.camera) return;
-
-    const dt = dtMs / 1000;
-
-    // ── 1. 计算目标速度 (本地空间) ──
-    // x=右移, y=升降, z=前后 (负值=前进)
-    this._targetVel.set(0, 0, 0);
-
-    if (this.keysDown.size > 0) {
-      // 前后 (W/S) → 本地 Z 轴
-      if (this.keysDown.has('w')) {
-        this._targetVel.z -= this._moveSpeed;
-      }
-      if (this.keysDown.has('s')) {
-        this._targetVel.z += this._moveSpeed;
-      }
-      // 左右 (A/D) → 本地 X 轴
-      if (this.keysDown.has('a')) {
-        this._targetVel.x -= this._moveSpeed;
-      }
-      if (this.keysDown.has('d')) {
-        this._targetVel.x += this._moveSpeed;
-      }
-      // 升降 (Q/E) → 世界 Y 轴 (不受相机朝向影响)
-      if (this.keysDown.has('q')) {
-        this._targetVel.y += this._verticalSpeed;
-      }
-      if (this.keysDown.has('e')) {
-        this._targetVel.y -= this._verticalSpeed;
-      }
-    }
-
-    // ── 2. 连续指数平滑 (帧率无关) ──
-    // alpha = 1 - exp(-dt / τ)
-    // τ = 时间常数 (秒), 约 63% 目标速度所需时间
-    // dt=16.67ms, τ=0.08s → alpha≈0.19; dt=33ms(30fps) → alpha≈0.34 (自动补偿)
-    //
-    // 与 1-(1-s)^(dt*60) 的区别:
-    //   旧公式是离散帧计数近似, 不同帧率下有微小误差
-    //   exp(-dt/τ) 是连续物理模型, 任意 dt 下数学精确等价
-    const alpha = 1 - Math.exp(-dt / MOVE_TIME_CONSTANT);
-    this._currentVel.lerp(this._targetVel, alpha);
-
-    if (this.keysDown.size === 0 && this._currentVel.lengthSq() < 1e-8) {
-      this._currentVel.set(0, 0, 0);
-      return;
-    }
-
-    // ── 3. 本地空间平移 ──
-    // translateX/Y/Z 自动使用相机的本地坐标系
-    // 无需每帧调用 getWorldDirection + crossVectors + normalize
-    // 消除方向向量微变导致的位移抖动
-    //
-    // 注意: translateY 需要相机 up 向量 = 世界 Y 轴
-    // (DragLookControls 使用 YXZ Euler, up 始终为 (0,1,0), 满足此条件)
-    this.camera.translateX(this._currentVel.x * dt);
-    this.camera.translateY(this._currentVel.y * dt);
-    this.camera.translateZ(this._currentVel.z * dt);
+    return this._keyboard.getActiveMoveKeys();
   }
 }
-
-/** 移动平滑时间常数 (秒) — 控制加速/减速的平滑程度
- *  τ=0.08s: 约 80ms 达到 63% 目标速度, 约 240ms 达到 95%
- *  越小越灵敏, 越大越平滑
- */
-const MOVE_TIME_CONSTANT = 0.08;
-
-/** 支持的移动按键集合 */
-const MOVE_KEYS = new Set(['w', 'a', 's', 'd', 'q', 'e']);
 
 // 向后兼容: 导出 ThreeRenderer 作为 RenderManager 的别名
 export const ThreeRenderer = RenderManager;
 
 // ─── WebGPU 检测 + 渲染器工厂 ──────────────────────────────
 export { detectWebGPU, isWebGPUMaybeAvailable } from './webgpu-detector.js';
-export type { WebGPUCapability } from './webgpu-detector.js';
+export type { WebGPUCapability, GpuType, WebGPULimits, TextureCompressionSupport } from './webgpu-detector.js';
 
 export { createRenderer, createRendererSync } from './renderer-factory.js';
 export type {
@@ -1094,3 +1399,23 @@ export type {
   SogMetadata,
   SogChunkEntry,
 } from './sog-streamer.js';
+
+// ─── SPZ Worker 解码 ──────────────────────────────────────
+export { decodeSpzInWorker, decodeSpz, parseSpzHeader, validateSpzHeader, SPZ_MAGIC, SPZ_VERSION } from './spz-decoder-worker.js';
+export type { SpzHeader } from './spz-decoder-worker.js';
+
+// ─── P2-1: 视锥剔除预处理 ─────────────────────────────────
+export { SpatialGrid, FrustumCulling } from './frustum-culling.js';
+export type { SpatialCell, VisibleRange } from './frustum-culling.js';
+
+// ─── P2-2: Buffer 池化复用 ────────────────────────────────
+export { SplatBufferPool } from './buffer-pool.js';
+export type { BufferPoolStats, BufferPoolOptions } from './buffer-pool.js';
+
+// ─── P3-1: WebGPU 渲染后端 ────────────────────────────────
+export { WebGPURenderManager } from './webgpu-render-manager.js';
+export type { WebGPURenderManagerOptions } from './webgpu-render-manager.js';
+
+// ─── P3-2: WebGPU Compute Shader 排序 ─────────────────────
+export { WebGPUSortManager } from './webgpu-sort-manager.js';
+export type { WebGPUSortManagerOptions, SortResult } from './webgpu-sort-manager.js';

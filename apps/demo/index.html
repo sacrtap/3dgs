@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>3DGS Tour Player Demo</title>
+<title>3DGS 性能基准测试 — 5 场景 × 4 格式</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #111; color: #eee; font-family: system-ui, sans-serif; }
@@ -12,20 +12,31 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
 #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
 #loading .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-#error { position: absolute; bottom: 20px; left: 20px; right: 20px; background: rgba(200,40,40,0.9); padding: 12px 20px; border-radius: 8px; font-size: 14px; display: none; }
-#hud { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 6px; font-size: 12px; font-family: monospace; line-height: 1.6; pointer-events: none; display: none; }
+#error { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); background: rgba(200,40,40,0.92); padding: 10px 20px; border-radius: 8px; font-size: 13px; display: none; max-width: 80%; text-align: center; z-index: 30; }
+#hud { position: absolute; top: 56px; left: 12px; background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 6px; font-size: 12px; font-family: monospace; line-height: 1.6; pointer-events: none; display: none; z-index: 20; }
 
-/* 右侧面板容器 — flex 布局避免重叠 */
-#right-panel { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 8px; align-items: stretch; z-index: 10; max-width: 220px; }
+/* 后端切换面板 */
+#backend-panel { position: absolute; top: 12px; left: 12px; background: rgba(10,12,18,0.82); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 6px 8px; font-size: 12px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); z-index: 25; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+#backend-panel .backend-label { color: rgba(255,255,255,0.5); font-size: 11px; margin-right: 2px; }
+#backend-panel .backend-btn { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.12); padding: 3px 10px; border-radius: 5px; cursor: pointer; font-size: 11px; transition: all 0.2s; white-space: nowrap; }
+#backend-panel .backend-btn:hover { background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.85); }
+#backend-panel .backend-btn.active { background: rgba(86,156,214,0.4); border-color: rgba(86,156,214,0.8); color: #fff; }
+#backend-panel .backend-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* 右侧面板容器 */
+#right-panel { position: absolute; top: 12px; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 8px; align-items: stretch; z-index: 10; max-width: 240px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent; }
+#right-panel::-webkit-scrollbar { width: 4px; }
+#right-panel::-webkit-scrollbar-track { background: transparent; }
+#right-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
 
 /* 场景选择器 */
-#scene-selector { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-#scene-selector button { background: rgba(0,0,0,0.6); color: #eee; border: 1px solid rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+#scene-selector { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; }
+#scene-selector button { background: rgba(0,0,0,0.6); color: #eee; border: 1px solid rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; transition: all 0.2s; white-space: nowrap; }
 #scene-selector button:hover { background: rgba(255,255,255,0.15); }
 #scene-selector button.active { background: rgba(80,160,255,0.4); border-color: rgba(80,160,255,0.8); }
 
-/* 数据格式切换面板 */
-#format-panel { background: rgba(10,12,18,0.82); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 12px 14px; font-size: 12px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); display: none; min-width: 160px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+/* 格式切换面板 */
+#format-panel { background: rgba(10,12,18,0.82); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px 12px; font-size: 12px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.4); flex-shrink: 0; }
 #format-panel .format-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 #format-panel .format-panel-title { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.92); letter-spacing: 0.3px; }
 #format-toggles { display: flex; flex-direction: column; gap: 4px; }
@@ -38,9 +49,11 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
 .format-toggle-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: rgba(255,255,255,0.7); border-radius: 50%; transition: transform 0.25s ease, background 0.25s ease; }
 .format-toggle-row.active .format-toggle-switch { background: rgba(86,156,214,0.6); }
 .format-toggle-row.active .format-toggle-switch::after { transform: translateX(16px); background: #fff; }
+.format-toggle-row.disabled { opacity: 0.35; cursor: not-allowed; }
+.format-toggle-row.disabled:hover { background: transparent; }
 
 /* Shader 效果面板 */
-#shader-panel { background: rgba(10,12,18,0.82); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 14px 16px; font-size: 12px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); display: none; min-width: 180px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+#shader-panel { background: rgba(10,12,18,0.82); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px 12px; font-size: 12px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.4); flex-shrink: 0; }
 #shader-panel .shader-panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 #shader-panel .shader-panel-title { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.92); letter-spacing: 0.3px; }
 #shader-panel .shader-clear-btn { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: rgba(255,255,255,0.6); font-size: 11px; padding: 2px 10px; border-radius: 5px; cursor: pointer; transition: all 0.2s; line-height: 1.4; }
@@ -57,10 +70,28 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
 .shader-toggle-row.active .shader-toggle-switch { background: rgba(86,156,214,0.6); }
 .shader-toggle-row.active .shader-toggle-switch::after { transform: translateX(16px); background: #fff; }
 
+/* 性能基准面板 */
+#bench-panel { background: rgba(10,12,18,0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px 12px; font-size: 11px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.4); flex-shrink: 0; }
+#bench-panel .bench-title { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.92); margin-bottom: 8px; }
+#bench-panel .bench-controls { display: flex; gap: 6px; margin-bottom: 8px; }
+#bench-panel .bench-btn { background: rgba(86,156,214,0.3); border: 1px solid rgba(86,156,214,0.5); color: #eee; font-size: 11px; padding: 4px 10px; border-radius: 5px; cursor: pointer; transition: all 0.2s; }
+#bench-panel .bench-btn:hover { background: rgba(86,156,214,0.5); }
+#bench-panel .bench-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+#bench-panel .bench-btn.bench-stop { background: rgba(214,86,86,0.3); border-color: rgba(214,86,86,0.5); }
+#bench-panel .bench-btn.bench-stop:hover { background: rgba(214,86,86,0.5); }
+#bench-panel .bench-stats { font-family: monospace; font-size: 10px; color: rgba(255,255,255,0.7); line-height: 1.5; }
+#bench-panel .bench-stats .stat-row { display: flex; justify-content: space-between; }
+#bench-panel .bench-stats .stat-label { color: rgba(255,255,255,0.5); }
+#bench-panel .bench-stats .stat-value { color: rgba(140,200,255,0.9); }
+#bench-panel .bench-report { margin-top: 6px; max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 9px; color: rgba(255,255,255,0.6); }
+#bench-panel .bench-report table { width: 100%; border-collapse: collapse; }
+#bench-panel .bench-report th { text-align: left; color: rgba(255,255,255,0.5); padding: 2px 4px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+#bench-panel .bench-report td { padding: 2px 4px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+
 /* 操作说明面板 */
-#controls-panel { position: absolute; bottom: 20px; right: 20px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 14px 18px; font-size: 12px; line-height: 1.8; pointer-events: none; backdrop-filter: blur(6px); max-width: 260px; }
+#controls-panel { position: absolute; bottom: 16px; left: 16px; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 12px 16px; font-size: 12px; line-height: 1.7; pointer-events: none; backdrop-filter: blur(6px); max-width: 220px; }
 #controls-panel .panel-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: rgba(255,255,255,0.9); }
-#controls-panel .ctrl-row { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+#controls-panel .ctrl-row { display: flex; align-items: center; gap: 8px; margin: 2px  0; }
 #controls-panel .ctrl-keys { display: flex; gap: 3px; }
 #controls-panel kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 5px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-bottom-width: 2px; border-radius: 4px; font-family: monospace; font-size: 11px; color: rgba(255,255,255,0.8); transition: all 0.1s; }
 #controls-panel kbd.active { background: rgba(80,160,255,0.5); border-color: rgba(80,160,255,0.8); color: #fff; transform: translateY(1px); }
@@ -78,6 +109,12 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
     <div class="spinner"></div>
     <div id="loading-text">初始化渲染器...</div>
   </div>
+  <div id="backend-panel">
+    <span class="backend-label">后端</span>
+    <button class="backend-btn" data-mode="auto">Auto</button>
+    <button class="backend-btn" data-mode="webgl2">WebGL</button>
+    <button class="backend-btn" data-mode="webgpu">WebGPU</button>
+  </div>
   <div id="hud"></div>
   <div id="right-panel">
     <div id="scene-selector"></div>
@@ -94,6 +131,16 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
       </div>
       <div id="shader-toggles"></div>
     </div>
+    <div id="bench-panel">
+      <div class="bench-title">📊 性能基准</div>
+      <div class="bench-controls">
+        <button class="bench-btn" id="bench-start-btn">开始测试</button>
+        <button class="bench-btn bench-stop" id="bench-stop-btn" style="display:none;">停止</button>
+        <button class="bench-btn" id="bench-export-btn">导出报告</button>
+      </div>
+      <div class="bench-stats" id="bench-stats"></div>
+      <div class="bench-report" id="bench-report"></div>
+    </div>
   </div>
   <div id="controls-panel">
     <button class="toggle-btn" onclick="document.getElementById('controls-panel').classList.toggle('collapsed')" title="折叠/展开">—</button>
@@ -109,24 +156,9 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
         <span class="ctrl-desc">升高 / 下降</span>
       </div>
       <div class="divider"></div>
-      <div class="ctrl-row">
-        <span class="ctrl-desc">拖拽 — 旋转视角</span>
-      </div>
-      <div class="ctrl-row">
-        <span class="ctrl-desc">滚轮 — 前进 / 后退</span>
-      </div>
-      <div class="ctrl-row">
-        <span class="ctrl-desc">双指捏合 — 缩放 (移动端)</span>
-      </div>
-      <div class="ctrl-row">
-        <span class="ctrl-desc">双指旋转 — 画面旋转 (移动端)</span>
-      </div>
-      <div class="ctrl-row">
-        <span class="ctrl-desc">双击 — 全屏切换</span>
-      </div>
-      <div class="ctrl-row">
-        <span class="ctrl-desc">点击热点 — 跳转场景</span>
-      </div>
+      <div class="ctrl-row"><span class="ctrl-desc">拖拽 — 旋转视角</span></div>
+      <div class="ctrl-row"><span class="ctrl-desc">滚轮 — 前进 / 后退</span></div>
+      <div class="ctrl-row"><span class="ctrl-desc">双击 — 全屏切换</span></div>
     </div>
   </div>
   <div id="error"></div>
@@ -135,7 +167,6 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
 <script type="module">
 import { TourPlayer, ShaderHookPoint } from '@3dgs/core';
 import { createRenderer, RenderManager } from '@3dgs/renderer-three';
-import { createHotspotSystem, createDepthOcclusionPlugin, createTouchGesturesPlugin, createFullscreenPlugin, createLoadingIndicatorPlugin, createAutoRotatePlugin, createShaderInjectionPlugin } from '@3dgs/plugins';
 
 async function main() {
   const container = document.getElementById('viewer');
@@ -148,206 +179,274 @@ async function main() {
   // ── 创建播放器 ──
   const player = new TourPlayer(container);
 
-  // ── 创建渲染器 (WebGPU 自动检测 + WebGL2 回退) ──
-  loadingText.textContent = '检测 WebGPU 支持...';
-  const { renderer, backend, webgpuCapability } = await createRenderer();
+  // ── 渲染后端管理 ──
+  let renderer = null;
+  let backend = 'webgl2';
+  let webgpuCapability = null;
+  let frameUnsub = null;  // demo 自身的 onFrame 订阅
+  let currentBackendMode = 'webgl2'; // 'auto' | 'webgl2' | 'webgpu'
+
+  /**
+   * 创建并初始化渲染器
+   * @param {'auto'|'webgl2'|'webgpu'} mode
+   */
+  async function createAndInitRenderer(mode) {
+    const opts = mode === 'auto'
+      ? { preferredBackend: 'webgpu' }       // auto: 偏好 WebGPU, 不可用则回退
+      : mode === 'webgl2'
+        ? { preferredBackend: 'webgl2' }      // 强制 WebGL
+        : { preferredBackend: 'webgpu', forceBackend: true }; // 强制 WebGPU
+
+    const result = await createRenderer(opts);
+
+    // WebGPU 后端需要手动 init()
+    if (result.backend === 'webgpu') {
+      await result.renderer.init();
+    }
+
+    return result;
+  }
+
+  // ── 创建渲染器 (默认 WebGL2 以获得最佳性能) ──
+  loadingText.textContent = '初始化渲染器...';
+  const _initResult = await createAndInitRenderer('webgl2');
+  renderer = _initResult.renderer;
+  backend = _initResult.backend;
+  webgpuCapability = _initResult.webgpuCapability;
+  currentBackendMode = 'webgl2';
+
   player.setRenderer(renderer);
 
-  // ── 注册插件 ──
-  player.use(createHotspotSystem());
-  player.use(createDepthOcclusionPlugin({ sampleInterval: 2 }));
-  player.use(createTouchGesturesPlugin());
-  player.use(createFullscreenPlugin({ enableDoubleClick: true }));
-  player.use(createLoadingIndicatorPlugin({ text: '加载中...', showProgress: true }));
-  player.use(createAutoRotatePlugin({ speed: 8, idleDelay: 5000, enabled: false }));
-
-  // ── 场景数据配置 ──
-  // 每个场景支持 splat / spz / sog 三种数据格式
+  // ── 场景数据配置 (5 场景 × 4 格式) ──
   const sceneData = {
-    demo1: {
-      title: '场景一',
+    kitchen: {
+      title: 'Kitchen',
+      splatCount: '248K',
       formats: {
-        splat: { url: '/demo1.splat', size: '30.2 MB', desc: 'antimatter15/splat (32B/splat)' },
-        spz: { url: '/demo1.spz', size: '14.4 MB', desc: 'Niantic SPZ (gzip 压缩)' },
-        sog: { url: '/demo1.sog', size: '30.2 MB', desc: 'SOG 流式 LOD (分块)' },
+        ply:  { url: null, size: '—', desc: '无 PLY 源文件' },
+        splat:{ url: '/kitchen.splat', size: '7.6 MB', desc: '.splat (32B/splat)' },
+        spz:  { url: '/kitchen.spz', size: '3.6 MB', desc: 'SPZ (gzip 压缩)' },
+        sog:  { url: '/kitchen.sog', size: '7.2 MB', desc: 'SOG 流式 LOD' },
       },
+    },
+    demo1: {
+      title: 'Demo1',
       splatCount: '991K',
-      sourceType: 'SuperSplat 打包 PLY',
+      formats: {
+        ply:  { url: '/demo1.ply', size: '15.4 MB', desc: 'PLY 原始格式' },
+        splat:{ url: '/demo1.splat', size: '30.3 MB', desc: '.splat (32B/splat)' },
+        spz:  { url: '/demo1.spz', size: '15.2 MB', desc: 'SPZ (gzip 压缩)' },
+        sog:  { url: '/demo1.sog', size: '28.9 MB', desc: 'SOG 流式 LOD' },
+      },
+    },
+    storysplat: {
+      title: 'StorySplat',
+      splatCount: '1.3M',
+      formats: {
+        ply:  { url: null, size: '—', desc: '无 PLY 源文件' },
+        splat:{ url: '/storysplat.splat', size: '39.7 MB', desc: '.splat (32B/splat)' },
+        spz:  { url: '/storysplat.spz', size: '19.5 MB', desc: 'SPZ (gzip 压缩)' },
+        sog:  { url: '/storysplat.sog', size: '37.4 MB', desc: 'SOG 流式 LOD' },
+      },
     },
     demo2: {
-      title: '场景二',
+      title: 'Demo2',
+      splatCount: '3.97M',
       formats: {
-        splat: { url: '/demo2.splat', size: '67.1 MB', desc: 'antimatter15/splat (32B/splat)' },
-        spz: { url: '/demo2.spz', size: '32.4 MB', desc: 'Niantic SPZ (gzip 压缩)' },
-        sog: { url: '/demo2.sog', size: '67.1 MB', desc: 'SOG 流式 LOD (分块)' },
+        ply:  { url: '/demo2.ply', size: '61.7 MB', desc: 'PLY 原始格式' },
+        splat:{ url: '/demo2.splat', size: '121.3 MB', desc: '.splat (32B/splat)' },
+        spz:  { url: '/demo2.spz', size: '60.1 MB', desc: 'SPZ (gzip 压缩)' },
+        sog:  { url: '/demo2.sog', size: '116.8 MB', desc: 'SOG 流式 LOD' },
       },
-      splatCount: '2.2M',
-      sourceType: '标准 3DGS PLY (SH degree 1)',
     },
-    demo3: {
-      title: '场景三',
+    garden: {
+      title: 'Garden',
+      splatCount: '5.83M',
       formats: {
-        splat: { url: '/demo3.splat', size: '32.5 MB', desc: 'antimatter15/splat (32B/splat)' },
-        spz: { url: '/demo3.spz', size: '15.0 MB', desc: 'Niantic SPZ (gzip 压缩)' },
-        sog: { url: '/demo3.sog', size: '32.5 MB', desc: 'SOG 流式 LOD (分块)' },
+        ply:  { url: '/garden.ply', size: '90.6 MB', desc: 'PLY 原始格式' },
+        splat:{ url: '/garden.splat', size: '178.1 MB', desc: '.splat (32B/splat)' },
+        spz:  { url: '/garden.spz', size: '84.7 MB', desc: 'SPZ (gzip 压缩)' },
+        sog:  { url: '/garden.sog', size: '168.4 MB', desc: 'SOG 流式 LOD' },
       },
-      splatCount: '1.07M',
-      sourceType: '预转换 .splat 文件',
-    },
-    kitchen: {
-      title: '场景四',
-      formats: {
-        splat: { url: '/kitchen.splat', size: '7.6 MB', desc: 'antimatter15/splat (32B/splat)' },
-        spz: { url: '/kitchen.spz', size: '3.6 MB', desc: 'Niantic SPZ (gzip 压缩)' },
-        sog: { url: '/kitchen.sog', size: '7.6 MB', desc: 'SOG 流式 LOD (分块)' },
-      },
-      splatCount: '248K',
-      sourceType: 'Kitchen 场景 .splat 文件',
     },
   };
 
-  let currentSceneId = 'demo1';
+  let currentSceneId = 'kitchen';
   let currentFormat = 'splat';
   let isSwitching = false;
 
   // ── 漫游配置 ──
   const config = {
     version: '1.0',
-    meta: {
-      title: '3DGS 多格式演示',
-      description: '四场景 × 三格式 (Splat/SPZ/SOG) 数据切换演示',
-    },
+    meta: { title: '3DGS 性能基准', description: '5 场景 × 4 格式性能测试' },
     defaults: {
-      camera: {
-        fov: 60,
-        minFov: 30,
-        maxFov: 90,
-        limitPitch: [-80, 80],
-      },
-      transition: {
-        type: 'fade',
-        duration: 600,
-      },
+      camera: { fov: 60, minFov: 30, maxFov: 90, limitPitch: [-80, 80] },
+      transition: { type: 'fade', duration: 400 },
     },
-    scenes: {
-      demo1: {
-        title: '场景一',
-        source: '/demo1.splat',
-        initialView: { yaw: 0, pitch: 0, fov: 60 },
-        extensions: {
-          hotspot: {
-            hotspots: [
-              {
-                id: 'hotspot-info-1',
-                type: 'text',
-                position: [0.5, 1.2, -1.0],
-                onHover: { tooltip: `${sceneData.demo1.splatCount} splats · ${sceneData.demo1.sourceType}` },
-              },
-              {
-                id: 'hotspot-to-demo2',
-                type: 'scene',
-                position: [-1.0, 1.5, -2.0],
-                targetScene: 'demo2',
-                transition: { type: 'fade', duration: 600 },
-                style: { glow: true, pulse: true, color: '#80a0ff', size: 36 },
-                onHover: { tooltip: '点击进入场景二' },
-              },
-            ],
-          },
-        },
-      },
-      demo2: {
-        title: '场景二',
-        source: '/demo2.splat',
-        initialView: { yaw: 90, pitch: 0, fov: 60 },
-        extensions: {
-          hotspot: {
-            hotspots: [
-              {
-                id: 'hotspot-back-1',
-                type: 'scene',
-                position: [1.0, 1.5, -2.0],
-                targetScene: 'demo1',
-                transition: { type: 'fade', duration: 600 },
-                style: { glow: true, pulse: true, color: '#80ff80', size: 36 },
-                onHover: { tooltip: '返回场景一' },
-              },
-              {
-                id: 'hotspot-to-demo3',
-                type: 'scene',
-                position: [-1.5, 1.0, -1.5],
-                targetScene: 'demo3',
-                transition: { type: 'fade', duration: 600 },
-                style: { glow: true, pulse: true, color: '#ffa080', size: 36 },
-                onHover: { tooltip: '进入场景三' },
-              },
-            ],
-          },
-        },
-      },
-      demo3: {
-        title: '场景三',
-        source: '/demo3.splat',
-        initialView: { yaw: 0, pitch: 0, fov: 60 },
-        extensions: {
-          hotspot: {
-            hotspots: [
-              {
-                id: 'hotspot-back-2',
-                type: 'scene',
-                position: [1.0, 1.0, -2.0],
-                targetScene: 'demo2',
-                transition: { type: 'fade', duration: 600 },
-                style: { glow: true, pulse: true, color: '#80ff80', size: 36 },
-                onHover: { tooltip: '返回场景二' },
-              },
-              {
-                id: 'hotspot-to-kitchen',
-                type: 'scene',
-                position: [-1.5, 1.0, -1.5],
-                targetScene: 'kitchen',
-                transition: { type: 'fade', duration: 600 },
-                style: { glow: true, pulse: true, color: '#a080ff', size: 36 },
-                onHover: { tooltip: '进入场景四' },
-              },
-              {
-                id: 'hotspot-info-3',
-                type: 'text',
-                position: [0.3, 0.8, -1.0],
-                onHover: { tooltip: `${sceneData.demo3.splatCount} splats · ${sceneData.demo3.sourceType}` },
-              },
-            ],
-          },
-        },
-      },
-      kitchen: {
-        title: '场景四',
-        source: '/kitchen.splat',
-        initialView: { yaw: 0, pitch: 0, fov: 60 },
-        extensions: {
-          hotspot: {
-            hotspots: [
-              {
-                id: 'hotspot-back-3',
-                type: 'scene',
-                position: [1.0, 1.0, -2.0],
-                targetScene: 'demo3',
-                transition: { type: 'fade', duration: 600 },
-                style: { glow: true, pulse: true, color: '#80ff80', size: 36 },
-                onHover: { tooltip: '返回场景三' },
-              },
-              {
-                id: 'hotspot-info-4',
-                type: 'text',
-                position: [0.3, 0.8, -1.0],
-                onHover: { tooltip: `${sceneData.kitchen.splatCount} splats · ${sceneData.kitchen.sourceType}` },
-              },
-            ],
-          },
-        },
-      },
-    },
+    scenes: {},
   };
+
+  // 动态生成场景配置
+  for (const [id, data] of Object.entries(sceneData)) {
+    config.scenes[id] = {
+      title: data.title,
+      source: data.formats.splat.url,
+      initialView: { yaw: 0, pitch: 0, fov: 60 },
+    };
+  }
+
+  // ── 性能基准测试系统 ──
+  const bench = {
+    active: false,
+    loadStartTime: 0,
+    loadTime: 0,
+    frameTimes: [],
+    fpsHistory: [],
+    lastFrameTime: 0,
+    collecting: false,
+    collectDuration: 10000, // 10s 采样
+    results: [], // { scene, format, loadTime, fpsAvg, fpsP50, fpsP5, frameTimeP95, frameTimeMax, splatCount }
+  };
+
+  // ★ L2: RAF 合并过滤阈值 — 低于此值的帧时间为 RAF 合并伪影
+  //   浏览器在 tab 不可见或 RAF 回调合并时产生 1-3ms 的假帧
+  //   这些假帧的 FPS = 1000/3 ≈ 333, 严重拉高 Avg
+  //   过滤后 Avg FPS 更接近真实感知帧率
+  const RAF_MERGE_THRESHOLD_MS = 3;
+
+  function startBenchCollection() {
+    bench.collecting = true;
+    bench.frameTimes = [];
+    bench.fpsHistory = [];
+    bench.lastFrameTime = performance.now();
+  }
+
+  function stopBenchCollection() {
+    bench.collecting = false;
+  }
+
+  function recordFrame() {
+    if (!bench.collecting) return;
+    const now = performance.now();
+    const dt = now - bench.lastFrameTime;
+    bench.lastFrameTime = now;
+    // ★ L2: 过滤 RAF 合并伪影 (dt < 3ms)
+    if (dt >= RAF_MERGE_THRESHOLD_MS) {
+      bench.frameTimes.push(dt);
+      bench.fpsHistory.push(1000 / dt);
+    }
+  }
+
+  function computeStats() {
+    const fts = bench.frameTimes;
+    const fps = bench.fpsHistory;
+    if (fts.length === 0) return null;
+
+    fts.sort((a, b) => a - b);
+    fps.sort((a, b) => a - b);
+
+    // ★ L2: 修复 ftStd 计算 — 使用帧时间均值而非 FPS 均值
+    const ftMean = fts.reduce((a, b) => a + b, 0) / fts.length;
+    const ftStd = Math.sqrt(fts.reduce((a, b) => a + (b - ftMean) ** 2, 0) / fts.length);
+
+    // ★ L2: fpsAvg 仅作参考, P50/P5 为主要指标
+    const fpsAvg = fps.reduce((a, b) => a + b, 0) / fps.length;
+    const fpsP50 = fps[Math.floor(fps.length * 0.5)];
+    const fpsP5 = fps[Math.floor(fps.length * 0.05)];
+    const ftP95 = fts[Math.floor(fts.length * 0.95)];
+    const ftMax = fts[fts.length - 1];
+    const droppedFrames = fts.filter(t => t > 20).length;
+    const dropRate = (droppedFrames / fts.length * 100);
+
+    return { fpsAvg, fpsP50, fpsP5, ftP95, ftMax, ftStd, dropRate, sampleCount: fts.length };
+  }
+
+  function formatNum(n, decimals = 1) {
+    return (typeof n === 'number' && isFinite(n)) ? n.toFixed(decimals) : '—';
+  }
+
+  function updateBenchStats() {
+    const statsEl = document.getElementById('bench-stats');
+    if (!statsEl) return;
+
+    if (bench.frameTimes.length === 0) {
+      statsEl.innerHTML = '<div class="stat-row"><span class="stat-label">等待数据...</span></div>';
+      return;
+    }
+
+    const stats = computeStats();
+    if (!stats) return;
+
+    statsEl.innerHTML = [
+      `<div class="stat-row"><span class="stat-label">场景</span><span class="stat-value">${sceneData[currentSceneId]?.title || '—'}</span></div>`,
+      `<div class="stat-row"><span class="stat-label">格式</span><span class="stat-value">${currentFormat.toUpperCase()}</span></div>`,
+      `<div class="stat-row"><span class="stat-label">加载时间</span><span class="stat-value">${formatNum(bench.loadTime, 0)} ms</span></div>`,
+      `<div class="stat-row"><span class="stat-label">FPS (Avg)</span><span class="stat-value">${formatNum(stats.fpsAvg)}</span></div>`,
+      `<div class="stat-row"><span class="stat-label">FPS (P50)</span><span class="stat-value">${formatNum(stats.fpsP50)}</span></div>`,
+      `<div class="stat-row"><span class="stat-label">FPS (P5)</span><span class="stat-value">${formatNum(stats.fpsP5)}</span></div>`,
+      `<div class="stat-row"><span class="stat-label">帧时间 P95</span><span class="stat-value">${formatNum(stats.ftP95)} ms</span></div>`,
+      `<div class="stat-row"><span class="stat-label">帧时间 Max</span><span class="stat-value">${formatNum(stats.ftMax)} ms</span></div>`,
+      `<div class="stat-row"><span class="stat-label">丢帧率</span><span class="stat-value">${formatNum(stats.dropRate)}%</span></div>`,
+      `<div class="stat-row"><span class="stat-label">采样数</span><span class="stat-value">${stats.sampleCount}</span></div>`,
+    ].join('');
+  }
+
+  function renderBenchReport() {
+    const reportEl = document.getElementById('bench-report');
+    if (!reportEl) return;
+    if (bench.results.length === 0) {
+      reportEl.innerHTML = '<div style="color:rgba(255,255,255,0.3);text-align:center;padding:8px;">暂无测试结果</div>';
+      return;
+    }
+
+    let html = '<table><tr><th>场景</th><th>格式</th><th>加载</th><th>FPS</th><th>P95</th></tr>';
+    for (const r of bench.results) {
+      html += `<tr><td>${r.scene}</td><td>${r.format}</td><td>${formatNum(r.loadTime, 0)}ms</td><td>${formatNum(r.fpsP50)}</td><td>${formatNum(r.frameTimeP95)}ms</td></tr>`;
+    }
+    html += '</table>';
+    reportEl.innerHTML = html;
+  }
+
+  function exportBenchReport() {
+    if (bench.results.length === 0) {
+      showInfo('暂无测试结果可导出');
+      return;
+    }
+
+    // 生成 Markdown 报告
+    let md = '# 3DGS 性能基准测试报告\n\n';
+    md += `**测试时间**: ${new Date().toISOString()}\n`;
+    md += `**后端**: ${backend.toUpperCase()}\n`;
+    md += `**设备分级**: ${['LOW','MEDIUM','HIGH','ULTRA'][renderer.getDeviceTier()]}\n`;
+    const gpuInfo = webgpuCapability.adapterInfo
+      ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}` : 'N/A';
+    md += `**GPU**: ${gpuInfo}\n`;
+    md += `**SAB**: ${RenderManager.isCrossOriginIsolated() ? '✓' : '✗'}\n\n`;
+
+    md += '## 测试结果汇总\n\n';
+    md += '| 场景 | 格式 | Splat 数 | 加载时间 (ms) | FPS Avg | FPS P50 | FPS P5 | 帧时间 P95 (ms) | 帧时间 Max (ms) | 丢帧率 (%) |\n';
+    md += '|------|------|---------|-------------|---------|---------|--------|---------------|---------------|----------|\n';
+    for (const r of bench.results) {
+      md += `| ${r.scene} | ${r.format} | ${r.splatCount} | ${formatNum(r.loadTime, 0)} | ${formatNum(r.fpsAvg)} | ${formatNum(r.fpsP50)} | ${formatNum(r.fpsP5)} | ${formatNum(r.frameTimeP95)} | ${formatNum(r.frameTimeMax)} | ${formatNum(r.dropRate)} |\n`;
+    }
+
+    // 下载为文件
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `benchmark-${Date.now()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showInfo(`已导出 ${bench.results.length} 条测试结果`);
+  }
+
+  // ── HUD: 设备信息 + FPS ──
+  let tier = renderer.getDeviceTier();
+  const tierNames = ['LOW', 'MEDIUM', 'HIGH', 'ULTRA'];
+  let fps = 0;
+  let frameCount = 0;
+  let fpsTimer = performance.now();
 
   // ── Shader 效果定义 ──
   const shaderEffects = {
@@ -400,42 +499,40 @@ async function main() {
     }
   }
 
-  // ── HUD: 设备信息 + FPS + WebGPU 状态 ──
-  const tier = renderer.getDeviceTier();
-  const tierNames = ['LOW', 'MEDIUM', 'HIGH', 'ULTRA'];
-  let fps = 0;
-  let frameCount = 0;
-  let fpsTimer = performance.now();
-
   player.on('load', () => {
     loading.style.display = 'none';
     hudEl.style.display = 'block';
-    showInfo('拖拽旋转 / 滚轮前进后退 / WASD移动 / 双指缩放 / 点击热点跳转');
+    showInfo('拖拽旋转 / 滚轮前进 / 点击场景按钮切换 / 点击格式切换数据');
 
-    // 显示格式切换面板
+    // 显示格式面板
     const formatPanel = document.getElementById('format-panel');
     const formatToggles = document.getElementById('format-toggles');
     if (formatPanel && formatToggles) {
       formatPanel.style.display = 'block';
       formatToggles.innerHTML = '';
       const formatLabels = {
+        ply: '📄 PLY',
         splat: '📦 Splat',
         spz: '🗜️ SPZ',
         sog: '🌊 SOG',
       };
       for (const [fmt, label] of Object.entries(formatLabels)) {
         const scene = sceneData[currentSceneId];
+        const fmtData = scene.formats[fmt];
+        const isDisabled = !fmtData.url;
         const row = document.createElement('div');
-        row.className = 'format-toggle-row' + (fmt === currentFormat ? ' active' : '');
-        row.innerHTML = `<span class="format-label">${label}<br><span class="format-size">${scene.formats[fmt].size}</span></span><span class="format-toggle-switch"></span>`;
-        row.onclick = async () => {
-          if (isSwitching || fmt === currentFormat) return;
-          row.classList.add('active');
-          document.querySelectorAll('.format-toggle-row').forEach(r => {
-            if (r !== row) r.classList.remove('active');
-          });
-          await switchFormat(fmt);
-        };
+        row.className = 'format-toggle-row' + (fmt === currentFormat ? ' active' : '') + (isDisabled ? ' disabled' : '');
+        row.innerHTML = `<span class="format-label">${label}<br><span class="format-size">${fmtData.size}</span></span><span class="format-toggle-switch"></span>`;
+        if (!isDisabled) {
+          row.onclick = async () => {
+            if (isSwitching || fmt === currentFormat) return;
+            row.classList.add('active');
+            document.querySelectorAll('.format-toggle-row').forEach(r => {
+              if (r !== row) r.classList.remove('active');
+            });
+            await switchFormat(fmt);
+          };
+        }
         formatToggles.appendChild(row);
       }
     }
@@ -479,9 +576,66 @@ async function main() {
         };
       }
     }
+
+    // 显示基准测试面板
+    const benchPanel = document.getElementById('bench-panel');
+    if (benchPanel) {
+      benchPanel.style.display = 'block';
+      const startBtn = document.getElementById('bench-start-btn');
+      const stopBtn = document.getElementById('bench-stop-btn');
+      const exportBtn = document.getElementById('bench-export-btn');
+      if (startBtn) startBtn.onclick = () => {
+        bench.active = true;
+        startBenchCollection();
+        startBtn.style.display = 'none';
+        stopBtn.style.display = 'inline-block';
+        showInfo('性能采集已开始 (10s)...');
+        setTimeout(() => {
+          if (bench.collecting) {
+            stopBenchCollection();
+            const stats = computeStats();
+            if (stats) {
+              bench.results.push({
+                scene: sceneData[currentSceneId].title,
+                format: currentFormat.toUpperCase(),
+                splatCount: sceneData[currentSceneId].splatCount,
+                loadTime: bench.loadTime,
+                ...stats,
+              });
+              renderBenchReport();
+            }
+            startBtn.style.display = 'inline-block';
+            stopBtn.style.display = 'none';
+            bench.active = false;
+            showInfo('性能采集完成, 结果已记录');
+          }
+        }, bench.collectDuration);
+      };
+      if (stopBtn) stopBtn.onclick = () => {
+        stopBenchCollection();
+        const stats = computeStats();
+        if (stats) {
+          bench.results.push({
+            scene: sceneData[currentSceneId].title,
+            format: currentFormat.toUpperCase(),
+            splatCount: sceneData[currentSceneId].splatCount,
+            loadTime: bench.loadTime,
+            ...stats,
+          });
+          renderBenchReport();
+        }
+        startBtn.style.display = 'inline-block';
+        stopBtn.style.display = 'none';
+        bench.active = false;
+        showInfo('性能采集已停止, 结果已记录');
+      };
+      if (exportBtn) exportBtn.onclick = exportBenchReport;
+      updateBenchStats();
+      renderBenchReport();
+    }
   });
 
-  // FPS 监控 + 按键状态高亮 (挂载到渲染器帧回调)
+  // FPS 监控 + 帧时间记录
   const keyEls = {
     w: document.getElementById('key-w'),
     a: document.getElementById('key-a'),
@@ -490,7 +644,8 @@ async function main() {
     q: document.getElementById('key-q'),
     e: document.getElementById('key-e'),
   };
-  renderer.onFrame(() => {
+  frameUnsub = renderer.onFrame(() => {
+    recordFrame();
     frameCount++;
     const now = performance.now();
 
@@ -509,28 +664,19 @@ async function main() {
       const gpuInfo = webgpuCapability.adapterInfo
         ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}`
         : 'N/A';
-      const fmtInfo = sceneData[currentSceneId]?.formats[currentFormat];
+      const gpuType = webgpuCapability.gpuType ? ` [${webgpuCapability.gpuType}]` : '';
+      const scene = sceneData[currentSceneId];
       hudEl.innerHTML = [
         `Backend: ${backend.toUpperCase()} | Tier: ${tierNames[tier]} | FPS: ${fps}`,
-        `GPU: ${gpuInfo}`,
-        `Format: ${currentFormat.toUpperCase()} | Resolution: ${(resScale * 100).toFixed(0)}% | SAB: ${isolated} | LOD: ${lodStatus}`,
+        `GPU: ${gpuInfo}${gpuType} | SAB: ${isolated} | LOD: ${lodStatus}`,
+        `Scene: ${scene?.title} (${scene?.splatCount}) | Format: ${currentFormat.toUpperCase()} | Res: ${(resScale * 100).toFixed(0)}%`,
       ].join('<br>');
+
+      if (bench.collecting) updateBenchStats();
     }
   });
 
   // ── 事件 ──
-  player.on('hotspot:click', (h) => {
-    const d = h;
-    showInfo(`点击热点: ${d?.id || '(热点)'}`);
-  });
-
-  player.on('hotspot:hover', (h) => {
-    const d = h;
-    if (d?.config?.onHover?.tooltip) {
-      showInfo(d.config.onHover.tooltip);
-    }
-  });
-
   player.on('scene:switched', (data) => {
     const d = data;
     showInfo(`已切换到场景: ${d?.sceneId || ''}`);
@@ -559,7 +705,7 @@ async function main() {
     selectorEl.innerHTML = '';
     for (const id of Object.keys(config.scenes)) {
       const btn = document.createElement('button');
-      btn.textContent = config.scenes[id].title || id;
+      btn.textContent = `${config.scenes[id].title}`;
       btn.className = id === activeId ? 'active' : '';
       btn.onclick = async () => {
         if (isSwitching || id === activeId) return;
@@ -569,45 +715,46 @@ async function main() {
     }
   }
 
-  /**
-   * 更新格式切换面板 (场景切换后更新文件大小信息)
-   */
   function updateFormatPanel() {
     const formatToggles = document.getElementById('format-toggles');
     if (!formatToggles) return;
+    const formatKeys = ['ply', 'splat', 'spz', 'sog'];
     const rows = formatToggles.querySelectorAll('.format-toggle-row');
-    const formatKeys = ['splat', 'spz', 'sog'];
     rows.forEach((row, idx) => {
       const fmt = formatKeys[idx];
       if (!fmt) return;
       const scene = sceneData[currentSceneId];
       if (!scene) return;
+      const fmtData = scene.formats[fmt];
       const sizeEl = row.querySelector('.format-size');
-      if (sizeEl) sizeEl.textContent = scene.formats[fmt].size;
+      if (sizeEl) sizeEl.textContent = fmtData.size;
+      const isDisabled = !fmtData.url;
+      row.classList.toggle('disabled', isDisabled);
       row.classList.toggle('active', fmt === currentFormat);
+      // Re-bind onclick
+      row.onclick = isDisabled ? null : async () => {
+        if (isSwitching || fmt === currentFormat) return;
+        row.classList.add('active');
+        document.querySelectorAll('.format-toggle-row').forEach(r => {
+          if (r !== row) r.classList.remove('active');
+        });
+        await switchFormat(fmt);
+      };
     });
   }
 
-  /**
-   * ★ 场景切换 — 先更新配置中的 source/lodSource 为当前格式, 再调用 switchScene
-   *
-   * 优化项:
-   *   - 避免二次加载: 动态修改 config 的 source 为当前格式的 URL
-   *   - SOG 格式: 设置 lodSource 启用流式加载, source 设为 .splat 作为回退
-   *   - 加载指示器: 显示加载状态, 防止用户在加载中重复操作
-   */
   async function switchScene(sceneId) {
     if (isSwitching) return;
     isSwitching = true;
     loading.style.display = 'block';
     loadingText.textContent = `加载场景: ${config.scenes[sceneId]?.title || sceneId}...`;
+    bench.loadStartTime = performance.now();
 
     try {
       currentSceneId = sceneId;
-      // 动态更新场景配置的 source 为当前格式
       applyFormatToConfig();
-
       await player.switchScene(sceneId);
+      bench.loadTime = performance.now() - bench.loadStartTime;
       updateSelector(sceneId);
       updateFormatPanel();
     } catch (err) {
@@ -620,27 +767,18 @@ async function main() {
     }
   }
 
-  /**
-   * ★ 格式切换 — 直接调用 renderer.loadScene 加载不同格式的同一场景
-   *
-   * 优化项:
-   *   - 不经过 player.switchScene, 避免热点重建和场景状态变更
-   *   - SOG 格式: 传入 lodSource 启用流式 LOD, 首帧快速渲染
-   *   - 加载指示器: 显示加载状态和进度
-   *   - 防抖锁: isSwitching 防止重复操作
-   *   - 渐进式加载: SOG 首个 chunk 到达即渲染, 后续逐步补全
-   */
   async function switchFormat(format) {
     if (isSwitching) return;
     isSwitching = true;
     loading.style.display = 'block';
     const scene = sceneData[currentSceneId];
     loadingText.textContent = `加载 ${format.toUpperCase()} 格式 (${scene?.title || currentSceneId})...`;
+    bench.loadStartTime = performance.now();
 
     try {
       currentFormat = format;
       const fmtData = scene?.formats[format];
-      if (!fmtData) throw new Error(`格式 ${format} 不可用`);
+      if (!fmtData || !fmtData.url) throw new Error(`格式 ${format} 不可用`);
 
       const loadOptions = {
         onProgress: (loaded, total) => {
@@ -649,18 +787,24 @@ async function main() {
             loadingText.textContent = `加载 ${format.toUpperCase()} 格式... ${pct}%`;
           }
         },
+        onFirstFrame: () => {
+          loading.style.display = 'none';
+          showInfo(`${format.toUpperCase()} 首帧已渲染`);
+        },
       };
 
       if (format === 'sog') {
-        // SOG: 传入 lodSource 启用流式 LOD, source 设为 .splat 作为回退
         const splatUrl = scene.formats.splat.url;
-        await renderer.loadScene(splatUrl, { ...loadOptions, lodSource: fmtData.url });
+        await renderer.loadScene(splatUrl, {
+          ...loadOptions,
+          lodSource: fmtData.url,
+        });
       } else {
-        // Splat / SPZ: 直接加载 (Spark 从 URL 扩展名自动检测格式)
         await renderer.loadScene(fmtData.url, loadOptions);
       }
 
-      showInfo(`格式切换: ${format.toUpperCase()} | ${scene?.title || currentSceneId} | ${fmtData.desc}`);
+      bench.loadTime = performance.now() - bench.loadStartTime;
+      showInfo(`格式切换: ${format.toUpperCase()} | ${scene?.title} | ${scene?.splatCount} splats | 加载 ${formatNum(bench.loadTime, 0)}ms`);
       updateFormatPanel();
     } catch (err) {
       console.error('格式切换失败:', err);
@@ -673,28 +817,232 @@ async function main() {
     }
   }
 
-  /**
-   * 将当前格式应用到 config 中的场景 source/lodSource
-   * 在调用 player.switchScene 前调用, 避免二次加载
-   */
   function applyFormatToConfig() {
     const scene = sceneData[currentSceneId];
     const sceneConfig = config.scenes[currentSceneId];
     if (!scene || !sceneConfig) return;
 
     const fmtData = scene.formats[currentFormat];
-    if (!fmtData) return;
+    if (!fmtData || !fmtData.url) {
+      // 回退到 splat
+      sceneConfig.source = scene.formats.splat.url;
+      sceneConfig.lodSource = undefined;
+      return;
+    }
 
     if (currentFormat === 'sog') {
-      // SOG: source 设为 .splat 作为回退, lodSource 设为 .sog
       sceneConfig.source = scene.formats.splat.url;
       sceneConfig.lodSource = fmtData.url;
     } else {
-      // Splat / SPZ: 直接设为对应格式 URL
       sceneConfig.source = fmtData.url;
       sceneConfig.lodSource = undefined;
     }
   }
+
+  // ── 后端切换 ──────────────────────────────────────────────
+
+  /**
+   * 切换渲染后端 (auto / webgl2 / webgpu)
+   * 销毁旧渲染器 → 创建新渲染器 → 重新加载当前场景
+   * ★ 安全: 切换前检查 WebGPU 能力, 显示实验性警告
+   */
+  async function switchBackend(mode) {
+    if (mode === currentBackendMode) return;
+    if (isSwitching) return;
+
+    // ★ WebGPU 能力预检查
+    if (mode === 'webgpu') {
+      // 仅强制 WebGPU 时才检查 (Auto 模式会自动回退到 WebGL2)
+      if (!webgpuCapability || !webgpuCapability.supported) {
+        const reason = webgpuCapability?.reason || '未知原因';
+        errorEl.textContent = `❌ WebGPU 不可用: ${reason}`;
+        errorEl.style.display = 'block';
+        setTimeout(() => { errorEl.style.display = 'none'; }, 5000);
+        return;
+      }
+      // ★ 实验性警告
+      const gpuInfo = webgpuCapability.adapterInfo
+        ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}`
+        : '未知 GPU';
+      console.warn('[后端切换] WebGPU 渲染器是实验性功能, 可能不稳定。GPU:', gpuInfo);
+    }
+
+    isSwitching = true;
+
+    loading.style.display = 'block';
+    loadingText.textContent = `切换到 ${mode === 'auto' ? 'Auto' : mode === 'webgl2' ? 'WebGL' : 'WebGPU'} 后端...`;
+    errorEl.style.display = 'none';
+
+    try {
+      // 1. 注销旧的帧回调
+      if (frameUnsub) { frameUnsub(); frameUnsub = null; }
+
+      // 2. 销毁旧渲染器 (会移除 canvas DOM)
+      renderer.destroy();
+
+      // 3. 创建新渲染器 (★ 添加超时保护)
+      const initPromise = createAndInitRenderer(mode);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('渲染器初始化超时 (10s)')), 10000)
+      );
+      const result = await Promise.race([initPromise, timeoutPromise]);
+
+      renderer = result.renderer;
+      backend = result.backend;
+      webgpuCapability = result.webgpuCapability;
+      currentBackendMode = mode;
+      tier = renderer.getDeviceTier();
+
+      // 4. 设置到 player 并启动
+      player.setRenderer(renderer);
+      renderer.start();
+
+      // 5. 重新设置帧回调 (FPS 监控等)
+      frameUnsub = renderer.onFrame(() => {
+        recordFrame();
+        frameCount++;
+        const now = performance.now();
+
+        const activeKeys = renderer.getActiveMoveKeys ? renderer.getActiveMoveKeys() : [];
+        for (const [k, el] of Object.entries(keyEls)) {
+          if (el) el.classList.toggle('active', activeKeys.includes(k));
+        }
+
+        if (now - fpsTimer >= 500) {
+          fps = Math.round((frameCount * 1000) / (now - fpsTimer));
+          frameCount = 0;
+          fpsTimer = now;
+          const resScale = renderer.getResolutionScale ? renderer.getResolutionScale() : 1.0;
+          const isolated = RenderManager.isCrossOriginIsolated() ? '✓' : '✗';
+          const lodStatus = renderer.isLodReady ? (renderer.isLodReady() ? '✓' : '✗') : '—';
+          const gpuInfo = webgpuCapability?.adapterInfo
+            ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}`
+            : 'N/A';
+          const gpuType = webgpuCapability?.gpuType ? ` [${webgpuCapability.gpuType}]` : '';
+          const scene = sceneData[currentSceneId];
+          hudEl.innerHTML = [
+            `Backend: ${backend.toUpperCase()} | Tier: ${tierNames[tier]} | FPS: ${fps}`,
+            `GPU: ${gpuInfo}${gpuType} | SAB: ${isolated} | LOD: ${lodStatus}`,
+            `Scene: ${scene?.title} (${scene?.splatCount}) | Format: ${currentFormat.toUpperCase()} | Res: ${(resScale * 100).toFixed(0)}%`,
+          ].join('<br>');
+
+          if (bench.collecting) updateBenchStats();
+        }
+      });
+
+      // 6. 重新加载当前场景 (使用当前格式)
+      applyFormatToConfig();
+      const scene = sceneData[currentSceneId];
+      const fmtData = scene?.formats[currentFormat];
+      bench.loadStartTime = performance.now();
+
+      if (currentFormat === 'sog' && fmtData?.url) {
+        await renderer.loadScene(scene.formats.splat.url, { lodSource: fmtData.url });
+      } else if (fmtData?.url) {
+        await renderer.loadScene(fmtData.url);
+      }
+      bench.loadTime = performance.now() - bench.loadStartTime;
+
+      // 7. 更新 UI
+      updateBackendPanel();
+      const backendLabel = backend === 'webgpu' ? 'WebGPU (实验性)' : 'WebGL2';
+      showInfo(`已切换到 ${backendLabel} 后端 | ${scene?.title} | ${currentFormat.toUpperCase()}`);
+    } catch (err) {
+      console.error('后端切换失败:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      errorEl.textContent = `❌ 后端切换失败: ${errMsg}${mode === 'webgpu' ? ' (WebGPU 是实验性功能, 建议使用 WebGL2)' : ''}`;
+      errorEl.style.display = 'block';
+      // ★ 自动回退到 WebGL2
+      try {
+        const fallbackResult = await createAndInitRenderer('webgl2');
+        renderer = fallbackResult.renderer;
+        backend = fallbackResult.backend;
+        webgpuCapability = fallbackResult.webgpuCapability;
+        currentBackendMode = 'webgl2';
+        tier = renderer.getDeviceTier();
+        player.setRenderer(renderer);
+        renderer.start();
+
+        // 重新设置帧回调
+        frameUnsub = renderer.onFrame(() => {
+          recordFrame();
+          frameCount++;
+          const now = performance.now();
+          const activeKeys = renderer.getActiveMoveKeys ? renderer.getActiveMoveKeys() : [];
+          for (const [k, el] of Object.entries(keyEls)) {
+            if (el) el.classList.toggle('active', activeKeys.includes(k));
+          }
+          if (now - fpsTimer >= 500) {
+            fps = Math.round((frameCount * 1000) / (now - fpsTimer));
+            frameCount = 0;
+            fpsTimer = now;
+            const resScale = renderer.getResolutionScale ? renderer.getResolutionScale() : 1.0;
+            const isolated = RenderManager.isCrossOriginIsolated() ? '✓' : '✗';
+            const lodStatus = renderer.isLodReady ? (renderer.isLodReady() ? '✓' : '✗') : '—';
+            const gpuInfo = webgpuCapability?.adapterInfo
+              ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}`
+              : 'N/A';
+            const gpuType = webgpuCapability?.gpuType ? ` [${webgpuCapability.gpuType}]` : '';
+            const scene = sceneData[currentSceneId];
+            hudEl.innerHTML = [
+              `Backend: ${backend.toUpperCase()} | Tier: ${tierNames[tier]} | FPS: ${fps}`,
+              `GPU: ${gpuInfo}${gpuType} | SAB: ${isolated} | LOD: ${lodStatus}`,
+              `Scene: ${scene?.title} (${scene?.splatCount}) | Format: ${currentFormat.toUpperCase()} | Res: ${(resScale * 100).toFixed(0)}%`,
+            ].join('<br>');
+            if (bench.collecting) updateBenchStats();
+          }
+        });
+
+        // 重新加载场景
+        applyFormatToConfig();
+        const scene = sceneData[currentSceneId];
+        const fmtData = scene?.formats[currentFormat];
+        if (fmtData?.url) {
+          await renderer.loadScene(fmtData.url);
+        }
+        showInfo('已自动回退到 WebGL2 后端');
+      } catch (fallbackErr) {
+        console.error('WebGL2 回退也失败:', fallbackErr);
+      }
+      updateBackendPanel();
+    } finally {
+      loading.style.display = 'none';
+      isSwitching = false;
+    }
+  }
+
+  /** 更新后端切换面板按钮状态 */
+  function updateBackendPanel() {
+    const btns = document.querySelectorAll('#backend-panel .backend-btn');
+    // ★ GPU 类型标签
+    const gpuTypeLabel = webgpuCapability?.gpuType ? ` [${webgpuCapability.gpuType}]` : '';
+    btns.forEach(btn => {
+      const mode = btn.dataset.mode;
+      btn.classList.toggle('active', mode === currentBackendMode);
+      // WebGPU 按钮在不可用时禁用
+      if (mode === 'webgpu' && webgpuCapability && !webgpuCapability.supported) {
+        btn.disabled = true;
+        btn.title = `WebGPU 不可用: ${webgpuCapability.reason || '未知原因'}`;
+      } else if (mode === 'webgpu' && webgpuCapability?.supported) {
+        btn.title = `WebGPU 渲染器 (实验性)${gpuTypeLabel}`;
+      } else if (mode === 'auto' && webgpuCapability && !webgpuCapability.supported) {
+        btn.title = `Auto 将回退到 WebGL2 (WebGPU 不可用)`;
+      } else {
+        btn.disabled = false;
+        btn.title = '';
+      }
+    });
+  }
+
+  // 绑定后端切换按钮
+  document.querySelectorAll('#backend-panel .backend-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      if (mode && mode !== currentBackendMode && !btn.disabled) {
+        switchBackend(mode);
+      }
+    });
+  });
 
   // ── 加载 ──
   loadingText.textContent = '加载场景配置...';
@@ -702,8 +1050,162 @@ async function main() {
 
   // ── 切换到第一个场景 ──
   loadingText.textContent = '加载 3DGS 数据...';
-  await player.switchScene('demo1');
+  bench.loadStartTime = performance.now();
+  await player.switchScene('kitchen');
+  bench.loadTime = performance.now() - bench.loadStartTime;
+
+  // 初始化后端面板状态
+  updateBackendPanel();
+
+  // ── 自动化测试接口 (供 Playwright 调用) ──
+  window.__bench = bench;
+  window.__sceneData = sceneData;
+  window.__renderer = renderer;
+  window.__backend = backend;
+  window.__webgpuCapability = webgpuCapability;
+
+  window.__getDeviceInfo = function() {
+    const tierNames = ['LOW', 'MEDIUM', 'HIGH', 'ULTRA'];
+    const gpuInfo = webgpuCapability.adapterInfo
+      ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}` : 'N/A';
+    return {
+      backend: backend.toUpperCase(),
+      deviceTier: tierNames[renderer.getDeviceTier()],
+      gpu: gpuInfo,
+      sab: RenderManager.isCrossOriginIsolated(),
+      resolutionScale: renderer.getResolutionScale ? renderer.getResolutionScale() : 1.0,
+      userAgent: navigator.userAgent,
+    };
+  };
+
+  window.__switchScene = async function(sceneId) {
+    await switchScene(sceneId);
+    // 等待稳定
+    await new Promise(r => setTimeout(r, 2000));
+  };
+
+  window.__switchFormat = async function(format) {
+    const scene = sceneData[currentSceneId];
+    const fmtData = scene?.formats[format];
+    if (!fmtData || !fmtData.url) {
+      return false; // 格式不可用
+    }
+    await switchFormat(format);
+    // 等待稳定
+    await new Promise(r => setTimeout(r, 3000));
+
+    // ★ P0: 等待 LOD 就绪 (SOG 非阻塞构建需要时间)
+    //   createLodSplats() 在 Web Worker 中执行, 大场景需 8-80 秒
+    //   不等待 LOD 就绪会导致采集窗口内 FPS 极低 (LOD 消隐未生效)
+    if (renderer.isLodReady) {
+      const lodTimeoutMs = 120000; // 最多等 120 秒
+      const lodStart = performance.now();
+      while (!renderer.isLodReady() && (performance.now() - lodStart) < lodTimeoutMs) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+      const lodWait = performance.now() - lodStart;
+      if (renderer.isLodReady()) {
+        console.log(`[Bench] LOD 就绪, 额外等待 ${(lodWait / 1000).toFixed(1)}s`);
+      } else {
+        console.warn(`[Bench] LOD 等待超时 (${(lodTimeoutMs / 1000).toFixed(0)}s), 继续采集`);
+      }
+    }
+
+    return true;
+  };
+
+  window.__runBench = function(durationMs) {
+    return new Promise((resolve) => {
+      bench.frameTimes = [];
+      bench.fpsHistory = [];
+      bench.collecting = true;
+      bench.lastFrameTime = performance.now();
+      const dur = durationMs || bench.collectDuration;
+      setTimeout(() => {
+        bench.collecting = false;
+        const stats = computeStats();
+        resolve(stats ? {
+          scene: sceneData[currentSceneId].title,
+          format: currentFormat.toUpperCase(),
+          splatCount: sceneData[currentSceneId].splatCount,
+          loadTime: bench.loadTime,
+          ...stats,
+        } : null);
+      }, dur);
+    });
+  };
+
+  window.__autoBench = async function(onProgress) {
+    const sceneIds = ['kitchen', 'demo1', 'storysplat', 'demo2', 'garden'];
+    const formats = ['ply', 'splat', 'spz', 'sog'];
+    const results = [];
+
+    for (const sceneId of sceneIds) {
+      // 切换场景
+      try {
+        await switchScene(sceneId);
+        await new Promise(r => setTimeout(r, 2000));
+      } catch (err) {
+        console.error(`场景切换失败: ${sceneId}`, err);
+        continue;
+      }
+
+      for (const format of formats) {
+        const scene = sceneData[sceneId];
+        const fmtData = scene?.formats[format];
+        if (!fmtData || !fmtData.url) {
+          results.push({
+            scene: scene.title, format: format.toUpperCase(),
+            splatCount: scene.splatCount, error: 'N/A (无源文件)',
+          });
+          if (onProgress) onProgress(results.length, 18, scene.title, format, 'skipped');
+          continue;
+        }
+
+        try {
+          await switchFormat(format);
+          await new Promise(r => setTimeout(r, 3000));
+
+          if (onProgress) onProgress(results.length, 18, scene.title, format, 'running');
+
+          const result = await new Promise((resolve) => {
+            bench.frameTimes = [];
+            bench.fpsHistory = [];
+            bench.collecting = true;
+            bench.lastFrameTime = performance.now();
+            setTimeout(() => {
+              bench.collecting = false;
+              const stats = computeStats();
+              resolve(stats ? {
+                scene: scene.title,
+                format: format.toUpperCase(),
+                splatCount: scene.splatCount,
+                loadTime: bench.loadTime,
+                ...stats,
+              } : null);
+            }, bench.collectDuration);
+          });
+
+          if (result) {
+            results.push(result);
+            if (onProgress) onProgress(results.length, 18, scene.title, format, 'done');
+          }
+        } catch (err) {
+          results.push({
+            scene: scene.title, format: format.toUpperCase(),
+            splatCount: scene.splatCount, error: err.message,
+          });
+          if (onProgress) onProgress(results.length, 18, scene.title, format, 'error');
+        }
+      }
+    }
+
+    return results;
+  };
+
+  window.__benchReady = true;
 }
+
 main().catch((err) => {
   console.error(err);
   const errorEl = document.getElementById('error');
