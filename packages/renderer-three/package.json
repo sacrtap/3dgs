@@ -1,6 +1,6 @@
 {
   "name": "@3dgs/renderer-three",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Three.js 渲染器适配层 — 使用 @sparkjsdev/spark 渲染 3DGS",
   "type": "module",
   "main": "./dist/index.js",
