@@ -20,9 +20,11 @@ export interface DeviceProfile {
 
 /** 检测设备能力并返回分级 */
 export function detectDeviceTier(): DeviceProfile {
-  const cores = navigator.hardwareConcurrency || 4;
-  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory || 4;
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  // ★ CI 兼容: Node.js < 21 没有 navigator 全局对象
+  const nav = typeof navigator !== 'undefined' ? navigator : undefined;
+  const cores = nav?.hardwareConcurrency || 4;
+  const memory = (nav as (Navigator & { deviceMemory?: number }) | undefined)?.deviceMemory || 4;
+  const isMobile = nav ? /Android|iPhone|iPad|iPod/i.test(nav.userAgent) : false;
   const gpuRenderer = detectGpuRenderer();
 
   // ── 分级逻辑 ──
@@ -166,6 +168,8 @@ export function getTierSettings(tier: DeviceTier): {
 
 function detectGpuRenderer(): string {
   try {
+    // ★ CI 兼容: Node.js 没有 document
+    if (typeof document === 'undefined') return 'unknown';
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
     if (!gl) return 'unknown';

@@ -205,6 +205,36 @@ return result;
 
 ---
 
+### L4: 统一 FrustumCulling 两套实现
+
+| 字段 | 值 |
+|------|------|
+| **优先级** | Low |
+| **状态** | 待执行 |
+| **涉及文件** | `packages/renderer-three/src/frustum-culling.ts` (SpatialGrid 批量裁剪), `packages/renderer-three/src/webgpu-render-manager.ts` (`performFrustumCull()` 逐 splat 点测试, lines 1032-1083) |
+| **根因** | 项目中存在两套独立的视锥裁剪实现: 1) `FrustumCulling` 类 (基于 Morton 空间分块的 `SpatialGrid`, 8×8×8 = 512 cells, 批量 `frustum.intersectsBox()` 测试, 复杂度 O(G)) 2) `WebGPURenderManager.performFrustumCull()` 方法 (逐 splat 中心点 `frustum.containsPoint()` 测试, 复杂度 O(N))。两套实现独立运行, 无代码复用。 |
+| **影响** | `WebGPURenderManager` 的逐 splat 点测试在大场景 (1M+ splats) 中每 3 帧遍历全部 splat 中心点, 性能低于 `SpatialGrid` 的批量分块方案。此外, 两套实现增加维护成本, 任何裁剪逻辑修改需同步两处。 |
+| **方案** | 将 `WebGPURenderManager.performFrustumCull()` 替换为使用 `FrustumCulling` 类 (基于 `SpatialGrid`): 1) `loadScene` 完成后构建 `FrustumCulling` 实例 (传入 splat 数据 + 包围盒) 2) 每帧使用 `getVisibleRanges()` 获取可见 splat 范围 3) 将范围转为 GPU index buffer 写入 4) 删除 `performFrustumCull()` 中的逐 splat 循环 |
+| **预计成本** | 0.5 天 |
+| **前置条件** | `FrustumCulling` 类需支持从 `Float32Array` (positions only) 构建, 当前仅支持 `Uint8Array` (.splat 格式) |
+
+---
+
+### L5: SOG v2 紧凑格式 (29 字节) 读取端验证
+
+| 字段 | 值 |
+|------|------|
+| **优先级** | Low |
+| **状态** | 待执行 |
+| **涉及文件** | `packages/convert/src/sog-writer.ts` (写入端, positionQuant=1 时使用 29 字节紧凑格式), `packages/renderer-three/src/sog-streamer.ts` (读取端, chunk 数据解析) |
+| **根因** | SOG v2 格式定义了 `positionQuant` 字段: 当 `positionQuant=1` 时, chunk 内每个 splat 使用 29 字节紧凑格式 (Position: 3×Uint24 LE = 9 bytes, Scale: 3×Float32 = 12 bytes, Color: 4×Uint8 = 4 bytes, Rotation: 4×Uint8 = 4 bytes), 比标准 32 字节 .splat 格式小 9%。写入端 `writeSog()` 已实现紧凑格式写入, 但读取端 `SogStreamer` 的 chunk 数据解析仍按 32 字节 .splat 格式处理, 未实现 29 字节紧凑格式的反量化读取。 |
+| **影响** | 使用 `positionQuant=1` 生成的 SOG v2 文件, 在客户端加载时 chunk 数据会被错误解析 (按 32 字节切分 29 字节数据), 导致位置/缩放/颜色/旋转全部错位。当前生成的 SOG 文件均使用 `positionQuant=0` (标准 32 字节格式), 因此不影响现有功能, 但未来启用紧凑格式时会出错。 |
+| **方案** | 1) `SogStreamer` 的 chunk 解析逻辑添加 `positionQuant` 判断 2) 当 `positionQuant=1` 时, 使用 29 字节紧凑格式解析: Position 反量化 `pos = min + (uint24 / 0xFFFFFF) * range` 3) 新增测试: 生成紧凑格式 SOG v2 文件 → 读取 → 验证数据正确性 4) 验证 gzip 压缩 + 紧凑格式的组合场景 |
+| **预计成本** | 1 天 (含测试编写) |
+| **前置条件** | 无 |
+
+---
+
 ## 债务追踪
 
 | 编号 | 优先级 | 状态 | 最后更新 |
@@ -217,3 +247,5 @@ return result;
 | L1 | Low | ✅ 已完成研究 + blurAmount/minAlpha/focalAdjustment 实施 | 2026-08-11 |
 | L2 | Low | ✅ 已解决 (RAF 过滤 + P50/P5 优先) | 2026-08-11 |
 | L3 | Low | 待执行 | 2026-08-09 |
+| L4 | Low | 待执行 (统一 FrustumCulling 两套实现) | 2026-08-11 |
+| L5 | Low | 待执行 (SOG v2 紧凑格式读取端验证) | 2026-08-11 |
