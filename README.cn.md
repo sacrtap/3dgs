@@ -78,7 +78,7 @@ cd 3dgs && pnpm install && pnpm --filter @3dgs/demo dev
 
 ### 渲染引擎
 
-- **WebGL2 + Spark** — 基于 `@sparkjsdev/spark` 实现 3DGS 渲染，覆盖 98%+ 浏览器
+- **双后端** — WebGL2 + Spark（生产就绪，覆盖 98%+ 浏览器）**及** WebGPU 原生（实验性，WGSL 着色器 + GPU compute 排序）
 - **设备分级** — 自动检测硬件能力（CPU 核心数、内存、GPU 型号），动态选择渲染参数
 - **自适应分辨率** — 帧率低于阈值时自动降低渲染分辨率，保障流畅度
 - **DragLookControls** — 拖拽式视角控制，类似全景查看器交互
@@ -112,7 +112,7 @@ cd 3dgs && pnpm install && pnpm --filter @3dgs/demo dev
 | **Fullscreen** | 全屏切换 — 双击切换、ESC 退出 |
 | **LoadingIndicator** | 加载指示器 — spinner 动画、进度显示 |
 | **AutoRotate** | 自动旋转 — 可配置速度/延迟 |
-| **ShaderInjection** | Shader 注入 — 自定义 GLSL 代码注入 |
+| **ShaderInjection** | Shader 注入 — 自定义 GLSL（WebGL2）/ WGSL（WebGPU）代码注入 |
 
 ---
 
@@ -374,12 +374,17 @@ player.use(createMyPlugin());
 
 | 导出 | 类型 | 说明 |
 |------|------|------|
-| `RenderManager` | 类 | WebGL2 + Spark 渲染管理器 |
+| `RenderManager` | 类 | WebGL2 + Spark 渲染管理器（生产就绪） |
+| `WebGPURenderManager` | 类 | WebGPU 原生渲染管理器（实验性） |
+| `WebGPUSortManager` | 类 | GPU compute shader 排序管理器 |
 | `createRenderer` | 函数 | 异步渲染器工厂 — 自动检测 WebGPU，不可用回退 WebGL2 |
 | `createRendererSync` | 函数 | 同步渲染器工厂 — 直接使用 WebGL2 |
 | `detectWebGPU` | 函数 | WebGPU 能力检测 |
 | `detectDeviceTier` | 函数 | 设备分级检测 |
 | `SogStreamer` | 类 | SOG 流式 LOD 客户端 |
+| `FrustumCulling` | 类 | Morton 空间分块视锥裁剪 |
+| `SplatBufferPool` | 类 | ArrayBuffer 对象池（场景切换复用） |
+| `decodeSpzInWorker` | 函数 | SPZ 格式解码器（Worker + 主线程回退） |
 
 ### @3dgs/convert
 
@@ -389,11 +394,14 @@ player.use(createMyPlugin());
 | `loadGaussiansFromSplat(buffer, options?)` | 从 `.splat` 反向加载为 GaussianCloud |
 | `writeSplat(cloud)` | 写入 `.splat` 格式 |
 | `writeSpz(cloud, options?)` | 写入 `.spz` 格式（gzip 压缩） |
-| `writeSog(cloud, options?)` | 写入 `.sog` 格式（流式 LOD） |
+| `writeSog(cloud, options?)` | 写入 `.sog` 格式（流式 LOD，v2: gzip + LOD 树 + 位置量化） |
 | `pruneGaussians(cloud, options?)` | 冗余高斯核剔除 |
 | `mortonSortGaussians(cloud, options?)` | Morton Code 空间排序 |
 | `parsePly(buffer)` | 底层 PLY 解析器 |
 | `parseSogMetadata(buffer)` | 解析 SOG 文件元数据 |
+| `buildLodLevels(numSplats, numLevels, lodBase)` | 构建 LOD 层级边界（Morton 前缀子集） |
+| `serializeLodTree(levels, lodBase)` | 序列化 LOD 树为二进制 |
+| `deserializeLodTree(buffer)` | 从二进制反序列化 LOD 树 |
 
 </details>
 
@@ -682,7 +690,7 @@ pnpm --filter @3dgs/core dev        # 监听模式
 
 ```bash
 pnpm typecheck       # 类型检查
-pnpm test            # 单元测试 (42 个用例)
+pnpm test            # 单元测试 (411 个用例)
 pnpm test:coverage   # 覆盖率报告
 pnpm lint            # ESLint 检查
 pnpm lint:fix        # 自动修复
@@ -717,14 +725,14 @@ GitHub Actions CI 流水线在每次 push / PR 时自动执行 Lint、Type Check
 3dgs/
 ├── packages/
 │   ├── core/              # 框架无关核心 — TourPlayer、SceneManager、PluginSystem
-│   ├── renderer-three/    # Three.js + Spark 渲染器适配层
+│   ├── renderer-three/    # Three.js + Spark / WebGPU 渲染器适配层
 │   ├── plugins/           # 插件包 — 热点、相机控制、深度遮挡、触摸、过渡、Shader
 │   ├── convert/           # 数据转换 CLI + 编程 API
 │   ├── react/             # React 适配层 — <TourViewer /> 组件
 │   └── vue/               # Vue 3 适配层 — <TourViewer /> 组件
 ├── apps/
 │   └── demo/              # 在线演示应用 (Vite + Vanilla TS)
-├── examples/              # 9 个示例代码
+├── examples/              # 12 个示例代码
 ├── docs/site/             # VitePress 文档站
 ├── .changeset/            # Changesets 版本管理
 └── .github/               # CI/CD + Issue/PR 模板
@@ -733,7 +741,7 @@ GitHub Actions CI 流水线在每次 push / PR 时自动执行 Lint、Type Check
 | 文档 | 说明 |
 |------|------|
 | [文档站点](docs/site/) | VitePress 文档 — 指南、API 参考、示例 |
-| [示例代码](examples/README.md) | 9 个可运行示例代码 |
+| [示例代码](examples/README.md) | 12 个可运行示例代码 |
 | [FAQ 常见问题](docs/site/guide/faq.md) | 部署、渲染、转换、插件、构建常见问题 |
 | [贡献指南](CONTRIBUTING.md) | 开发环境、分支策略、插件开发、提交规范 |
 

@@ -78,7 +78,7 @@ Open `http://localhost:5173` to experience multi-scene tours, hotspot navigation
 
 ### Rendering Engine
 
-- **WebGL2 + Spark** — 3DGS rendering via `@sparkjsdev/spark`, covering 98%+ of browsers
+- **Dual Backend** — WebGL2 + Spark (production-ready, 98%+ browsers) **and** WebGPU native (experimental, WGSL shaders + GPU compute sort)
 - **Device Tiering** — Auto-detects hardware (CPU cores, memory, GPU model) and dynamically adjusts render parameters
 - **Adaptive Resolution** — Automatically lowers render resolution when FPS drops below threshold
 - **DragLookControls** — Drag-to-look camera controls, similar to panorama viewers
@@ -112,7 +112,7 @@ Open `http://localhost:5173` to experience multi-scene tours, hotspot navigation
 | **Fullscreen** | Fullscreen — double-click toggle, ESC to exit |
 | **LoadingIndicator** | Loading indicator — spinner, progress percentage |
 | **AutoRotate** | Auto-rotate — configurable speed/delay |
-| **ShaderInjection** | Shader injection — custom GLSL code injection |
+| **ShaderInjection** | Shader injection — custom GLSL (WebGL2) / WGSL (WebGPU) code injection |
 
 ---
 
@@ -374,12 +374,17 @@ player.use(createMyPlugin());
 
 | Export | Type | Description |
 |--------|------|-------------|
-| `RenderManager` | Class | WebGL2 + Spark render manager |
+| `RenderManager` | Class | WebGL2 + Spark render manager (production) |
+| `WebGPURenderManager` | Class | WebGPU native render manager (experimental) |
+| `WebGPUSortManager` | Class | GPU compute shader sort manager |
 | `createRenderer` | Function | Async renderer factory — auto-detects WebGPU, falls back to WebGL2 |
 | `createRendererSync` | Function | Sync renderer factory — uses WebGL2 directly |
 | `detectWebGPU` | Function | WebGPU capability detection |
 | `detectDeviceTier` | Function | Device tier detection |
 | `SogStreamer` | Class | SOG streaming LOD client |
+| `FrustumCulling` | Class | Morton spatial grid frustum culling |
+| `SplatBufferPool` | Class | ArrayBuffer pool for scene switching |
+| `decodeSpzInWorker` | Function | SPZ format decoder (Worker with main-thread fallback) |
 
 ### @3dgs/convert
 
@@ -389,11 +394,14 @@ player.use(createMyPlugin());
 | `loadGaussiansFromSplat(buffer, options?)` | Load `.splat` back into GaussianCloud |
 | `writeSplat(cloud)` | Write `.splat` format |
 | `writeSpz(cloud, options?)` | Write `.spz` format (gzip compressed) |
-| `writeSog(cloud, options?)` | Write `.sog` format (streaming LOD) |
+| `writeSog(cloud, options?)` | Write `.sog` format (streaming LOD, v2: gzip + LOD tree + position quantization) |
 | `pruneGaussians(cloud, options?)` | Redundant gaussian pruning |
 | `mortonSortGaussians(cloud, options?)` | Morton Code spatial sorting |
 | `parsePly(buffer)` | Low-level PLY parser |
 | `parseSogMetadata(buffer)` | Parse SOG file metadata |
+| `buildLodLevels(numSplats, numLevels, lodBase)` | Build LOD level boundaries (Morton prefix subset) |
+| `serializeLodTree(levels, lodBase)` | Serialize LOD tree to binary |
+| `deserializeLodTree(buffer)` | Deserialize LOD tree from binary |
 
 </details>
 
@@ -682,7 +690,7 @@ pnpm --filter @3dgs/core dev        # Watch mode
 
 ```bash
 pnpm typecheck       # Type checking
-pnpm test            # Unit tests (42 cases)
+pnpm test            # Unit tests (411 cases)
 pnpm test:coverage   # Coverage report
 pnpm lint            # ESLint
 pnpm lint:fix        # Auto-fix
@@ -717,14 +725,14 @@ For common questions, see the [FAQ docs](docs/site/guide/faq.md) covering deploy
 3dgs/
 ├── packages/
 │   ├── core/              # Framework-agnostic core — TourPlayer, SceneManager, PluginSystem
-│   ├── renderer-three/    # Three.js + Spark renderer adapter
+│   ├── renderer-three/    # Three.js + Spark / WebGPU renderer adapter
 │   ├── plugins/           # Plugins — hotspots, camera, depth, touch, transitions, shader
 │   ├── convert/           # Data conversion CLI + programmatic API
 │   ├── react/             # React adapter — <TourViewer /> component
 │   └── vue/               # Vue 3 adapter — <TourViewer /> component
 ├── apps/
 │   └── demo/              # Demo app (Vite + Vanilla TS)
-├── examples/              # 9 example code files
+├── examples/              # 12 example code files
 ├── docs/site/             # VitePress docs site
 ├── .changeset/            # Changesets version management
 └── .github/               # CI/CD + Issue/PR templates
@@ -733,7 +741,7 @@ For common questions, see the [FAQ docs](docs/site/guide/faq.md) covering deploy
 | Resource | Description |
 |----------|-------------|
 | [Docs Site](docs/site/) | VitePress docs — guides, API reference, examples |
-| [Examples](examples/README.md) | 9 runnable code examples |
+| [Examples](examples/README.md) | 12 runnable code examples |
 | [FAQ](docs/site/guide/faq.md) | Deployment, rendering, conversion, plugins, build |
 | [Contributing](CONTRIBUTING.md) | Dev setup, branch strategy, plugin dev, commit conventions |
 
