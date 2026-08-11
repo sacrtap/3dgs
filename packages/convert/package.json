@@ -1,6 +1,6 @@
 {
   "name": "@3dgs/convert",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "3DGS 数据转换 CLI — PLY → SPLAT / SPZ / SOG 格式转换 + tour.json 模板生成",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,7 +15,10 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist/**/*.js", "dist/**/*.d.ts"],
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
   "publishConfig": {
     "access": "public"
   },
@@ -28,7 +31,16 @@
   "bugs": {
     "url": "https://github.com/sacrtap/3dgs/issues"
   },
-  "keywords": ["3dgs", "gaussian-splatting", "cli", "convert", "ply", "splat", "spz", "sog"],
+  "keywords": [
+    "3dgs",
+    "gaussian-splatting",
+    "cli",
+    "convert",
+    "ply",
+    "splat",
+    "spz",
+    "sog"
+  ],
   "author": "sacrtap",
   "license": "MIT",
   "engines": {
