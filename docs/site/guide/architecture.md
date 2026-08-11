@@ -23,18 +23,28 @@
 ├──────────────────────────────────────────────────────────┤
 │                   渲染层 (Renderer)                        │
 │              @3dgs/renderer-three                         │
-│  RenderManager (Spark + Three.js)                         │
-│  DragLookControls · DeviceTier · AdaptiveResolution       │
-│  SogStreamer · WebGPUDetector                             │
+│  ┌─────────────────────┐  ┌──────────────────────────┐  │
+│  │  WebGL2 + Spark      │  │  WebGPU 原生 (实验性)      │  │
+│  │  RenderManager       │  │  WebGPURenderManager      │  │
+│  │  SogStreamer         │  │  WebGPUSortManager        │  │
+│  │  DragLookControls    │  │  FrustumCulling           │  │
+│  │  DeviceTier          │  │  SplatBufferPool          │  │
+│  │  AdaptiveResolution  │  │  WGSL Shader Utils        │  │
+│  └─────────────────────┘  └──────────────────────────┘  │
+│  共享模块: KeyboardControls · FrameCallbackManager        │
+│           CameraMatrixCache · SPZ Decoder Worker          │
 └──────────────────────────────────────────────────────────┘
 ```
+
+`createRenderer()` 自动检测 WebGPU 可用性，优先使用 WebGPU 后端，不可用时回退到 WebGL2 + Spark 后端。
 
 ## 核心设计原则
 
 ### 1. 渲染器抽象
 
-`RendererAdapter` 接口将核心层与具体渲染后端解耦。当前使用 Three.js + Spark 实现，
-未来可替换为 WebGPU 原生实现。
+`RendererAdapter` 接口将核心层与具体渲染后端解耦。当前已实现两个后端：
+- **RenderManager** (WebGL2 + Spark) — 生产就绪
+- **WebGPURenderManager** (WebGPU 原生) — 实验性, 使用 WGSL 着色器 + GPU compute 排序
 
 ### 2. 单一 RAF 循环
 

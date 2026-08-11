@@ -227,6 +227,7 @@ interface LoadOptions {
   shDegree?: number;
   maxSplats?: number;
   lodSource?: string;  // SOG 流式 LOD URL
+  onFirstFrame?: () => void;  // 首帧渲染回调 (SOG 流式加载)
 }
 ```
 

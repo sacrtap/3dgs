@@ -3,7 +3,7 @@
  */
 
 import { TourPlayer } from '@3dgs/core';
-import { createRendererSync } from '@3dgs/renderer-three';
+import { createRendererSync, RenderManager } from '@3dgs/renderer-three';
 import { createTouchGesturesPlugin, createAutoRotatePlugin } from '@3dgs/plugins';
 
 async function main() {
@@ -30,7 +30,17 @@ async function main() {
 
   // 检查设备分级
   const tier = renderer.getDeviceTier();
-  console.log(`设备分级: ${['LOW', 'MEDIUM', 'HIGH', 'ULTRA'][tier]}`);
+  const tierNames = ['LOW', 'MEDIUM', 'HIGH', 'ULTRA'];
+  console.log(`设备分级: ${tierNames[tier]}`);
+
+  // 移动端可访问质量参数 (通过 device-tier 配置自动应用)
+  // LOW: blurAmount=0.1, minAlpha=5/255, minSortIntervalMs=100
+  // MEDIUM: blurAmount=0.2, minAlpha=2/255, minSortIntervalMs=50
+  // 这些参数在 RenderManager 构造时根据 tier 自动设置
+
+  // 检查 SharedArrayBuffer 可用性
+  const isolated = RenderManager.isCrossOriginIsolated();
+  console.log(`SharedArrayBuffer: ${isolated ? '✓' : '✗ (排序性能退化)'}`);
 
   await player.load({
     version: '1.0',

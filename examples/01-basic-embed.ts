@@ -9,7 +9,7 @@
  */
 
 import { TourPlayer } from '@3dgs/core';
-import { createRendererSync } from '@3dgs/renderer-three';
+import { createRenderer } from '@3dgs/renderer-three';
 
 async function main() {
   const container = document.getElementById('viewer')!;
@@ -17,8 +17,10 @@ async function main() {
   // 创建播放器
   const player = new TourPlayer(container);
 
-  // 设置渲染器 (WebGL2 + Spark)
-  player.setRenderer(createRendererSync());
+  // 异步创建渲染器 (自动检测 WebGPU, 不可用回退 WebGL2)
+  const { renderer, backend } = await createRenderer();
+  console.log(`使用后端: ${backend}`); // 'webgpu' 或 'webgl2'
+  player.setRenderer(renderer);
 
   // 加载配置
   await player.load({

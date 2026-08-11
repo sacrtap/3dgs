@@ -1,13 +1,15 @@
 /**
- * 示例 9: 性能监控 — FPS + 帧时间 + 分辨率
+ * 示例 9: 性能监控 — FPS + 帧时间 + 分辨率 + 后端 + 视锥裁剪
  */
 
 import { TourPlayer } from '@3dgs/core';
-import { createRendererSync, RenderManager } from '@3dgs/renderer-three';
+import { createRenderer, RenderManager } from '@3dgs/renderer-three';
 
 async function main() {
   const player = new TourPlayer(document.getElementById('viewer')!);
-  const renderer = createRendererSync();
+
+  // 异步创建渲染器 (自动检测 WebGPU)
+  const { renderer, backend } = await createRenderer();
   player.setRenderer(renderer);
 
   // FPS 监控
@@ -22,12 +24,16 @@ async function main() {
       const fps = Math.round((frameCount * 1000) / (now - fpsTimer));
       const resScale = renderer.getResolutionScale();
       const tier = renderer.getDeviceTier();
+      const tierNames = ['LOW', 'MEDIUM', 'HIGH', 'ULTRA'];
       const isolated = RenderManager.isCrossOriginIsolated() ? '✓' : '✗';
+      const visibleCount = renderer.getVisibleSplatCount?.() ?? '-';
 
       hudEl.textContent = [
         `FPS: ${fps}`,
-        `Tier: ${['LOW', 'MEDIUM', 'HIGH', 'ULTRA'][tier]}`,
+        `Backend: ${backend}`,
+        `Tier: ${tierNames[tier]}`,
         `Resolution: ${(resScale * 100).toFixed(0)}%`,
+        `Visible splats: ${visibleCount}`,
         `SAB: ${isolated}`,
       ].join(' | ');
 

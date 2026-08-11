@@ -6,15 +6,18 @@
 
 | # | 文件 | 说明 |
 |---|------|------|
-| 01 | `01-basic-embed.ts` | 基础嵌入 — 最简单的 3DGS 场景加载 |
+| 01 | `01-basic-embed.ts` | 基础嵌入 — createRenderer 自动检测 WebGPU |
 | 02 | `02-multi-scene.ts` | 多场景漫游 — 场景跳转 + 热点导航 |
 | 03 | `03-react-integration.tsx` | React 集成 — TourViewer 组件 |
 | 04 | `04-vue-integration.ts` | Vue 集成 — TourViewer 组件 |
 | 05 | `05-custom-hotspot.ts` | 自定义热点 — 样式 + 深度遮挡 |
 | 06 | `06-shader-effects.ts` | Shader 效果 — 色调调整 + 动画 |
-| 07 | `07-data-convert.ts` | 数据转换 — PLY → SPLAT/SPZ/SOG |
-| 08 | `08-mobile-optimization.ts` | 移动端优化 — 设备分级 + 触摸手势 |
-| 09 | `09-performance-monitor.ts` | 性能监控 — FPS + 帧时间 |
+| 07 | `07-data-convert.ts` | 数据转换 — PLY → SPLAT/SPZ/SOG v2 |
+| 08 | `08-mobile-optimization.ts` | 移动端优化 — 设备分级 + 触摸手势 + 质量参数 |
+| 09 | `09-performance-monitor.ts` | 性能监控 — FPS + 后端 + 视锥裁剪统计 |
+| 10 | `10-webgpu-backend.ts` | WebGPU 后端 — 自动检测 + GPU 类型 + 纹理压缩 |
+| 11 | `11-sog-streaming.ts` | SOG 流式加载 — 分块渐进 + onFirstFrame + LOD 树 |
+| 12 | `12-performance-tuning.ts` | 性能调优 — blurAmount/minAlpha/排序节流/视锥裁剪 |
 
 ## 运行方式
 

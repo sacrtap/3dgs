@@ -22,9 +22,14 @@ async function main() {
   await convertPlyToSpz('input.ply', 'output.spz', { shDegree: 1 });
   console.log('✓ SPZ 转换完成');
 
-  // PLY → SOG (流式 LOD, 50K splats/chunk)
-  await convertPlyToSog('input.ply', 'output.sog', { chunkSize: 50000 });
-  console.log('✓ SOG 转换完成');
+  // PLY → SOG v2 (流式 LOD + gzip 压缩 + 预构建 LOD 树)
+  await convertPlyToSog('input.ply', 'output.sog', {
+    chunkSize: 50000,
+    compression: true,     // gzip 压缩 chunk 数据
+    buildLodTree: true,   // 预构建 LOD 树 (Morton 前缀子集)
+    positionQuant: false, // 位置量化 (true = 29 字节紧凑格式)
+  });
+  console.log('✓ SOG v2 转换完成');
 }
 
 main().catch(console.error);

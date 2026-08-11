@@ -93,11 +93,11 @@ new SplatMesh({ url: source, maxSplats: tierSettings.maxSplats });
 new SparkRenderer({
   renderer,
   enableLod: true,
-  lodSplatScale: tierSettings.lodSplatScale,  // LOD 目标 splat 数缩放
-  lodRenderScale: tierSettings.lodRenderScale, // 最小像素半径
-  maxStdDev: tierSettings.maxStdDev,           // 高斯核标准差裁剪
-  minPixelRadius: tierSettings.minPixelRadius, // 跳过过小 splat
-  clipXY: tierSettings.clipXY,                 // 视锥裁剪边界
+  lodSplatScale: tierSettings.lodSplatScale,
+  lodRenderScale: tierSettings.lodRenderScale,
+  maxStdDev: tierSettings.maxStdDev,
+  minPixelRadius: tierSettings.minPixelRadius,
+  clipXY: tierSettings.clipXY,
 });
 
 // LOD 树构建
@@ -111,16 +111,91 @@ mesh.createLodSplats({ quality: tierSettings.lodQuality });
 | HIGH | 1.0 | 1.0 | √8 | 1.2 | true |
 | ULTRA | 1.5 | 1.0 | √8 | 1.4 | true |
 
-## 视锥剔除
+## 排序节流
 
-Spark 内置 `clipXY` 视锥裁剪，控制 Gsplat 中心的 X/Y 裁剪边界：
+`minSortIntervalMs` 按设备分级降低排序频率，减少 GPU 排序开销：
+
+| 设备 | minSortIntervalMs | 排序频率 | 适用场景 |
+|------|-------------------|---------|---------|
+| LOW | 100ms | ~10fps | 低端设备, 排序开销大 |
+| MEDIUM | 50ms | ~20fps | 中端设备 |
+| HIGH | 33ms | ~30fps | 高端设备 |
+| ULTRA | 16ms | ~60fps | 高端 PC, 每帧排序 |
+
+## 注视点渲染
+
+根据设备分级配置中心区域全分辨率、边缘降分辨率的注视点渲染参数：
+
+| 设备 | coneFov0 | coneFov | coneFoveate | behindFoveate |
+|------|----------|---------|-------------|---------------|
+| LOW | 60° | 90° | 0.3 | 0.1 |
+| MEDIUM | 70° | 100° | 0.35 | 0.15 |
+| HIGH | 80° | 110° | 0.4 | 0.2 |
+| ULTRA | 90° | 120° | 0.4 | 0.2 |
+
+- `coneFov0` — 中心全分辨率锥角
+- `coneFov` — 边缘降分辨率锥角
+- `coneFoveate` — 边缘分辨率缩放 (0-1)
+- `behindFoveate` — 背后分辨率缩放 (0-1)
+
+## 质量参数 (blurAmount / minAlpha / focalAdjustment)
+
+Spark 渲染器内置的 3DGS 质量参数，按设备分级配置：
+
+### blurAmount — 抗锯齿模糊
+
+向 splat 协方差对角线添加标量值，实现模糊+放大，是 MSAA 的低成本替代（我们已关闭 MSAA）。
+
+| 设备 | blurAmount | 说明 |
+|------|------------|------|
+| LOW | 0.1 | 减少模糊, 降低 overdraw |
+| MEDIUM | 0.2 | 平衡 |
+| HIGH / ULTRA | 0.3 | Spark 默认, 最佳质量 |
+
+### minAlpha — 最小 alpha 渲染阈值
+
+低于此值的透明 splat 被跳过 (discard)，减少 overdraw。
+
+| 设备 | minAlpha | 说明 |
+|------|----------|------|
+| LOW | 5/255 ≈ 0.020 | 激进裁剪 |
+| MEDIUM | 2/255 ≈ 0.008 | 中等裁剪 |
+| HIGH | 1/255 ≈ 0.004 | 轻微裁剪 |
+| ULTRA | 0.5/255 ≈ 0.002 | Spark 默认, 几乎不裁剪 |
+
+### focalAdjustment — 投影缩放校正值
+
+控制 splat 渲染锐利度，越大越锐利。
+
+| 设备 | focalAdjustment | 说明 |
+|------|-----------------|------|
+| LOW / MEDIUM | 1.0 | Spark 默认 |
+| HIGH | 1.5 | 中等锐化 |
+| ULTRA | 2.0 | 匹配 PlayCanvas, 最锐利 |
+
+## 视锥裁剪
+
+### Spark 内置 clipXY
+
+Spark 内置 `clipXY` 视锥裁剪，控制 splat 中心的 X/Y 裁剪边界：
 
 - `1.0` — 紧裁：中心超出视锥即裁剪 (适合低端设备)
 - `1.4` — 宽裁：允许 40% 超出边界 (默认, 适合高端设备)
 
+### Morton 空间分块裁剪 (FrustumCulling)
+
+基于 SOG 的 Morton 排序数据，实现空间分块视锥剔除：
+
+- 8×8×8 = 512 个空间分块
+- 每个分块记录包含的 splat 范围 (Morton 排序后空间连续)
+- 每帧计算各分块包围盒是否在视锥内
+- 仅返回视锥内分块的 splat 范围
+
 ```typescript
-// 低端设备使用紧裁, 减少视锥外 splat 渲染
-new SparkRenderer({ renderer, clipXY: 1.0 });
+import { FrustumCulling } from '@3dgs/renderer-three';
+
+const culling = new FrustumCulling(splatData, bbox);
+const visibleCount = culling.getVisibleSplatCount(projScreenMatrix);
 ```
 
 ## SOG 流式加载优化
@@ -137,6 +212,26 @@ SOG 全量 buffer 拼接在 Web Worker 中执行，避免大文件 (如 67MB) �
 // 在 Worker 中拼接 chunks, 通过 Transferable 传输
 const fullBuffer = await concatChunksInWorker(chunkDataList);
 ```
+
+## WebGPU 渲染 (实验性)
+
+### GPU Compute 排序
+
+`WebGPUSortManager` 使用 WebGPU compute shader 并行计算 splat → 相机距离，然后 CPU 排序：
+
+- GPU 距离计算: ~0.1ms (1M splats)
+- CPU 排序: ~1-2ms (1M splats)
+- 无需 SharedArrayBuffer，无需 Web Worker 通信开销
+
+### EWA Splatting 着色器
+
+WebGPU 路径使用完整的 EWA splatting WGSL 着色器：
+
+- 3D 协方差矩阵构建 (scale + rotation)
+- view-space 协方差变换
+- 透视投影 Jacobian
+- 2D 屏幕协方差 + 低通滤波
+- 椭圆高斯衰减 (conic 矩阵)
 
 ## 性能优化清单
 
@@ -161,11 +256,10 @@ const fullBuffer = await concatChunksInWorker(chunkDataList);
 
 ### P2 优化 (已实施)
 
-14. **视锥裁剪** — `clipXY` 按设备分级配置
+14. **视锥裁剪** — `clipXY` 按设备分级配置 + `FrustumCulling` 空间分块
 15. **LOD 树** — 加载后调用 createLodSplats() 构建层级
 16. **SOG 流式加载** — 首帧快速渲染, 渐进补全
-
-## 性能基准
-
-详见 [性能基准报告](https://github.com/sacrtap/3dgs/blob/main/docs/05-性能基准报告.md)  
-详见 [渲染性能深度分析与优化方案](https://github.com/sacrtap/3dgs/blob/main/docs/06-渲染性能深度分析与优化方案.md)
+17. **排序节流** — `minSortIntervalMs` 按设备分级降低排序频率
+18. **注视点渲染** — `coneFov0`/`coneFov`/`coneFoveate`/`behindFoveate`
+19. **blurAmount/minAlpha/focalAdjustment** — 质量参数按设备分级
+20. **SplatBufferPool** — ArrayBuffer 对象池, 场景切换复用内存

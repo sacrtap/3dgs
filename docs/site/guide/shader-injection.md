@@ -1,6 +1,9 @@
 # Shader 注入
 
-3DGS 引擎提供自定义 GLSL Shader 注入 API，允许在不修改 Spark 核心代码的前提下向渲染管线注入自定义代码。
+3DGS 引擎提供自定义 Shader 注入 API，允许在不修改 Spark 核心代码的前提下向渲染管线注入自定义代码。
+
+- **WebGL2 路径** (RenderManager): GLSL 注入
+- **WebGPU 路径** (WebGPURenderManager): WGSL 注入（使用 `wgsl-shader-utils` 工具函数）
 
 ## 注入点
 
