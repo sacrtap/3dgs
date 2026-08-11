@@ -46,6 +46,10 @@ benchmarks/reports/
 *.spz
 *.sog
 *.splat
+# Keep kitchen demo data (~18 MB) for quick developer testing
+!apps/demo/public/kitchen.sog
+!apps/demo/public/kitchen.splat
+!apps/demo/public/kitchen.spz
 
 # Banks (internal database)
 banks/
