@@ -58,5 +58,7 @@ banks/
 docs/site/.vitepress/cache/
 
 # Internal docs (local only, not published to remote)
+docs/party-mode-memories
+docs/party-mode-report
 docs/plan/
 README-backup.md
