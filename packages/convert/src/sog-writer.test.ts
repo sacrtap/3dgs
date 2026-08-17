@@ -304,14 +304,15 @@ describe('writeSog — P2-3 位置量化', () => {
       buildLodTree: false,
     });
 
-    // 量化后应更小 (1000 splats × (32-29) = 3000 bytes 节省)
+    // ★ M1: 量化后 chunk data 包含 24 字节 local bbox 前缀
+    // 量化后应更小 (1000 splats × 29B + 24B bbox = 29024 bytes vs 32000 bytes)
     const quantizedDataSize = quantizedBuffer.byteLength - 64 - 8; // 减去 header + index
     const unquantizedDataSize = unquantizedBuffer.byteLength - 64 - 8;
 
-    expect(quantizedDataSize).toBe(1000 * SOG_COMPACT_BYTES_PER_SPLAT);
+    expect(quantizedDataSize).toBe(24 + 1000 * SOG_COMPACT_BYTES_PER_SPLAT);
     expect(unquantizedDataSize).toBe(1000 * 32);
     expect(quantizedDataSize).toBeLessThan(unquantizedDataSize);
-    // 节省 3 bytes / 32 bytes = 9.375%
+    // 节省 (32-29)*1000 / (32*1000) = 9.375% (M1 bbox 前缀 24 bytes 可忽略)
     const saving = 1 - quantizedDataSize / unquantizedDataSize;
     expect(saving).toBeCloseTo(3 / 32, 1);
   });
@@ -345,20 +346,27 @@ describe('writeSog — P2-3 位置量化', () => {
 
     const QUANT_MAX = 0xFFFFFF;
 
+    // ★ M1: chunk data 现在包含 24 字节 local bbox 前缀
+    const BBOX_HEADER_SIZE = 24;
+
     // 读取第一个 splat (原始位置 0,0,0)
-    const qx0 = chunkData[0] | (chunkData[1] << 8) | (chunkData[2] << 16);
-    const x0 = (qx0 / QUANT_MAX) * rangeX + metadata.bboxMin[0];
-    expect(Math.abs(x0 - 0)).toBeLessThan(rangeX / QUANT_MAX * 2); // 2 步精度
+    const qx0 = chunkData[BBOX_HEADER_SIZE + 0] | (chunkData[BBOX_HEADER_SIZE + 1] << 8) | (chunkData[BBOX_HEADER_SIZE + 2] << 16);
+    // ★ M1: 使用 chunk local bbox (前 24 字节), 而非全局 bbox
+    const chunkBboxMinX = new DataView(chunkData.buffer, chunkData.byteOffset).getFloat32(0, true);
+    const chunkBboxMaxX = new DataView(chunkData.buffer, chunkData.byteOffset).getFloat32(12, true);
+    const chunkRangeX = chunkBboxMaxX - chunkBboxMinX;
+    const x0 = (qx0 / QUANT_MAX) * chunkRangeX + chunkBboxMinX;
+    expect(Math.abs(x0 - 0)).toBeLessThan(chunkRangeX / QUANT_MAX * 2 + 0.01); // 2 步精度 + 容差
 
     // 读取第二个 splat (原始位置 50,50,50)
-    const qx1 = chunkData[29] | (chunkData[30] << 8) | (chunkData[31] << 16);
-    const x1 = (qx1 / QUANT_MAX) * rangeX + metadata.bboxMin[0];
-    expect(Math.abs(x1 - 50)).toBeLessThan(rangeX / QUANT_MAX * 2);
+    const qx1 = chunkData[BBOX_HEADER_SIZE + 29] | (chunkData[BBOX_HEADER_SIZE + 30] << 8) | (chunkData[BBOX_HEADER_SIZE + 31] << 16);
+    const x1 = (qx1 / QUANT_MAX) * chunkRangeX + chunkBboxMinX;
+    expect(Math.abs(x1 - 50)).toBeLessThan(chunkRangeX / QUANT_MAX * 2 + 0.01);
 
     // 读取第三个 splat (原始位置 100,100,100)
-    const qx2 = chunkData[58] | (chunkData[59] << 8) | (chunkData[60] << 16);
-    const x2 = (qx2 / QUANT_MAX) * rangeX + metadata.bboxMin[0];
-    expect(Math.abs(x2 - 100)).toBeLessThan(rangeX / QUANT_MAX * 2);
+    const qx2 = chunkData[BBOX_HEADER_SIZE + 58] | (chunkData[BBOX_HEADER_SIZE + 59] << 8) | (chunkData[BBOX_HEADER_SIZE + 60] << 16);
+    const x2 = (qx2 / QUANT_MAX) * chunkRangeX + chunkBboxMinX;
+    expect(Math.abs(x2 - 100)).toBeLessThan(chunkRangeX / QUANT_MAX * 2 + 0.01);
   });
 
   it('★ 量化 + gzip 组合正常工作', () => {
@@ -378,13 +386,13 @@ describe('writeSog — P2-3 位置量化', () => {
     expect(metadata.compression).toBe(1); // gzip
     expect(metadata.numSplats).toBe(100);
 
-    // 验证 gzip 解压后的数据大小 = 100 × 29
+    // 验证 gzip 解压后的数据大小 = 24 (bbox header) + 100 × 29
     const chunkOffset = metadata.chunks[0].offset;
     const chunkSize = metadata.chunks[0].size;
     const u8 = new Uint8Array(buffer);
     const compressedData = Buffer.from(u8.slice(chunkOffset, chunkOffset + chunkSize));
     const decompressed = gunzipSync(compressedData);
-    expect(decompressed.length).toBe(100 * SOG_COMPACT_BYTES_PER_SPLAT);
+    expect(decompressed.length).toBe(24 + 100 * SOG_COMPACT_BYTES_PER_SPLAT);
   });
 
   it('★ 量化后非位置属性 (scale, color, rotation) 保持正确', () => {
@@ -405,25 +413,28 @@ describe('writeSog — P2-3 位置量化', () => {
     const chunkOffset = metadata.chunks[0].offset;
     const view = new DataView(buffer);
 
-    // Scale XYZ at offset 9-20 (3 × Float32)
-    const scaleX = view.getFloat32(chunkOffset + 9, true);
-    const scaleY = view.getFloat32(chunkOffset + 13, true);
-    const scaleZ = view.getFloat32(chunkOffset + 17, true);
+    // ★ M1: chunk data 包含 24 字节 local bbox 前缀
+    const BBOX_HEADER_SIZE = 24;
+
+    // Scale XYZ at offset 9-20 (3 × Float32), after bbox header
+    const scaleX = view.getFloat32(chunkOffset + BBOX_HEADER_SIZE + 9, true);
+    const scaleY = view.getFloat32(chunkOffset + BBOX_HEADER_SIZE + 13, true);
+    const scaleZ = view.getFloat32(chunkOffset + BBOX_HEADER_SIZE + 17, true);
     expect(scaleX).toBeCloseTo(0.05, 5);
     expect(scaleY).toBeCloseTo(0.03, 5);
     expect(scaleZ).toBeCloseTo(0.02, 5);
 
-    // Color RGBA at offset 21-24 (4 × Uint8)
-    expect(view.getUint8(chunkOffset + 21)).toBe(Math.round(0.8 * 255)); // 204
-    expect(view.getUint8(chunkOffset + 22)).toBe(Math.round(0.4 * 255)); // 102
-    expect(view.getUint8(chunkOffset + 23)).toBe(Math.round(0.2 * 255)); // 51
-    expect(view.getUint8(chunkOffset + 24)).toBe(Math.round(0.9 * 255)); // 230
+    // Color RGBA at offset 21-24 (4 × Uint8), after bbox header
+    expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 21)).toBe(Math.round(0.8 * 255)); // 204
+    expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 22)).toBe(Math.round(0.4 * 255)); // 102
+    expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 23)).toBe(Math.round(0.2 * 255)); // 51
+    expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 24)).toBe(Math.round(0.9 * 255)); // 230
 
-    // Rotation IJKL at offset 25-28 (4 × Uint8)
-    expect(view.getUint8(chunkOffset + 25)).toBe(Math.round(0.7 * 128) + 128);
-    expect(view.getUint8(chunkOffset + 26)).toBe(Math.round(0.1 * 128) + 128);
-    expect(view.getUint8(chunkOffset + 27)).toBe(Math.round(0.2 * 128) + 128);
-    expect(view.getUint8(chunkOffset + 28)).toBe(Math.round(0.3 * 128) + 128);
+    // Rotation IJKL at offset 25-28 (4 × Uint8), after bbox header
+    expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 25)).toBe(Math.round(0.7 * 128) + 128);
+    expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 26)).toBe(Math.round(0.1 * 128) + 128);
+    expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 27)).toBe(Math.round(0.2 * 128) + 128);
+    expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 28)).toBe(Math.round(0.3 * 128) + 128);
   });
 
   it('★ 量化 + gzip: 未压缩时量化更小, gzip 压缩率取决于数据分布', () => {
@@ -502,24 +513,35 @@ describe('writeSog — P2-3 位置量化', () => {
     const chunkOffset = metadata.chunks[0].offset;
     const view = new DataView(buffer);
     const QUANT_MAX = 0xFFFFFF;
-    const rangeX = metadata.bboxMax[0] - metadata.bboxMin[0];
-    const rangeY = metadata.bboxMax[1] - metadata.bboxMin[1];
-    const rangeZ = metadata.bboxMax[2] - metadata.bboxMin[2];
+
+    // ★ M1: chunk data 包含 24 字节 local bbox 前缀
+    const BBOX_HEADER_SIZE = 24;
+
+    // 读取 chunk local bbox
+    const chunkBboxMinX = view.getFloat32(chunkOffset + 0, true);
+    const chunkBboxMinY = view.getFloat32(chunkOffset + 4, true);
+    const chunkBboxMinZ = view.getFloat32(chunkOffset + 8, true);
+    const chunkBboxMaxX = view.getFloat32(chunkOffset + 12, true);
+    const chunkBboxMaxY = view.getFloat32(chunkOffset + 16, true);
+    const chunkBboxMaxZ = view.getFloat32(chunkOffset + 20, true);
+    const chunkRangeX = chunkBboxMaxX - chunkBboxMinX;
+    const chunkRangeY = chunkBboxMaxY - chunkBboxMinY;
+    const chunkRangeZ = chunkBboxMaxZ - chunkBboxMinZ;
 
     for (let i = 0; i < 100; i++) {
-      const base = chunkOffset + i * SOG_COMPACT_BYTES_PER_SPLAT;
+      const base = chunkOffset + BBOX_HEADER_SIZE + i * SOG_COMPACT_BYTES_PER_SPLAT;
       const qx = view.getUint8(base) | (view.getUint8(base + 1) << 8) | (view.getUint8(base + 2) << 16);
       const qy = view.getUint8(base + 3) | (view.getUint8(base + 4) << 8) | (view.getUint8(base + 5) << 16);
       const qz = view.getUint8(base + 6) | (view.getUint8(base + 7) << 8) | (view.getUint8(base + 8) << 16);
 
-      const x = (qx / QUANT_MAX) * rangeX + metadata.bboxMin[0];
-      const y = (qy / QUANT_MAX) * rangeY + metadata.bboxMin[1];
-      const z = (qz / QUANT_MAX) * rangeZ + metadata.bboxMin[2];
+      const x = (qx / QUANT_MAX) * chunkRangeX + chunkBboxMinX;
+      const y = (qy / QUANT_MAX) * chunkRangeY + chunkBboxMinY;
+      const z = (qz / QUANT_MAX) * chunkRangeZ + chunkBboxMinZ;
 
-      // 误差应小于 2 步量化精度
-      const stepX = rangeX / QUANT_MAX;
-      const stepY = rangeY / QUANT_MAX;
-      const stepZ = rangeZ / QUANT_MAX;
+      // 误差应小于 2 步量化精度 (★ M1: 使用 chunk local range)
+      const stepX = chunkRangeX / QUANT_MAX;
+      const stepY = chunkRangeY / QUANT_MAX;
+      const stepZ = chunkRangeZ / QUANT_MAX;
 
       expect(Math.abs(x - positions[i][0])).toBeLessThan(stepX * 2);
       expect(Math.abs(y - positions[i][1])).toBeLessThan(stepY * 2);

@@ -13,6 +13,7 @@
  */
 
 import { parsePly } from './ply-parser.js';
+import { parsePlyHeader, tryFastPathParsePly, buildCloudFromFastPath } from './ply-parser.js';
 
 /** 单个高斯核的完整属性 (归一化后) */
 export interface GaussianSplat {
@@ -88,6 +89,25 @@ export function loadGaussiansFromPly(
   options: LoadGaussianOptions = {},
 ): GaussianCloud {
   const { defaultScale = 0.01, source = 'unknown' } = options;
+
+  // ★ M2: 尝试快路径解析 (二进制 PLY → TypedArray, 内存-50%, 速度+2x)
+  // 若不支持快路径 (ASCII 格式 / list 属性), 回退到标准解析
+  try {
+    const headerResult = parsePlyHeader(buffer);
+    const fastData = tryFastPathParsePly(buffer, headerResult.header, headerResult.headerEnd);
+    if (fastData) {
+      // 检查是否是 SuperSplat 打包格式 (快路径不支持)
+      const vertexEl = headerResult.header.elements.find((e) => e.name === 'vertex');
+      const firstPropNames = vertexEl?.properties.map((p) => p.name) ?? [];
+      const isSuperSplat = firstPropNames.includes('packed_position');
+      if (!isSuperSplat) {
+        return buildCloudFromFastPath(fastData, { defaultScale, source });
+      }
+    }
+  } catch {
+    // 快路径失败, 回退到标准解析
+  }
+
   const ply = parsePly(buffer);
 
   // 找到 vertex element
@@ -356,4 +376,149 @@ function loadSuperSplatPly(
 
 function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
+}
+
+// ─── L1: SoA 数据布局 ─────────────────────────────────────
+
+/**
+ * ★ L1: SoA (Struct of Arrays) 数据布局 — 大型场景内存优化
+ *
+ * 将高斯核属性从 AoS (Array of Structs) 转换为 SoA (Struct of Arrays),
+ * 即从 GaussianSplat[] 转换为列式 TypedArray 存储。
+ *
+ * 优势:
+ *   - 内存: 减少 ~30% (TypedArray vs JS 对象数组, 无 boxing)
+ *   - GC: 减少 V8 堆压力 (TypedArray 在堆外分配)
+ *   - 缓存局部性: 列式访问对 CPU cache 友好
+ *   - 适合 >100K splat 的大型场景
+ *
+ * [来源: 会议决策 L1 — docs/party-mode-memories/2026-08-17-convert-quality-loss-memory.md]
+ */
+export interface GaussianCloudSoA {
+  count: number;
+  shDegree: number;
+  source: string;
+  positions: Float32Array;   // count * 3
+  scales: Float32Array;      // count * 3
+  rotations: Float32Array;   // count * 4
+  colors: Float32Array;      // count * 3
+  opacities: Float32Array;   // count
+  sh?: Float32Array;         // count * totalShCoeffs (可选)
+}
+
+/**
+ * ★ L1: 将 GaussianCloud (AoS) 转换为 GaussianCloudSoA (SoA)
+ *
+ * @param cloud AoS 格式的高斯核集合
+ * @returns SoA 格式的高斯核集合
+ */
+export function toSoA(cloud: GaussianCloud): GaussianCloudSoA {
+  const count = cloud.splats.length;
+  const positions = new Float32Array(count * 3);
+  const scales = new Float32Array(count * 3);
+  const rotations = new Float32Array(count * 4);
+  const colors = new Float32Array(count * 3);
+  const opacities = new Float32Array(count);
+
+  const shCoeffsPerChannel = cloud.shDegree === 0 ? 0 : cloud.shDegree * (cloud.shDegree + 2);
+  const totalShCoeffs = shCoeffsPerChannel * 3;
+  const sh = totalShCoeffs > 0 ? new Float32Array(count * totalShCoeffs) : undefined;
+
+  for (let i = 0; i < count; i++) {
+    const s = cloud.splats[i];
+    const i3 = i * 3;
+    const i4 = i * 4;
+
+    positions[i3] = s.x;
+    positions[i3 + 1] = s.y;
+    positions[i3 + 2] = s.z;
+
+    scales[i3] = s.scaleX;
+    scales[i3 + 1] = s.scaleY;
+    scales[i3 + 2] = s.scaleZ;
+
+    rotations[i4] = s.rotW;
+    rotations[i4 + 1] = s.rotX;
+    rotations[i4 + 2] = s.rotY;
+    rotations[i4 + 3] = s.rotZ;
+
+    colors[i3] = s.colorR;
+    colors[i3 + 1] = s.colorG;
+    colors[i3 + 2] = s.colorB;
+
+    opacities[i] = s.opacity;
+
+    if (sh && s.sh) {
+      const shBase = i * totalShCoeffs;
+      for (let j = 0; j < totalShCoeffs && j < s.sh.length; j++) {
+        sh[shBase + j] = s.sh[j];
+      }
+    }
+  }
+
+  return {
+    count,
+    shDegree: cloud.shDegree,
+    source: cloud.source,
+    positions,
+    scales,
+    rotations,
+    colors,
+    opacities,
+    sh,
+  };
+}
+
+/**
+ * ★ L1: 将 GaussianCloudSoA (SoA) 转换回 GaussianCloud (AoS)
+ *
+ * @param soa SoA 格式的高斯核集合
+ * @returns AoS 格式的高斯核集合
+ */
+export function fromSoA(soa: GaussianCloudSoA): GaussianCloud {
+  const count = soa.count;
+  const splats: GaussianSplat[] = new Array(count);
+
+  const shCoeffsPerChannel = soa.shDegree === 0 ? 0 : soa.shDegree * (soa.shDegree + 2);
+  const totalShCoeffs = shCoeffsPerChannel * 3;
+
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3;
+    const i4 = i * 4;
+
+    let sh: Float32Array | undefined;
+    if (soa.sh && totalShCoeffs > 0) {
+      sh = new Float32Array(totalShCoeffs);
+      const shBase = i * totalShCoeffs;
+      for (let j = 0; j < totalShCoeffs; j++) {
+        sh[j] = soa.sh[shBase + j];
+      }
+    }
+
+    splats[i] = {
+      x: soa.positions[i3],
+      y: soa.positions[i3 + 1],
+      z: soa.positions[i3 + 2],
+      scaleX: soa.scales[i3],
+      scaleY: soa.scales[i3 + 1],
+      scaleZ: soa.scales[i3 + 2],
+      rotW: soa.rotations[i4],
+      rotX: soa.rotations[i4 + 1],
+      rotY: soa.rotations[i4 + 2],
+      rotZ: soa.rotations[i4 + 3],
+      colorR: soa.colors[i3],
+      colorG: soa.colors[i3 + 1],
+      colorB: soa.colors[i3 + 2],
+      opacity: soa.opacities[i],
+      sh,
+      shDegree: soa.shDegree,
+    };
+  }
+
+  return {
+    splats,
+    shDegree: soa.shDegree,
+    vertexCount: count,
+    source: soa.source,
+  };
 }

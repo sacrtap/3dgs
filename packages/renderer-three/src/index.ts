@@ -32,7 +32,7 @@ import { FrustumCulling } from './frustum-culling.js';
 import { SplatBufferPool } from './buffer-pool.js';
 import { DragLookControls } from './drag-look-controls.js';
 import { concatChunksInWorker } from './sog-concat-worker.js';
-import { decodeSpzInWorker, parseSpzHeader } from './spz-decoder-worker.js';
+import { parseSpzHeader } from './spz-decoder-worker.js';
 import { injectAfterMainBegin as injectAfterMainBeginFn, injectBeforePattern as injectBeforePatternFn, injectBeforeMainEnd as injectBeforeMainEndFn, inferGLSLType as inferGLSLTypeFn } from './shader-utils.js';
 // ★ M4: 共享模块
 import { KeyboardControls } from './keyboard-controls.js';
@@ -405,13 +405,13 @@ export class RenderManager implements RendererAdapter {
       }
     }
 
-    // ★ P1-4: 对 .spz 文件使用 Worker 解码, 避免主线程阻塞
+    // ★ C1: 对 .spz 文件使用原生 Spark 加载, 保留 SH 球谐系数
     if (source.endsWith('.spz')) {
       try {
         await this.loadSceneWithSpz(source, options);
         return;
       } catch (err) {
-        console.warn('[RenderManager] SPZ Worker 解码失败, 回退到 URL 直接加载:', err);
+        console.warn('[RenderManager] SPZ 原生加载失败, 回退到 URL 直接加载:', err);
       }
     }
 
@@ -557,24 +557,28 @@ export class RenderManager implements RendererAdapter {
   }
 
   /**
-   * ★ P1-4: SPZ Worker 解码加载
+   * ★ C1: SPZ 原生加载 — 直接传 SPZ 给 Spark SplatMesh, 保留 SH 球谐系数
    *
    * 工作流程:
-   *   1. fetch 获取 SPZ 文件 (支持进度回调)
-   *   2. 在 Web Worker 中执行 gzip 解压 + 反量化 → .splat 格式字节
-   *   3. 若 splat 数量超过 maxSplats, 均匀降采样
-   *   4. 创建 SplatMesh({ fileBytes, fileType: SPLAT })
+   *   1. fetch 获取 SPZ 文件 (gzip 压缩, 支持进度回调)
+   *   2. 直接将 SPZ 字节传给 Spark SplatMesh({ fileBytes, fileType: SPZ })
+   *   3. Spark 内部完成 gzip 解压 + 反量化 + SH 解码
    *
-   * 优势 (相比 Spark URL 直接加载):
-   *   ✅ 主线程不阻塞 — gzip 解压 + 反量化在 Worker 中执行
-   *   ✅ 支持 maxSplats 截断 — 与 .splat 加载路径一致的降采样逻辑
+   * ★ 核心修复: 删除 decodeSpzInWorker 中间步骤!
+   *   旧路径: SPZ → decodeSpzInWorker → .splat (SH 被丢弃) → SplatMesh(SPLAT)
+   *   新路径: SPZ → SplatMesh(SPZ) (SH 保留)
+   *
+   * 优势:
+   *   ✅ SH 球谐系数保留 — 视角依赖着色, 壁画等细节不再丢失
+   *   ✅ 主线程不阻塞 — Spark 内部使用 Worker 解压
    *   ✅ 进度回调 — fetch 阶段可报告下载进度
    *
-   * 注意: 解码为 .splat 格式后不支持 SH 球谐系数。
-   *       如需 SH, 请使用 Spark URL 直接加载 (回退路径)。
+   * 注意: maxSplats 截断功能不再通过自定义解码器实现 (H1 替代方案)。
+   *       Spark 的 maxSplats 参数仅是预分配提示, 不实际截断。
+   *       若需控制 splat 数量, 请在转换阶段使用 --prune 或在传输层控制。
    *
-   * [来源: SPZ 格式 — github.com/nianticlabs/spz]
-   * [来源: 项目源码 — packages/renderer-three/src/spz-decoder-worker.ts]
+   * [来源: Spark SplatFileType.SPZ — @sparkjsdev/spark]
+   * [来源: 会议决策 C1 — docs/party-mode-memories/2026-08-17-convert-quality-loss-memory.md]
    */
   private async loadSceneWithSpz(source: string, options?: LoadOptions): Promise<void> {
     // 1. fetch 获取 SPZ 文件 (支持进度回调)
@@ -586,94 +590,67 @@ export class RenderManager implements RendererAdapter {
     const contentLength = parseInt(response.headers.get('Content-Length') || '0', 10);
     const reader = response.body?.getReader();
 
+    let spzData: Uint8Array;
+
     if (!reader) {
       // 无 body stream, 直接读取
-      const spzData = await response.arrayBuffer();
-      const splatBytes = await decodeSpzInWorker(spzData);
-      await this.createSplatMeshFromSplatBytes(splatBytes, options);
-      return;
-    }
+      const arrayBuffer = await response.arrayBuffer();
+      spzData = new Uint8Array(arrayBuffer);
+    } else {
+      // 分块读取, 报告下载进度
+      const chunks: Uint8Array[] = [];
+      let receivedLength = 0;
 
-    // 分块读取, 报告下载进度
-    const chunks: Uint8Array[] = [];
-    let receivedLength = 0;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        chunks.push(value);
-        receivedLength += value.byteLength;
-        if (options?.onProgress && contentLength > 0) {
-          options.onProgress(receivedLength, contentLength);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+          receivedLength += value.byteLength;
+          if (options?.onProgress && contentLength > 0) {
+            options.onProgress(receivedLength, contentLength);
+          }
         }
       }
-    }
 
-    // 合并 chunks
-    const spzData = new Uint8Array(receivedLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      spzData.set(chunk, offset);
-      offset += chunk.byteLength;
+      // 合并 chunks
+      spzData = new Uint8Array(receivedLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        spzData.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
     }
 
     // 2. 解析 header (获取 splat 数量, 用于日志)
     const header = parseSpzHeader(spzData);
     console.info(
       `[RenderManager] SPZ 文件已下载: ${header.numSplats.toLocaleString()} splats, ` +
-      `${(spzData.byteLength / 1024 / 1024).toFixed(2)} MB (压缩)`,
+      `${(spzData.byteLength / 1024 / 1024).toFixed(2)} MB (压缩), shDegree=${header.shDegree}`,
     );
 
-    // 3. 在 Worker 中解码 SPZ → .splat 格式
-    const splatBytes = await decodeSpzInWorker(spzData.buffer.slice(spzData.byteOffset, spzData.byteOffset + spzData.byteLength));
-
-    // 4. 若 splat 数量超过 maxSplats, 均匀降采样
+    // ★ H1: maxSplats 截断替代方案 — 日志提示
+    //   删除 decodeSpzInWorker 后, 不再在加载阶段做均匀降采样。
+    //   Spark 的 maxSplats 参数仅是预分配提示, 不实际截断。
+    //   若 splat 数量超过设备 maxSplats 上限, 输出警告建议在转换阶段裁剪。
     const maxSplats = this.tierSettings.maxSplats;
     if (header.numSplats > maxSplats) {
-      const step = header.numSplats / maxSplats;
-      const sampledSplats = Math.floor(header.numSplats / step);
-      // ★ H4: 使用 SplatBufferPool 复用 ArrayBuffer
-      const sampledData = new Uint8Array(this._bufferPool.acquire(sampledSplats * 32));
-
-      for (let i = 0; i < sampledSplats; i++) {
-        const srcOffset = Math.floor(i * step) * 32;
-        const dstOffset = i * 32;
-        sampledData.set(splatBytes.subarray(srcOffset, srcOffset + 32), dstOffset);
-      }
-
-      console.info(
-        `[RenderManager] SPZ 降采样: ${sampledSplats.toLocaleString()} / ${header.numSplats.toLocaleString()} splats ` +
-        `(step=${step.toFixed(2)}, 保留 ${(sampledSplats / header.numSplats * 100).toFixed(1)}%)`,
+      console.warn(
+        `[RenderManager] SPZ splat 数 (${header.numSplats.toLocaleString()}) 超过设备上限 (${maxSplats.toLocaleString()})。\n` +
+        `  ★ H1 替代方案: 请在转换阶段使用 --contribution-cutoff 裁剪 splat 数量:\n` +
+        `    3dgs-convert ply-to-spz input.ply --prune --contribution-cutoff ${maxSplats}`,
       );
-
-      if (options?.onProgress) {
-        options.onProgress(header.numSplats, header.numSplats);
-      }
-
-      await this.createSplatMeshFromSplatBytes(sampledData, options);
-    } else {
-      console.info(
-        `[RenderManager] SPZ 全量加载: ${header.numSplats.toLocaleString()} splats (无需降采样)`,
-      );
-
-      if (options?.onProgress) {
-        options.onProgress(header.numSplats, header.numSplats);
-      }
-
-      await this.createSplatMeshFromSplatBytes(splatBytes, options);
     }
-  }
 
-  /**
-   * 从 .splat 字节数据创建 SplatMesh 并添加到场景
-   * (复用 createSplatMeshFromBytes 的逻辑, 但不使用 options 参数)
-   */
-  private async createSplatMeshFromSplatBytes(data: Uint8Array, _options?: LoadOptions): Promise<void> {
+    if (options?.onProgress) {
+      options.onProgress(header.numSplats, header.numSplats);
+    }
+
+    // 3. ★ C1 核心修复: 直接将 SPZ 字节传给 Spark, 保留 SH 数据
     await new Promise<void>((resolve, reject) => {
       new SplatMesh({
-        fileBytes: data,
-        fileType: SplatFileType.SPLAT,
+        fileBytes: spzData,
+        fileType: SplatFileType.SPZ,
         maxSplats: this.tierSettings.maxSplats,
         onLoad: async (loadedMesh: SplatMesh) => {
           if (this._autoOrient) {
@@ -681,12 +658,6 @@ export class RenderManager implements RendererAdapter {
           }
           this.scene!.add(loadedMesh);
           this.currentSplat = loadedMesh;
-          // ★ H3: 从 splat 数据创建 FrustumCulling 实例
-          try {
-            this._frustumCulling = new FrustumCulling(data);
-          } catch {
-            this._frustumCulling = undefined;
-          }
           this.positionCameraToBounds(loadedMesh);
           if (this._enableLod) {
             this.buildLod(loadedMesh);
@@ -696,7 +667,7 @@ export class RenderManager implements RendererAdapter {
         },
       });
 
-      setTimeout(() => reject(new Error('SplatMesh 创建超时 (SPZ)')), 30000);
+      setTimeout(() => reject(new Error('SplatMesh (SPZ 原生) 创建超时')), 30000);
     });
   }
 
@@ -1400,7 +1371,7 @@ export type {
   SogChunkEntry,
 } from './sog-streamer.js';
 
-// ─── SPZ Worker 解码 ──────────────────────────────────────
+// ─── SPZ 解码 (★ C1: decodeSpzInWorker 已不再用于加载路径, 保留导出供向后兼容) ──
 export { decodeSpzInWorker, decodeSpz, parseSpzHeader, validateSpzHeader, SPZ_MAGIC, SPZ_VERSION } from './spz-decoder-worker.js';
 export type { SpzHeader } from './spz-decoder-worker.js';
 

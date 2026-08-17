@@ -65,6 +65,69 @@ describe('pruneGaussians', () => {
     const result = pruneGaussians(cloud);
     expect(result.splats).toHaveLength(0);
   });
+
+  // ── M3: 贡献度裁剪测试 ─────────────────────────────────────
+
+  it('★ M3: 贡献度裁剪按比例保留 (0.5 = 保留前 50%)', () => {
+    const cloud = makeCloud([
+      { opacity: 1.0, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1 },  // 贡献度 0.1
+      { opacity: 0.5, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01 }, // 贡献度 0.005
+      { opacity: 0.8, scaleX: 0.05, scaleY: 0.05, scaleZ: 0.05 }, // 贡献度 0.04
+      { opacity: 0.3, scaleX: 0.2, scaleY: 0.2, scaleZ: 0.2 },    // 贡献度 0.06
+    ]);
+
+    const result = pruneGaussians(cloud, { contributionCutoff: 0.5 });
+    // 保留前 50% = 2 个, 贡献度最高的两个是 0.1 和 0.06
+    expect(result.splats).toHaveLength(2);
+    // 贡献度最高的 (opacity=1.0, scale=0.1) 应该被保留
+    expect(result.splats.some(s => s.opacity === 1.0)).toBe(true);
+    // 贡献度最低的 (opacity=0.5, scale=0.01) 应该被裁掉
+    expect(result.splats.some(s => s.opacity === 0.5 && s.scaleX === 0.01)).toBe(false);
+  });
+
+  it('★ M3: 贡献度裁剪按确切数量保留 (>1 = 保留 N 个)', () => {
+    const cloud = makeCloud([
+      { opacity: 0.1, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01 },
+      { opacity: 0.9, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1 },
+      { opacity: 0.5, scaleX: 0.05, scaleY: 0.05, scaleZ: 0.05 },
+      { opacity: 0.3, scaleX: 0.02, scaleY: 0.02, scaleZ: 0.02 },
+      { opacity: 1.0, scaleX: 0.2, scaleY: 0.2, scaleZ: 0.2 },
+    ]);
+
+    const result = pruneGaussians(cloud, { contributionCutoff: 2 });
+    expect(result.splats).toHaveLength(2);
+    // 贡献度最高的: 1.0*0.2=0.2 和 0.9*0.1=0.09
+    expect(result.splats.some(s => s.opacity === 1.0 && s.scaleX === 0.2)).toBe(true);
+    expect(result.splats.some(s => s.opacity === 0.9 && s.scaleX === 0.1)).toBe(true);
+  });
+
+  it('★ M3: 贡献度裁剪数量超过总数时保留全部', () => {
+    const cloud = makeCloud([
+      { opacity: 0.5, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01 },
+      { opacity: 0.8, scaleX: 0.05, scaleY: 0.05, scaleZ: 0.05 },
+    ]);
+
+    const result = pruneGaussians(cloud, { contributionCutoff: 100 });
+    expect(result.splats).toHaveLength(2);
+  });
+
+  it('★ M3: 贡献度裁剪与基础过滤组合使用', () => {
+    const cloud = makeCloud([
+      { opacity: 0.001, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01 }, // 被基础过滤剔除
+      { opacity: 1.0, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1 },      // 贡献度 0.1
+      { opacity: 0.5, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01 },   // 贡献度 0.005
+      { opacity: NaN, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1 },      // 被 NaN 过滤剔除
+    ]);
+
+    // 基础过滤后剩 2 个, 贡献度裁剪保留 50% = 1 个
+    const result = pruneGaussians(cloud, {
+      minOpacity: 0.01,
+      contributionCutoff: 0.5,
+    });
+    expect(result.splats).toHaveLength(1);
+    // 贡献度最高的被保留
+    expect(result.splats[0].opacity).toBe(1.0);
+  });
 });
 
 describe('mortonSortGaussians', () => {

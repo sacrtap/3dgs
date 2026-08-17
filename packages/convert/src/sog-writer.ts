@@ -71,6 +71,15 @@ const SOG_MAGIC_V1 = 0x31474F53; // "SOG1" in LE
 /** SOG v2 魔数 */
 const SOG_MAGIC_V2 = 0x32474F53; // "SOG2" in LE
 
+/** ★ L2: SOG v3 魔数 — SH overlay 分层加载 */
+export const SOG_MAGIC_V3 = 0x33474F53; // "SOG3" in LE
+
+/** ★ L2: SOG v3 版本 */
+export const SOG_VERSION_V3 = 3;
+
+/** ★ L2: SH overlay header 大小 (overlayOffset: 4B + overlaySize: 4B + shDegree: 1B + shMode: 1B + reserved: 2B = 12B) */
+export const SOG_V3_OVERLAY_HEADER_SIZE = 12;
+
 /** SOG 版本 */
 const SOG_VERSION_V1 = 1;
 const SOG_VERSION_V2 = 2;
@@ -78,8 +87,8 @@ const SOG_VERSION_V2 = 2;
 /** SOG Header 大小 */
 const SOG_HEADER_SIZE = 64;
 
-/** 默认每 chunk 的 splat 数 */
-const DEFAULT_CHUNK_SIZE = 16384;
+/** ★ M4: 默认每 chunk 的 splat 数 (从 16384 调小到 8192, 首屏加载更快) */
+const DEFAULT_CHUNK_SIZE = 8192;
 
 /** 压缩方式 */
 export const SOG_COMPRESSION_NONE = 0;
@@ -94,6 +103,19 @@ export const SOG_COMPACT_BYTES_PER_SPLAT = 29;
 
 /** ★ P2-3: 24-bit 量化最大值 */
 const QUANT_MAX = 0xFFFFFF; // 16777215
+
+/** ★ H2: SH DC 追加模式 */
+export const SOG_SH_MODE_OFF = 0;       // 不追加 SH DC
+export const SOG_SH_MODE_DC_INT8 = 1;   // 追加 SH DC 3 bytes (Int8 量化)
+
+/** ★ H2: SH DC 追加后每 splat 额外字节数 (3 bytes: R, G, B 各 1 byte) */
+const SH_DC_EXTRA_BYTES = 3;
+
+/** ★ H2: SH C0 常数 (球谐函数第 0 阶) */
+const SH_C0 = 0.28209479177387814;
+
+/** ★ H2: SPZ 颜色缩放常数 */
+const SPZ_COLOR_SCALE = 0.15;
 
 /** ★ M2: LOD 树默认层级数 */
 const DEFAULT_LOD_LEVELS = 4;
@@ -131,6 +153,17 @@ export interface SogWriterOptions {
    * [来源: SPZ 格式 — github.com/nianticlabs/spz, 位置 24-bit 定点]
    */
   positionQuantization?: boolean;
+  /**
+   * ★ H2: SH DC 追加模式 (默认 0 = 不追加)
+   *
+   * 设为 1 时, 每个 splat 额外追加 3 字节 SH DC 数据 (Int8 量化),
+   * 为 SH-aware 着色器提供视角依赖着色数据。
+   *
+   * 文件大小增加: +3 bytes/splat (+9.4% for 32B format)
+   *
+   * [来源: 会议决策 H2 — docs/party-mode-memories/2026-08-17-convert-quality-loss-memory.md]
+   */
+  shMode?: number;
   /**
    * ★ M2: 是否启用预构建 LOD 树 (默认 true)
    *
@@ -187,6 +220,8 @@ export interface SogMetadata {
   lodQuality: number;
   /** ★ P2-3: 位置量化 (0=off, 1=24-bit) */
   positionQuantization: number;
+  /** ★ H2: SH DC 追加模式 (0=off, 1=Int8) */
+  shMode: number;
   /** ★ 格式版本 */
   version: number;
   /**
@@ -230,6 +265,7 @@ export function writeSog(
     positionQuantization = false,
     buildLodTree = true,
     lodLevels: numLodLevels = DEFAULT_LOD_LEVELS,
+    shMode = SOG_SH_MODE_OFF,
   } = options;
 
   // 1. 可选: Morton Code 空间排序
@@ -273,13 +309,40 @@ export function writeSog(
     };
 
     // 使用 .splat 格式或 ★ P2-3 紧凑格式写入 chunk 数据
-    const rawChunkData = positionQuantization
-      ? writeCompactSplatChunk(chunkCloud.splats, [minX, minY, minZ], [maxX, maxY, maxZ])
-      : writeSplat(chunkCloud);
+    let rawChunkData: ArrayBuffer;
+    if (positionQuantization) {
+      // ★ M1: 借鉴 SuperSplat chunk 级量化 — 每个 chunk 独立计算 local bbox
+      // 局部量化比全局量化精度更高 (chunk 范围 << 全局范围)
+      let cMinX = Infinity, cMinY = Infinity, cMinZ = Infinity;
+      let cMaxX = -Infinity, cMaxY = -Infinity, cMaxZ = -Infinity;
+      for (let j = start; j < end; j++) {
+        const s = splats[j];
+        if (s.x < cMinX) cMinX = s.x;
+        if (s.y < cMinY) cMinY = s.y;
+        if (s.z < cMinZ) cMinZ = s.z;
+        if (s.x > cMaxX) cMaxX = s.x;
+        if (s.y > cMaxY) cMaxY = s.y;
+        if (s.z > cMaxZ) cMaxZ = s.z;
+      }
+      rawChunkData = writeCompactSplatChunk(
+        chunkCloud.splats,
+        [cMinX, cMinY, cMinZ],
+        [cMaxX, cMaxY, cMaxZ],
+        // ★ M1: chunk local bbox 作为前缀 (6 × Float32 = 24 bytes)
+        true,
+      );
+    } else {
+      rawChunkData = writeSplat(chunkCloud);
+    }
 
-    // ★ P1-2: gzip 压缩 chunk 数据
+    // ★ H2: 追加 SH DC 数据到 chunk 末尾
+    if (shMode === SOG_SH_MODE_DC_INT8) {
+      rawChunkData = appendShDc(rawChunkData, chunkCloud.splats);
+    }
+
+    // ★ M4: gzip 压缩 chunk 数据 (level 6→9, 更高压缩率, 传输更小)
     if (compression) {
-      const compressed = gzipSync(Buffer.from(rawChunkData), { level: 6 });
+      const compressed = gzipSync(Buffer.from(rawChunkData), { level: 9 });
       chunkDataList.push(compressed.buffer.slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength));
     } else {
       chunkDataList.push(rawChunkData);
@@ -342,7 +405,9 @@ export function writeSog(
   view.setUint8(52, lodQuality);                      // lodQuality (0=fast, 1=quality)
   // ★ P2-3: 位置量化标志 (byte 53)
   view.setUint8(53, positionQuantization ? SOG_POSITION_QUANT_24BIT : SOG_POSITION_QUANT_OFF);
-  // 10 bytes padding (54-63) already zeroed
+  // ★ H2: SH DC 模式 (byte 54, 旧版文件此字节为 0 = 无 SH DC, 兼容)
+  view.setUint8(54, shMode);
+  // 9 bytes padding (55-63) already zeroed
 
   // Chunk index
   for (let c = 0; c < numChunks; c++) {
@@ -385,6 +450,7 @@ export function parseSogMetadata(buffer: ArrayBuffer): SogMetadata {
   let lodTreeSize = 0;
   let lodQuality = 0;
   let positionQuantization = SOG_POSITION_QUANT_OFF;
+  let shMode = SOG_SH_MODE_OFF;
 
   if (magic === SOG_MAGIC_V2) {
     // ★ SOG v2 — 读取新字段
@@ -396,6 +462,9 @@ export function parseSogMetadata(buffer: ArrayBuffer): SogMetadata {
     // ★ P2-3: 读取位置量化标志 (byte 53)
     // 旧版 v2 文件此字节为 0 (reserved), 兼容
     positionQuantization = view.getUint8(53);
+    // ★ H2: 读取 SH DC 模式 (byte 54)
+    // 旧版 v2 文件此字节为 0 (reserved), 兼容
+    shMode = view.getUint8(54);
   } else if (magic === SOG_MAGIC_V1) {
     // ★ SOG v1 — 向后兼容, 无新字段
     version = SOG_VERSION_V1;
@@ -460,6 +529,7 @@ export function parseSogMetadata(buffer: ArrayBuffer): SogMetadata {
     lodTreeSize,
     lodQuality,
     positionQuantization,
+    shMode,
     version,
     lodLevels,
     lodBase,
@@ -474,6 +544,7 @@ function writeEmptySog(): ArrayBuffer {
   view.setUint16(4, SOG_VERSION_V2, true);
   view.setUint8(7, SOG_COMPRESSION_NONE);
   view.setUint8(53, SOG_POSITION_QUANT_OFF); // P2-3: 位置量化关闭
+  view.setUint8(54, SOG_SH_MODE_OFF); // H2: SH DC 关闭
   // 其余字段为 0
   return buffer;
 }
@@ -608,10 +679,58 @@ export function deserializeLodTree(buffer: ArrayBuffer): {
   return { levels, lodBase };
 }
 
+// ─── H2: SH DC 追加 ─────────────────────────────────────
+
+/**
+ * ★ H2: 在 chunk 数据末尾追加 SH DC 系数 (3 bytes/splat, Int8 量化)
+ *
+ * SH DC 编码公式 (与 SPZ 一致):
+ *   byte = clamp(((color - 0.5) / (SH_C0 / SPZ_COLOR_SCALE) + 0.5) * 255)
+ *
+ * 追加后的 chunk 格式:
+ *   [原始 splat 数据 (32B 或 29B/splat)] + [SH DC R,G,B (3B/splat)]
+ *
+ * @param rawChunkData 原始 chunk 数据 (无 SH)
+ * @param splats 高斯核数组
+ * @returns 追加 SH DC 后的 ArrayBuffer
+ */
+function appendShDc(rawChunkData: ArrayBuffer, splats: GaussianSplat[]): ArrayBuffer {
+  const numSplats = splats.length;
+  const originalSize = rawChunkData.byteLength;
+  const newSize = originalSize + numSplats * SH_DC_EXTRA_BYTES;
+  const result = new ArrayBuffer(newSize);
+  new Uint8Array(result).set(new Uint8Array(rawChunkData), 0);
+
+  const view = new DataView(result, originalSize);
+  for (let i = 0; i < numSplats; i++) {
+    const s = splats[i];
+    const base = i * SH_DC_EXTRA_BYTES;
+    view.setUint8(base + 0, scaleColorToShDc(s.colorR));
+    view.setUint8(base + 1, scaleColorToShDc(s.colorG));
+    view.setUint8(base + 2, scaleColorToShDc(s.colorB));
+  }
+
+  return result;
+}
+
+/**
+ * ★ H2: 颜色 → SH DC Int8 编码
+ *
+ * 编码: byte = clamp(((color - 0.5) / (SH_C0 / SPZ_COLOR_SCALE) + 0.5) * 255)
+ * 解码: color = (byte / 255 - 0.5) * (SH_C0 / SPZ_COLOR_SCALE) + 0.5
+ *
+ * [来源: SPZ 颜色编码 — packages/convert/src/spz-writer.ts scaleRgbToSpz]
+ */
+function scaleColorToShDc(color: number): number {
+  const colorScale = SH_C0 / SPZ_COLOR_SCALE; // ≈ 1.8806
+  const v = ((color - 0.5) / colorScale + 0.5) * 255;
+  return Math.max(0, Math.min(255, Math.round(v)));
+}
+
 // ─── P2-3: 紧凑格式写入 ───────────────────────────────────
 
 /**
- * ★ P2-3: 将 splat 数据写入紧凑 29 字节格式
+ * ★ P2-3 + M1: 将 splat 数据写入紧凑 29 字节格式
  *
  * 格式 (29 bytes/splat):
  *   Position XYZ  3 × Uint24 LE  (9 bytes)  — 量化: round((pos-min)/range*0xFFFFFF)
@@ -619,23 +738,42 @@ export function deserializeLodTree(buffer: ArrayBuffer): {
  *   Color RGBA    4 × Uint8      (4 bytes)
  *   Rotation IJKL 4 × Uint8      (4 bytes)
  *
- * 量化精度: sceneSize / 2^24 ≈ 6μm (100m 场景)
+ * ★ M1: 当 includeBbox=true 时, 在 chunk 数据前追加 local bbox (6 × Float32 = 24 bytes)
+ *   客户端反量化时读取前 24 字节获取 chunk local bbox, 提高精度
+ *
+ * 量化精度:
+ *   全局量化: sceneSize / 2^24 ≈ 6μm (100m 场景)
+ *   ★ M1 局部量化: chunkSize / 2^24 ≈ 0.06μm (10m chunk, 精度提升 100×)
  *
  * [来源: SPZ 格式 — github.com/nianticlabs/spz, 位置 24-bit 定点]
+ * [来源: SuperSplat chunk 级量化 — 每个 chunk 独立 min/max, node_modules/@sparkjsdev/spark]
  *
  * @param splats 高斯核数组
- * @param bboxMin 场景包围盒最小值
- * @param bboxMax 场景包围盒最大值
+ * @param bboxMin chunk 包围盒最小值 (★ M1: 局部 bbox)
+ * @param bboxMax chunk 包围盒最大值 (★ M1: 局部 bbox)
+ * @param includeBbox ★ M1: 是否在数据前追加 bbox (6 × Float32 = 24 bytes)
  * @returns 紧凑格式的 ArrayBuffer
  */
 function writeCompactSplatChunk(
   splats: GaussianSplat[],
   bboxMin: [number, number, number],
   bboxMax: [number, number, number],
+  includeBbox: boolean = false,
 ): ArrayBuffer {
   const numSplats = splats.length;
-  const buffer = new ArrayBuffer(numSplats * SOG_COMPACT_BYTES_PER_SPLAT);
+  const bboxHeaderSize = includeBbox ? 24 : 0; // 6 × Float32
+  const buffer = new ArrayBuffer(bboxHeaderSize + numSplats * SOG_COMPACT_BYTES_PER_SPLAT);
   const view = new DataView(buffer);
+
+  // ★ M1: 写入 chunk local bbox 前缀
+  if (includeBbox) {
+    view.setFloat32(0, bboxMin[0], true);
+    view.setFloat32(4, bboxMin[1], true);
+    view.setFloat32(8, bboxMin[2], true);
+    view.setFloat32(12, bboxMax[0], true);
+    view.setFloat32(16, bboxMax[1], true);
+    view.setFloat32(20, bboxMax[2], true);
+  }
 
   const rangeX = (bboxMax[0] - bboxMin[0]) || 1;
   const rangeY = (bboxMax[1] - bboxMin[1]) || 1;
@@ -643,7 +781,7 @@ function writeCompactSplatChunk(
 
   for (let i = 0; i < numSplats; i++) {
     const s = splats[i];
-    const byteBase = i * SOG_COMPACT_BYTES_PER_SPLAT;
+    const byteBase = bboxHeaderSize + i * SOG_COMPACT_BYTES_PER_SPLAT;
 
     // Position XYZ → 3 × Uint24 LE (9 bytes at offset 0-8)
     const qx = quantizePos(s.x, bboxMin[0], rangeX);

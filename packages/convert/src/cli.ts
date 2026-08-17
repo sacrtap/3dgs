@@ -44,6 +44,7 @@ program
   .option('-o, --output <path>', '输出文件路径')
   .option('--prune', '启用冗余剔除 (过滤低透明度/异常高斯核)')
   .option('--min-opacity <num>', '最小不透明度阈值 (默认 0.01)', '0.01')
+  .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
   .option('--sort', '启用 Morton Code 空间排序')
   .action(async (input: string, opts: Record<string, string>) => {
     await convertPly(input, opts, 'splat');
@@ -59,6 +60,7 @@ program
   .option('--fractional-bits <num>', '位置量化小数位 (默认 12)', '12')
   .option('--prune', '启用冗余剔除')
   .option('--min-opacity <num>', '最小不透明度阈值', '0.01')
+  .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
   .option('--sort', '启用 Morton Code 空间排序')
   .action(async (input: string, opts: Record<string, string>) => {
     await convertPly(input, opts, 'spz');
@@ -70,9 +72,11 @@ program
   .description('转换 PLY 为 .sog 格式 (流式 LOD, 默认空间排序分块)')
   .argument('<input>', 'PLY 文件路径')
   .option('-o, --output <path>', '输出文件路径')
-  .option('--chunk-size <num>', '每 chunk 的 splat 数 (默认 16384)', '16384')
+  .option('--chunk-size <num>', '每 chunk 的 splat 数 (默认 8192)', '8192')
   .option('--prune', '启用冗余剔除')
   .option('--min-opacity <num>', '最小不透明度阈值', '0.01')
+  .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
+  .option('--sh-mode <num>', '★ H2: SH DC 追加模式 (0=off, 1=Int8, 默认 0)')
   .option('--no-sort', '禁用 Morton Code 空间排序 (SOG 默认启用)')
   .action(async (input: string, opts: Record<string, string>) => {
     await convertPly(input, opts, 'sog');
@@ -87,6 +91,7 @@ program
   .option('--fractional-bits <num>', '位置量化小数位 (默认 12)', '12')
   .option('--prune', '启用冗余剔除')
   .option('--min-opacity <num>', '最小不透明度阈值', '0.01')
+  .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
   .option('--sort', '启用 Morton Code 空间排序')
   .action(async (input: string, opts: Record<string, string>) => {
     await convertSplat(input, opts, 'spz');
@@ -98,9 +103,10 @@ program
   .description('转换 .splat 为 .sog 格式 (流式 LOD)')
   .argument('<input>', '.splat 文件路径')
   .option('-o, --output <path>', '输出文件路径')
-  .option('--chunk-size <num>', '每 chunk 的 splat 数 (默认 16384)', '16384')
+  .option('--chunk-size <num>', '每 chunk 的 splat 数 (默认 8192)', '8192')
   .option('--prune', '启用冗余剔除')
   .option('--min-opacity <num>', '最小不透明度阈值', '0.01')
+  .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
   .option('--no-sort', '禁用 Morton Code 空间排序 (SOG 默认启用)')
   .action(async (input: string, opts: Record<string, string>) => {
     await convertSplat(input, opts, 'sog');
@@ -116,6 +122,7 @@ program
   .option('--sh-degree <num>', 'SH 阶数 (0-3, 默认自动检测)', '-1')
   .option('--prune', '启用冗余剔除')
   .option('--sort', '启用 Morton Code 空间排序')
+  .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
   .action(async (dir: string, opts: Record<string, string>) => {
     await batchConvert(dir, opts);
   });
@@ -204,7 +211,15 @@ async function convertCloud(
   if (opts.prune) {
     const minOpacity = parseFloat(String(opts.minOpacity || '0.01'));
     const before = cloud.splats.length;
-    cloud = pruneGaussians(cloud, { minOpacity });
+    const pruneOpts: import('./processing.js').PruneOptions = { minOpacity };
+    // ★ M3: 贡献度裁剪
+    if (opts.contributionCutoff !== undefined) {
+      const cutoff = parseFloat(String(opts.contributionCutoff));
+      if (!isNaN(cutoff) && cutoff > 0) {
+        pruneOpts.contributionCutoff = cutoff;
+      }
+    }
+    cloud = pruneGaussians(cloud, pruneOpts);
     const removed = before - cloud.splats.length;
     console.log(`🗑️  冗余剔除: 移除 ${removed.toLocaleString()} 个 (${(removed / before * 100).toFixed(1)}%)`);
   }
@@ -241,9 +256,10 @@ async function convertCloud(
       break;
     }
     case 'sog': {
-      const chunkSize = parseInt(String(opts.chunkSize || '16384'), 10);
+      const chunkSize = parseInt(String(opts.chunkSize || '8192'), 10);
+      const shMode = parseInt(String(opts.shMode || '0'), 10);
       // SOG 已在上方完成 Morton 排序, 此处无需重复
-      outputData = writeSog(cloud, { chunkSize, spatialSort: false });
+      outputData = writeSog(cloud, { chunkSize, spatialSort: false, shMode });
       break;
     }
   }

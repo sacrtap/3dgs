@@ -47,6 +47,8 @@ export interface SogMetadata {
   lodQuality: number;
   /** ★ P2-3: 位置量化 (0=off, 1=24-bit) */
   positionQuantization: number;
+  /** ★ H2: SH DC 追加模式 (0=off, 1=Int8) */
+  shMode: number;
   /** ★ 格式版本 */
   version: number;
   /**
@@ -248,6 +250,7 @@ export class SogStreamer {
     let compression = COMPRESSION_NONE;
     let lodQuality = 0;
     let positionQuantization = POSITION_QUANT_OFF;
+    let shMode = 0;
 
     if (magic === SOG_MAGIC_V2) {
       // ★ SOG v2
@@ -256,6 +259,8 @@ export class SogStreamer {
       lodQuality = view.getUint8(52);
       // ★ P2-3: 读取位置量化标志 (byte 53)
       positionQuantization = view.getUint8(53);
+      // ★ H2: 读取 SH DC 模式 (byte 54)
+      shMode = view.getUint8(54);
     } else if (magic === SOG_MAGIC_V1) {
       // ★ SOG v1 (向后兼容)
       version = 1;
@@ -325,6 +330,7 @@ export class SogStreamer {
       lodTreeSize,
       lodQuality,
       positionQuantization,
+      shMode,
       version,
     };
   }
@@ -487,9 +493,11 @@ export class SogStreamer {
   }
 
   /**
-   * ★ P2-3: 反量化位置数据 — 将紧凑 29 字节格式转换为 .splat 32 字节格式
+   * ★ P2-3 + M1: 反量化位置数据 — 将紧凑 29 字节格式转换为 .splat 32 字节格式
    *
-   * 紧凑格式 (29 bytes/splat):
+   * 紧凑格式 (29 bytes/splat, 可选 24 字节 bbox 前缀):
+   *   [BBox Min XYZ  3 × Float32  (12 bytes)]  — ★ M1: chunk local bbox
+   *   [BBox Max XYZ  3 × Float32  (12 bytes)]  — ★ M1: chunk local bbox
    *   Position XYZ  3 × Uint24 LE  (9 bytes)  — 量化值
    *   Scale XYZ     3 × Float32    (12 bytes)
    *   Color RGBA    4 × Uint8      (4 bytes)
@@ -501,10 +509,13 @@ export class SogStreamer {
    *   Color RGBA    4 × Uint8      (4 bytes)
    *   Rotation IJKL 4 × Uint8      (4 bytes)
    *
-   * 反量化公式: position = quantized / 0xFFFFFF * range + bboxMin
+   * ★ M1: 若 chunk 数据以 24 字节 bbox 前缀开头, 使用 chunk local bbox 反量化
+   *   否则回退到全局 bbox (P2-3 兼容)
+   *
+   * 反量化公式: position = quantized / 0xFFFFFF * range + chunkBboxMin
    *
    * [来源: P2-3 位置量化 — docs/plan/07-性能深度分析与优化执行方案.md §10.3]
-   * [来源: SPZ 格式 — github.com/nianticlabs/spz, 24-bit 位置反量化]
+   * [来源: M1 SuperSplat chunk 级量化 — chunk local bbox]
    */
   private dequantizePositions(
     compactData: ArrayBuffer,
@@ -513,15 +524,37 @@ export class SogStreamer {
     bboxMax: [number, number, number],
   ): ArrayBuffer {
     const src = new DataView(compactData);
+
+    // ★ M1: 检测是否有 chunk local bbox 前缀 (24 bytes = 6 × Float32)
+    // 若 compactData 大小 > splatCount * 29, 则前 24 字节为 local bbox
+    const expectedDataSize = splatCount * COMPACT_BYTES_PER_SPLAT;
+    const hasChunkBbox = compactData.byteLength > expectedDataSize;
+    const bboxHeaderSize = hasChunkBbox ? 24 : 0;
+
+    let chunkBboxMin = bboxMin;
+    let chunkBboxMax = bboxMax;
+    if (hasChunkBbox) {
+      chunkBboxMin = [
+        src.getFloat32(0, true),
+        src.getFloat32(4, true),
+        src.getFloat32(8, true),
+      ];
+      chunkBboxMax = [
+        src.getFloat32(12, true),
+        src.getFloat32(16, true),
+        src.getFloat32(20, true),
+      ];
+    }
+
     const output = new ArrayBuffer(splatCount * SPLAT_BYTES_PER_SPLAT);
     const dst = new DataView(output);
 
-    const rangeX = (bboxMax[0] - bboxMin[0]) || 1;
-    const rangeY = (bboxMax[1] - bboxMin[1]) || 1;
-    const rangeZ = (bboxMax[2] - bboxMin[2]) || 1;
+    const rangeX = (chunkBboxMax[0] - chunkBboxMin[0]) || 1;
+    const rangeY = (chunkBboxMax[1] - chunkBboxMin[1]) || 1;
+    const rangeZ = (chunkBboxMax[2] - chunkBboxMin[2]) || 1;
 
     for (let i = 0; i < splatCount; i++) {
-      const srcBase = i * COMPACT_BYTES_PER_SPLAT;
+      const srcBase = bboxHeaderSize + i * COMPACT_BYTES_PER_SPLAT;
       const dstBase = i * SPLAT_BYTES_PER_SPLAT;
 
       // 反量化 Position XYZ: Uint24 → Float32
@@ -529,9 +562,9 @@ export class SogStreamer {
       const qy = src.getUint8(srcBase + 3) | (src.getUint8(srcBase + 4) << 8) | (src.getUint8(srcBase + 5) << 16);
       const qz = src.getUint8(srcBase + 6) | (src.getUint8(srcBase + 7) << 8) | (src.getUint8(srcBase + 8) << 16);
 
-      dst.setFloat32(dstBase + 0, (qx / QUANT_MAX) * rangeX + bboxMin[0], true);
-      dst.setFloat32(dstBase + 4, (qy / QUANT_MAX) * rangeY + bboxMin[1], true);
-      dst.setFloat32(dstBase + 8, (qz / QUANT_MAX) * rangeZ + bboxMin[2], true);
+      dst.setFloat32(dstBase + 0, (qx / QUANT_MAX) * rangeX + chunkBboxMin[0], true);
+      dst.setFloat32(dstBase + 4, (qy / QUANT_MAX) * rangeY + chunkBboxMin[1], true);
+      dst.setFloat32(dstBase + 8, (qz / QUANT_MAX) * rangeZ + chunkBboxMin[2], true);
 
       // Scale XYZ: Float32 直接复制 (offset 9→12, 13→16, 17→20)
       dst.setFloat32(dstBase + 12, src.getFloat32(srcBase + 9, true), true);
