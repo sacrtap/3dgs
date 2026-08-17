@@ -218,6 +218,17 @@ await player.switchScene('kitchen');
 
 ## Data Conversion Tool
 
+The `@3dgs/convert` package is [published on npm](https://www.npmjs.com/package/@3dgs/convert) (v0.2.0). You can use it directly via `npx` without installation, or install it globally:
+
+```bash
+# Use directly via npx (no installation required)
+npx 3dgs-convert <command> [options]
+
+# Or install globally
+npm install -g @3dgs/convert
+3dgs-convert <command> [options]
+```
+
 Convert PLY files to optimized web formats:
 
 ```bash
@@ -256,7 +267,127 @@ npx 3dgs-convert info input.ply
 | `--no-sort` | Disable sorting (SOG only, enabled by default) |
 | `--sh-degree <num>` | SH degree 0-3 (auto-detected by default) |
 | `--fractional-bits <num>` | SPZ position quantization fractional bits (default 12) |
-| `--chunk-size <num>` | SOG splats per chunk (default 16384) |
+| `--chunk-size <num>` | SOG splats per chunk (default 8192) |
+| `--contribution-cutoff <num>` | Contribution-based pruning (0-1 = keep ratio, >1 = keep count) |
+| `--sh-mode <num>` | SOG SH DC append mode (0=off, 1=Int8, default 0) |
+
+</details>
+
+<details>
+<summary>Parameter guide: quality, size & performance tuning</summary>
+
+### Pruning & filtering (`--prune`, `--min-opacity`, `--contribution-cutoff`)
+
+These parameters control **which gaussians are kept** vs. discarded during conversion. Pruning reduces file size and improves runtime performance at the cost of visual fidelity.
+
+| Parameter | Effect on quality | Effect on file size | When to use |
+|-----------|-------------------|---------------------|-------------|
+| `--prune` | Enables base-level filtering: removes NaN/Inf gaussians, fully transparent splats (opacity below `--min-opacity`), and abnormally scaled splats. Minimal visual impact. | Slight reduction (~1-5%) | Always recommended — cleans training artifacts |
+| `--min-opacity 0.01` (default) | Threshold below which a gaussian is considered invisible. Lower = keep more near-transparent splats. Higher = more aggressive culling. | Higher value → smaller file | Increase to `0.05` for mobile/web; keep `0.01` for archival quality |
+| `--min-opacity 0.05` | Removes more low-contribution splats. May lose subtle fog/haze effects. | Moderate reduction (~5-15%) | Mobile, low-end devices, bandwidth-constrained |
+| `--contribution-cutoff 0.8` | Keeps only the top 80% highest-contribution gaussians (contribution = opacity × max scale). Discards the bottom 20% — typically training noise or background fill. | ~20% reduction | Quality-vs-size tradeoff for web deployment |
+| `--contribution-cutoff 500000` | Keeps exactly the top 500,000 gaussians by contribution. Useful for hard cap on splat count. | Significant reduction if original has millions | Enforcing device tier limits (e.g. mobile max 500K splats) |
+
+**Quality tuning tips:**
+- Start with `--prune --min-opacity 0.01` (safe defaults) and inspect the output visually.
+- If file size is too large, try `--contribution-cutoff 0.8` (keep top 80%).
+- For mobile targets, `--contribution-cutoff 500000 --min-opacity 0.05` is a good starting point.
+- Always compare the converted output against the source PLY render to assess quality loss.
+
+### SH degree (`--sh-degree`) — SPZ format only
+
+Controls the level of spherical harmonics (view-dependent color) preserved in the output. Higher = better angular color accuracy but larger file.
+
+| Value | SH terms | Extra size per splat | Visual effect |
+|-------|----------|---------------------|---------------|
+| `0` | DC only | 0 bytes | Flat color, no view-dependent shading |
+| `1` | 3 coeffs | +9 bytes | Basic directional shading (recommended for web) |
+| `2` | 8 coeffs | +24 bytes | High-quality reflections, anisotropic effects |
+| `3` | 15 coeffs | +45 bytes | Full SH fidelity (matches training source) |
+
+- **Default**: auto-detected from the PLY file's SH count.
+- `--sh-degree 0` strips all SH data — smallest file, but surfaces look flat under rotation.
+- `--sh-degree 1` is the sweet spot for web: captures most view-dependent effects at ~30% size increase.
+- Only the `ply-to-spz` and `batch` commands support this option (`.splat` format has no SH).
+
+### Position quantization (`--fractional-bits`) — SPZ format only
+
+Controls the precision of gaussian **positions** via fixed-point quantization. Lower = smaller file but positional jitter.
+
+| Value | Precision (for 100m scene) | File impact | Visual impact |
+|-------|---------------------------|-------------|---------------|
+| `12` (default) | ~0.024 mm | Baseline | Imperceptible |
+| `10` | ~0.098 mm | ~3% smaller | Negligible |
+| `8` | ~0.39 mm | ~6% smaller | Slight ghosting on close-up |
+| `14` | ~0.006 mm | ~3% larger | Sub-pixel precision (overkill for most cases) |
+
+- The quantization range is ±8,388,607 (24-bit signed), so `fractionalBits` determines the world-space resolution.
+- For typical indoor scenes (~10m), even `fractionalBits=10` provides sub-millimeter precision.
+- For large outdoor scenes (~1km), keep `fractionalBits=12` to avoid visible positional errors.
+
+### SOG chunk size (`--chunk-size`) — SOG format only
+
+Controls how many gaussians are grouped per chunk for streaming. Smaller chunks = faster first-frame but more HTTP requests.
+
+| Value | First chunk download | Total chunks (1M splats) | Use case |
+|-------|----------------------|--------------------------|----------|
+| `8192` (default) | ~256 KB (32B/splat) | ~122 | Balanced first-frame speed and overhead |
+| `4096` | ~128 KB | ~244 | Faster first paint on slow networks |
+| `16384` | ~512 KB | ~61 | Better compression ratio, slower first paint |
+| `32768` | ~1 MB | ~31 | Best for local/high-bandwidth, max compression |
+
+- Each chunk is independently gzip-compressed, so larger chunks achieve better compression ratios.
+- Smaller chunks enable progressive rendering sooner but increase per-chunk overhead (HTTP headers, decompression).
+- Default `8192` is tuned for typical web deployment (3G/4G networks).
+
+### SOG SH mode (`--sh-mode`) — SOG format only
+
+Controls whether SH DC (0th-order spherical harmonics) color data is appended to each splat in the SOG file, enabling view-dependent shading.
+
+| Value | Extra bytes/splat | File size increase | Effect |
+|-------|-------------------|--------------------|--------|
+| `0` (default) | 0 | Baseline | No view-dependent color; uses flat DC color from .splat format |
+| `1` | +3 bytes | ~+9.4% | Appends Int8-quantized SH DC coefficients, enabling basic directional color shifts |
+
+- `--sh-mode 1` is useful when the source PLY has SH data but you want SOG streaming with view-dependent shading.
+- The 3 extra bytes store the R/G/B SH DC coefficients (Int8 quantized via `round(sh × 128) + 128`).
+- This is a lighter alternative to full SH preservation — only the DC term is kept, not higher-order SH.
+
+### Morton spatial sorting (`--sort` / `--no-sort`)
+
+Controls whether gaussians are reordered by their 3D position (Z-order / Morton curve) before writing.
+
+| Setting | Effect | When |
+|---------|--------|------|
+| `--sort` (splat/spz) | Reorders gaussians spatially. Improves GPU cache locality and enables efficient frustum culling at runtime. | Recommended for production deployment |
+| Default for SOG | SOG auto-enables sorting (required for LOD prefix subsets and chunk spatial coherence). | Always on for SOG |
+| `--no-sort` (SOG only) | Disables sorting. Faster conversion but loses streaming LOD quality (first chunks no longer spatially coherent). | Debugging/testing only |
+
+- Morton sorting uses 16-bit per-axis resolution (65536 levels), providing sufficient spatial granularity for scenes up to ~1km.
+- Sorting adds O(N log N) overhead during conversion but significantly improves runtime rendering performance.
+
+</details>
+
+<details>
+<summary>Large file conversion & OOM handling</summary>
+
+When converting large PLY files (e.g. >50 MB / 3M+ gaussians), Node.js may crash with `JavaScript heap out of memory` (OOM) because the default V8 heap limit (~2 GB) is insufficient.
+
+Increase the heap limit via the `NODE_OPTIONS` environment variable:
+
+```bash
+# Increase to 8 GB (recommended for large files)
+NODE_OPTIONS="--max-old-space-size=8192" npx 3dgs-convert ply-to-sog large-scene.ply -o output.sog
+
+# Or 4 GB for medium files
+NODE_OPTIONS="--max-old-space-size=4096" npx 3dgs-convert ply-to-spz large-scene.ply -o output.spz
+```
+
+| File size | Gaussians | Recommended heap |
+|-----------|-----------|-----------------|
+| < 30 MB | < 1M | Default (2 GB) |
+| 30–70 MB | 1M–4M | 4 GB |
+| > 70 MB | > 4M | 8 GB+ |
 
 </details>
 

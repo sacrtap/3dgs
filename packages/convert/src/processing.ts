@@ -20,6 +20,21 @@ export interface PruneOptions {
   removeInvalid?: boolean;
   /** 是否剔除完全透明的高斯核 (默认 true) */
   removeTransparent?: boolean;
+  /**
+   * ★ M3: 贡献度裁剪 — 按贡献度保留前 N 个高斯核
+   *
+   * 贡献度 = opacity × max(scaleX, scaleY, scaleZ)
+   * 贡献度高的高斯核在视觉上更显著 (更大、更不透明),
+   * 贡献度低的通常是训练噪声或背景填充。
+   *
+   * 设为 0-1 之间的小数表示保留比例 (如 0.8 = 保留前 80%),
+   * 设为 >1 的整数表示保留的确切数量 (如 500000 = 保留前 50 万个)。
+   *
+   * 默认 undefined = 不启用贡献度裁剪。
+   *
+   * [来源: 会议决策 M3 — docs/party-mode-memories/2026-08-17-convert-quality-loss-memory.md]
+   */
+  contributionCutoff?: number;
 }
 
 /**
@@ -45,10 +60,11 @@ export function pruneGaussians(
     minScale = 0,
     removeInvalid = true,
     removeTransparent = true,
+    contributionCutoff,
   } = options;
 
+  // ★ M3: 第一阶段 — 基础过滤 (无效值、不透明度、缩放)
   const filtered: GaussianSplat[] = [];
-  
 
   for (const s of cloud.splats) {
     // 检查无效值
@@ -57,14 +73,12 @@ export function pruneGaussians(
           !isFinite(s.scaleX) || !isFinite(s.scaleY) || !isFinite(s.scaleZ) ||
           !isFinite(s.rotW) || !isFinite(s.rotX) || !isFinite(s.rotY) || !isFinite(s.rotZ) ||
           !isFinite(s.opacity)) {
-        
         continue;
       }
     }
 
     // 检查不透明度
     if (removeTransparent && s.opacity < minOpacity) {
-      
       continue;
     }
 
@@ -72,15 +86,41 @@ export function pruneGaussians(
     const maxS = Math.max(s.scaleX, s.scaleY, s.scaleZ);
     const minS = Math.min(s.scaleX, s.scaleY, s.scaleZ);
     if (maxS > maxScale || minS < minScale) {
-      
       continue;
     }
 
     filtered.push(s);
   }
 
+  // ★ M3: 第二阶段 — 贡献度裁剪
+  // 贡献度 = opacity × max(scaleX, scaleY, scaleZ)
+  // 仅当 contributionCutoff 有值时执行
+  let result = filtered;
+  if (contributionCutoff !== undefined && contributionCutoff > 0 && filtered.length > 0) {
+    // 计算每个 splat 的贡献度
+    const contributions = filtered.map((s) => ({
+      splat: s,
+      score: s.opacity * Math.max(s.scaleX, s.scaleY, s.scaleZ),
+    }));
+
+    // 按贡献度降序排序
+    contributions.sort((a, b) => b.score - a.score);
+
+    // 确定保留数量
+    let keepCount: number;
+    if (contributionCutoff >= 1) {
+      // >1 的整数: 保留确切数量
+      keepCount = Math.min(Math.floor(contributionCutoff), filtered.length);
+    } else {
+      // 0-1 的小数: 保留比例
+      keepCount = Math.floor(filtered.length * contributionCutoff);
+    }
+
+    result = contributions.slice(0, keepCount).map((c) => c.splat);
+  }
+
   return {
-    splats: filtered,
+    splats: result,
     shDegree: cloud.shDegree,
     vertexCount: cloud.vertexCount,
     source: cloud.source,
