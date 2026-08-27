@@ -21,8 +21,21 @@ export type {
   HotspotVisibility,
   HotspotAction,
   HotspotHover,
+  HotspotPopup,
 } from './hotspot/hotspot-config.js';
 export type { HotspotInstance } from './hotspot/hotspot-manager.js';
+
+// ★ 空间媒体嵌入 (图像/视频)
+export { createMediaEmbed } from './media-embed/index.js';
+export type {
+  MediaEmbedPlugin,
+  MediaEmbedConfig,
+  MediaEmbedExtension,
+  MediaEmbedOptions,
+  MediaEmbedType,
+  MediaDepthBlur,
+} from './media-embed/index.js';
+export type { CameraPose, CameraSpacePoint } from './media-embed/camera-extract.js';
 
 // 相机控制
 export { createCameraControls } from './camera-controls/index.js';
@@ -55,3 +68,7 @@ export type { AutoRotateOptions } from './auto-rotate/index.js';
 // Shader 注入
 export { createShaderInjectionPlugin, createShaderInjection } from './shader-injection/index.js';
 export type { ShaderInjectionPluginOptions } from './shader-injection/index.js';
+
+// ★ Shader 预设效果库
+export { createPreset, presetId, SHADER_PRESET_NAMES } from './shader-injection/presets.js';
+export type { ShaderPresetName, ShaderPresetOptions } from './shader-injection/presets.js';

@@ -29,6 +29,8 @@ export interface AutoRotateOptions {
   axis?: 'yaw' | 'pitch';
   /** 是否在用户交互时自动暂停 (默认 true) */
   pauseOnInteraction?: boolean;
+  /** ★ N-07: 是否尊重系统 prefers-reduced-motion 设置 (默认 true, 命中时不自动旋转) */
+  respectReducedMotion?: boolean;
 }
 
 /**
@@ -57,6 +59,7 @@ export function createAutoRotatePlugin(
     direction = 1,
     axis = 'yaw',
     pauseOnInteraction = true,
+    respectReducedMotion = true,
   } = options;
 
   let ctx: TourPluginContext;
@@ -69,6 +72,9 @@ export function createAutoRotatePlugin(
   let pointerDownHandler: ((e: PointerEvent) => void) | null = null;
   let wheelHandler: ((e: WheelEvent) => void) | null = null;
   let keyDownHandler: ((e: KeyboardEvent) => void) | null = null;
+  // ★ N-07: 减弱动效偏好监听 (无障碍)
+  let reducedMotionQuery: MediaQueryList | null = null;
+  let reducedMotionHandler: ((e: MediaQueryListEvent) => void) | null = null;
 
   return {
     name: 'auto-rotate',
@@ -76,6 +82,22 @@ export function createAutoRotatePlugin(
 
     init(pluginCtx: TourPluginContext) {
       ctx = pluginCtx;
+
+      // ★ N-07: 尊重系统"减弱动效"偏好 — 命中时不自动旋转 (无障碍要求),
+      //   用户仍可通过 autorotate:start 事件显式强制开启; 并动态跟随系统设置变化。
+      if (respectReducedMotion && typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+        reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+        if (reducedMotionQuery.matches) {
+          isActive = false;
+        }
+        reducedMotionHandler = (e: MediaQueryListEvent) => {
+          if (e.matches) {
+            isActive = false;
+            ctx.player.emit('autorotate:reduced-motion', {});
+          }
+        };
+        reducedMotionQuery.addEventListener?.('change', reducedMotionHandler);
+      }
 
       // 监听手动控制事件
       ctx.player.on('autorotate:start', () => {
@@ -154,6 +176,12 @@ export function createAutoRotatePlugin(
       if (interactionTimeout) {
         clearTimeout(interactionTimeout);
         interactionTimeout = null;
+      }
+      // ★ N-07: 注销减弱动效监听 (兼容旧浏览器无 removeEventListener 的情况)
+      if (reducedMotionQuery && reducedMotionHandler) {
+        reducedMotionQuery.removeEventListener?.('change', reducedMotionHandler);
+        reducedMotionQuery = null;
+        reducedMotionHandler = null;
       }
     },
   };

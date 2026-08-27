@@ -36,6 +36,22 @@ export interface HotspotAction {
   callback?: string;
 }
 
+/** ★ 热点点击弹出面板配置 (点击热点后在屏幕空间弹出) */
+export interface HotspotPopup {
+  /** 弹层标题 (可选) */
+  title?: string;
+  /** 文本或 HTML 片段内容 */
+  content?: string;
+  /** 弹层内嵌图片 URL (可选) */
+  imageUrl?: string;
+  /** 弹层宽度 (px, 默认 280) */
+  width?: number;
+  /** 弹出位置: auto=跟随热点并防越界 / center=屏幕居中 (默认 auto) */
+  placement?: 'auto' | 'center';
+  /** 是否可点击遮罩/关闭按钮关闭 (默认 true) */
+  dismissible?: boolean;
+}
+
 export interface HotspotConfig {
   id: string;
   type: HotspotType;
@@ -45,6 +61,9 @@ export interface HotspotConfig {
   onClick?: HotspotAction;
   onHover?: HotspotHover;
   visibility?: HotspotVisibility;
+
+  /** ★ 点击弹出面板 (可选; 配置后点击热点自动弹出) */
+  popup?: HotspotPopup;
 
   /** 场景跳转目标 (type='scene' 时必需) */
   targetScene?: string;

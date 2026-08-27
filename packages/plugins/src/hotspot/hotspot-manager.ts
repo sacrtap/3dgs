@@ -15,6 +15,8 @@ export interface HotspotInstance {
   config: HotspotConfig;
   el: HTMLDivElement;
   visible: boolean;
+  /** ★ 最近一次投影的屏幕坐标 (弹出面板跟随用) */
+  screenPos?: { x: number; y: number };
 }
 
 export interface HotspotUpdateData {
@@ -26,11 +28,21 @@ export interface HotspotUpdateData {
 
 export type HotspotEventHandler = (instance: HotspotInstance) => void;
 
+/** 弹出面板打开/关闭回调 */
+export type HotspotPopupHandler = (instance: HotspotInstance | null) => void;
+
 export class HotspotManager {
   private hotspots = new Map<string, HotspotInstance>();
   private container?: HTMLElement;
   private onClickHandler?: HotspotEventHandler;
   private onHoverHandler?: HotspotEventHandler;
+  // ★ 点击弹出面板状态
+  private popupOverlay?: HTMLDivElement;
+  private popupPanel?: HTMLDivElement;
+  private openPopupId?: string;
+  private popupScreen: { x: number; y: number } | null = null;
+  private onPopupOpenHandler?: HotspotPopupHandler;
+  private onPopupCloseHandler?: HotspotPopupHandler;
 
   /** 设置容器（热点 DOM 将挂载于此） */
   attach(container: HTMLElement): void {
@@ -55,6 +67,7 @@ export class HotspotManager {
 
   /** 清除所有热点 */
   clear(): void {
+    this.closePopup();
     for (const { el } of this.hotspots.values()) {
       el.remove();
     }
@@ -77,6 +90,174 @@ export class HotspotManager {
   /** 注册悬停回调 */
   onHover(handler: HotspotEventHandler): void {
     this.onHoverHandler = handler;
+  }
+
+  /** ★ 注册弹出面板打开回调 */
+  onPopupOpen(handler: HotspotPopupHandler): void {
+    this.onPopupOpenHandler = handler;
+  }
+
+  /** ★ 注册弹出面板关闭回调 */
+  onPopupClose(handler: HotspotPopupHandler): void {
+    this.onPopupCloseHandler = handler;
+  }
+
+  /** ★ 当前打开的弹出面板对应热点 id */
+  getOpenPopupId(): string | undefined {
+    return this.openPopupId;
+  }
+
+  /**
+   * ★ 打开热点弹出面板 (点击弹出交互)
+   *
+   * 屏幕空间面板: 遮罩 + 标题/内容/图片, 默认跟随热点位置并防越界。
+   */
+  openPopup(id: string): boolean {
+    const instance = this.hotspots.get(id);
+    if (!instance || !instance.config.popup || !this.container) return false;
+
+    this.closePopup();
+
+    const popup = instance.config.popup;
+    const width = popup.width ?? 280;
+    const dismissible = popup.dismissible !== false;
+
+    // 遮罩层 (拦截场景交互, 可点击关闭)
+    const overlay = document.createElement('div');
+    overlay.className = '3dgs-popup-overlay';
+    Object.assign(overlay.style, {
+      position: 'absolute',
+      top: '0', left: '0',
+      width: '100%', height: '100%',
+      background: 'rgba(0,0,0,0.25)',
+      display: 'flex',
+      zIndex: '100',
+      cursor: dismissible ? 'pointer' : 'default',
+    } as Partial<CSSStyleDeclaration>);
+
+    // 面板
+    const panel = document.createElement('div');
+    panel.className = '3dgs-popup-panel';
+    panel.dataset.hotspotId = id;
+    Object.assign(panel.style, {
+      position: 'absolute',
+      width: `${width}px`,
+      maxWidth: 'calc(100% - 32px)',
+      maxHeight: 'calc(100% - 64px)',
+      overflowY: 'auto',
+      background: 'rgba(18, 20, 26, 0.92)',
+      color: '#eee',
+      borderRadius: '10px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+      border: '1px solid rgba(255,255,255,0.12)',
+      padding: '14px 16px',
+      fontSize: '13px',
+      lineHeight: '1.6',
+      cursor: 'default',
+      animation: '3dgs-popup-in 0.18s ease-out',
+      backdropFilter: 'blur(8px)',
+    } as Partial<CSSStyleDeclaration>);
+    panel.addEventListener('click', (e) => e.stopPropagation());
+
+    // 标题行 + 关闭按钮
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px',
+      marginBottom: popup.title ? '8px' : '0',
+    } as Partial<CSSStyleDeclaration>);
+    if (popup.title) {
+      const title = document.createElement('div');
+      title.textContent = popup.title;
+      Object.assign(title.style, { fontWeight: '600', fontSize: '14px' } as Partial<CSSStyleDeclaration>);
+      header.appendChild(title);
+    }
+    if (dismissible) {
+      const closeBtn = document.createElement('div');
+      closeBtn.className = '3dgs-popup-close';
+      closeBtn.textContent = '✕';
+      Object.assign(closeBtn.style, {
+        cursor: 'pointer', opacity: '0.6', padding: '0 2px', fontSize: '14px', flexShrink: '0',
+      } as Partial<CSSStyleDeclaration>);
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closePopup();
+      });
+      header.appendChild(closeBtn);
+    }
+    panel.appendChild(header);
+
+    // 图片 (可选)
+    if (popup.imageUrl) {
+      const img = document.createElement('img');
+      img.src = popup.imageUrl;
+      Object.assign(img.style, {
+        width: '100%', borderRadius: '6px', marginBottom: popup.content ? '8px' : '0', display: 'block',
+      } as Partial<CSSStyleDeclaration>);
+      img.addEventListener('error', () => { img.style.display = 'none'; });
+      panel.appendChild(img);
+    }
+
+    // 内容 (文本/HTML 片段)
+    if (popup.content) {
+      const content = document.createElement('div');
+      content.innerHTML = popup.content; // 配置来源为受信任的 tour.json; 如需用户输入请先消毒
+      content.style.color = 'rgba(255,255,255,0.82)';
+      panel.appendChild(content);
+    }
+
+    overlay.appendChild(panel);
+    if (dismissible) {
+      overlay.addEventListener('click', () => this.closePopup());
+    }
+    this.container.appendChild(overlay);
+
+    this.popupOverlay = overlay;
+    this.popupPanel = panel;
+    this.openPopupId = id;
+    this.layoutPopup(instance, popup.placement);
+    this.onPopupOpenHandler?.(instance);
+    return true;
+  }
+
+  /** ★ 关闭弹出面板 */
+  closePopup(): void {
+    if (!this.openPopupId) return;
+    const instance = this.hotspots.get(this.openPopupId) ?? null;
+    this.popupOverlay?.remove();
+    this.popupOverlay = undefined;
+    this.popupPanel = undefined;
+    this.openPopupId = undefined;
+    this.popupScreen = null;
+    this.onPopupCloseHandler?.(instance);
+  }
+
+  /** 面板布局: 跟随热点屏幕位置 (防越界) 或居中 */
+  private layoutPopup(instance: HotspotInstance, placement: 'auto' | 'center' = 'auto'): void {
+    const panel = this.popupPanel;
+    const overlay = this.popupOverlay;
+    if (!panel || !overlay) return;
+
+    const hostW = overlay.clientWidth || 1;
+    const hostH = overlay.clientHeight || 1;
+    const w = panel.offsetWidth;
+    const h = panel.offsetHeight;
+
+    let left: number;
+    let top: number;
+    if (placement === 'center' || !this.popupScreen) {
+      left = (hostW - w) / 2;
+      top = (hostH - h) / 2;
+    } else {
+      // 热点上方优先, 越界自动翻转到下方/水平收拢
+      const { x, y } = this.popupScreen;
+      left = x - w / 2;
+      top = y - h - 24;
+      if (top < 8) top = y + 24;
+      if (top + h > hostH - 8) top = Math.max(8, (hostH - h) / 2);
+      left = Math.max(8, Math.min(left, hostW - w - 8));
+    }
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
   }
 
   /**
@@ -131,6 +312,9 @@ export class HotspotManager {
         el.style.left = `${screenX}px`;
         el.style.top = `${screenY}px`;
 
+        // ★ 记录屏幕坐标 — 弹出面板跟随锚点用
+        instance.screenPos = { x: screenX, y: screenY };
+
         // 距离衰减
         const opacity = vis?.maxDistance
           ? Math.max(0.3, 1 - distance / vis.maxDistance)
@@ -138,6 +322,17 @@ export class HotspotManager {
         el.style.opacity = String(opacity);
       } else {
         el.style.display = 'none';
+      }
+
+      // ★ 弹出面板跟随: 打开中的面板随热点屏幕位置更新 (位移 >1px 才重排, 避免每帧强制布局;
+      //   热点不可见时保持最后位置)
+      if (this.openPopupId === config.id && visible && config.popup && instance.screenPos) {
+        const sp = instance.screenPos;
+        const prev = this.popupScreen;
+        if (!prev || Math.abs(prev.x - sp.x) > 1 || Math.abs(prev.y - sp.y) > 1) {
+          this.popupScreen = sp;
+          this.layoutPopup(instance, config.popup.placement);
+        }
       }
     }
   }
@@ -239,6 +434,10 @@ export class HotspotManager {
       @keyframes 3dgs-hotspot-pulse {
         0%, 100% { transform: translate(-50%, -50%) scale(1); }
         50% { transform: translate(-50%, -50%) scale(1.3); }
+      }
+      @keyframes 3dgs-popup-in {
+        from { opacity: 0; transform: translateY(6px) scale(0.98); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
       }
     `;
     document.head.appendChild(style);
