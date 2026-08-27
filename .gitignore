@@ -15,6 +15,9 @@ build/
 *.swo
 *~
 
+# Agent / tooling local state
+.qoder/
+
 # OS
 .DS_Store
 Thumbs.db
