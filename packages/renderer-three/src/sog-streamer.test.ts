@@ -371,7 +371,7 @@ describe('SogStreamer — P1-2 gzip 解压', () => {
     expect(metadata.version).toBe(2);
   });
 
-  it('★ compression=1 但 DecompressionStream 不可用时抛出错误', async () => {
+  it('★ compression=1 但 DecompressionStream 不可用时抛出错误 (D-02: 经 start 拒绝传播)', async () => {
     // 创建标记为 gzip 压缩的 v2 文件 (但数据未实际压缩, 仅测试错误处理)
     const numChunks = 1;
     const chunkSize = 5;
@@ -389,12 +389,16 @@ describe('SogStreamer — P1-2 gzip 解压', () => {
       onError: (err) => errors.push(err),
     });
 
-    await streamer.start();
+    try {
+      // ★ D-02: 旧行为是静默 resolve (后续拼接崩溃), 修复后 start() 拒绝,
+      //   让渲染器回退链接管 (如回退到 .splat 直加载)
+      await expect(streamer.start()).rejects.toThrow(/chunk 加载失败/);
+    } finally {
+      // 恢复
+      globalThis.DecompressionStream = originalDS;
+    }
 
-    // 恢复
-    globalThis.DecompressionStream = originalDS;
-
-    // 应该有错误
+    // 单 chunk 级错误仍通过 onError 通知, 且指明根因
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].message).toContain('DecompressionStream');
   });
@@ -795,5 +799,102 @@ describe('SogStreamer — P2 早期终止加载', () => {
     const lastCall = progressCalls[progressCalls.length - 1];
     expect(lastCall.total).toBe(10);
     expect(lastCall.loaded).toBe(10);
+  });
+});
+
+// ── ★ D-02: chunk 加载失败传播 ────────────────────────
+
+describe('SogStreamer — D-02 chunk 失败传播', () => {
+  const numChunks = 4;
+  const chunkSize = 10;
+  let sogBuffer: ArrayBuffer;
+  let originalFetch: typeof globalThis.fetch;
+
+  /** 构造对指定 chunk 返回 404 的 fetch mock */
+  function createFailingFetch(failChunkIndex: number) {
+    const indexSize = numChunks * 8;
+    const chunkBytes = chunkSize * SPLAT_BYTES;
+    const dataStart = HEADER_SIZE + indexSize;
+
+    return vi.fn((_url: string, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string> | undefined;
+      const range = headers?.Range;
+      const match = range?.match(/bytes=(\d+)-(\d+)/);
+      if (!match) {
+        return Promise.resolve({ ok: false, status: 400, arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) });
+      }
+      const start = parseInt(match[1], 10);
+      const end = parseInt(match[2], 10);
+
+      // 命中失败 chunk 的数据区间 → 404 (弱网/部分文件丢失场景)
+      const chunkStart = dataStart + failChunkIndex * chunkBytes;
+      if (start >= chunkStart && start < chunkStart + chunkBytes) {
+        return Promise.resolve({ ok: false, status: 404, arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        status: 206,
+        arrayBuffer: () => Promise.resolve(sogBuffer.slice(start, end + 1)),
+      });
+    });
+  }
+
+  beforeEach(() => {
+    sogBuffer = createMockSogV2File(numChunks, chunkSize);
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('单个 chunk 失败: start() 拒绝并指明失败编号 (而非静默成功)', async () => {
+    globalThis.fetch = createFailingFetch(2) as unknown as typeof globalThis.fetch;
+
+    const errors: string[] = [];
+    const streamer = new SogStreamer({
+      url: 'mock://test.sog',
+      onError: (err) => errors.push(err.message),
+    });
+
+    // ★ 核心断言: 旧实现此处会 resolve (随后拼接崩溃), 修复后必须 reject
+    await expect(streamer.start()).rejects.toThrow(/chunk 加载失败/);
+    // onError 仍被通知 (单 chunk 级错误)
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('失败后 chunkDataList 不产生稀疏空洞 (可安全回退)', async () => {
+    globalThis.fetch = createFailingFetch(1) as unknown as typeof globalThis.fetch;
+
+    const chunkDataList: ArrayBuffer[] = [];
+    const streamer = new SogStreamer({
+      url: 'mock://test.sog',
+      onChunkLoaded: (idx, data) => { chunkDataList[idx] = data; },
+    });
+
+    await expect(streamer.start()).rejects.toThrow();
+    // 失败的 chunk 不会留下 undefined 空洞 — 拒绝后调用方走回退链, 不再进入拼接
+    expect(chunkDataList.filter(Boolean).length).toBe(numChunks - 1);
+  });
+
+  it('abort() 中止不算失败 (新场景加载主动中止旧加载)', async () => {
+    globalThis.fetch = createMockFetch(sogBuffer) as unknown as typeof globalThis.fetch;
+
+    const streamer = new SogStreamer({
+      url: 'mock://test.sog',
+      parallel: false, // 顺序加载便于中途中止
+    });
+
+    const promise = streamer.start();
+    streamer.abort();
+
+    // 中止后正常完成 (不抛错) 或抛 abort 相关错误均可接受, 但不应报 "chunk 加载失败"
+    try {
+      await promise;
+    } catch (err) {
+      expect(String(err)).not.toContain('chunk 加载失败');
+    }
   });
 });

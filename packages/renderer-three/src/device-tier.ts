@@ -24,7 +24,12 @@ export function detectDeviceTier(): DeviceProfile {
   const nav = typeof navigator !== 'undefined' ? navigator : undefined;
   const cores = nav?.hardwareConcurrency || 4;
   const memory = (nav as (Navigator & { deviceMemory?: number }) | undefined)?.deviceMemory || 4;
-  const isMobile = nav ? /Android|iPhone|iPad|iPod/i.test(nav.userAgent) : false;
+  // ★ N-03: iPadOS 13+ Safari UA 为 "Macintosh", 仅靠 UA 会误判为桌面端 →
+  //   补充 maxTouchPoints 判定 (桌面触屏设备通常 ≤1, iPad ≥5)
+  const isMobile = nav
+    ? /Android|iPhone|iPad|iPod/i.test(nav.userAgent) ||
+      (nav.maxTouchPoints > 1 && /Macintosh/i.test(nav.userAgent))
+    : false;
   const gpuRenderer = detectGpuRenderer();
 
   // ── 分级逻辑 ──
@@ -133,7 +138,7 @@ export function getTierSettings(tier: DeviceTier): {
       };
     case DeviceTier.HIGH:
       return {
-        pixelRatio: 1.0, resolutionScale: 1.0, shDegree: 1, maxSplats: 1_000_000, antialias: false,
+        pixelRatio: cappedDpr(1.25), resolutionScale: 1.0, shDegree: 1, maxSplats: 1_000_000, antialias: false,
         lodSplatScale: 1.0, lodRenderScale: 1.0, maxStdDev: Math.sqrt(8), minPixelRadius: 1.0, clipXY: 1.2, lodQuality: true,
         minSortIntervalMs: 33, coneFov0: 80, coneFov: 110, coneFoveate: 0.4, behindFoveate: 0.2,
         maxPagedSplats: 12_582_912, numLodFetchers: 3, // 192 pages, 3 fetchers
@@ -143,7 +148,7 @@ export function getTierSettings(tier: DeviceTier): {
       };
     case DeviceTier.ULTRA:
       return {
-        pixelRatio: 1.0, resolutionScale: 1.0, shDegree: 2, maxSplats: 2_500_000, antialias: false,
+        pixelRatio: cappedDpr(1.5), resolutionScale: 1.0, shDegree: 2, maxSplats: 2_500_000, antialias: false,
         lodSplatScale: 1.5, lodRenderScale: 1.0, maxStdDev: Math.sqrt(8), minPixelRadius: 0.5, clipXY: 1.4, lodQuality: true,
         minSortIntervalMs: 16, coneFov0: 90, coneFov: 120, coneFoveate: 0.4, behindFoveate: 0.2,
         maxPagedSplats: 16_777_216, numLodFetchers: 4, // 256 pages, 4 fetchers
@@ -165,6 +170,20 @@ export function getTierSettings(tier: DeviceTier): {
 }
 
 // ─── 内部 ──────────────────────────────────────────────────
+
+/**
+ * ★ N-02: 高分屏清晰度适配 — pixelRatio = min(devicePixelRatio, cap)。
+ *
+ * 旧实现四档恒为 1.0: 性能最优但 dpr≥2 的手机/Retina 屏画面明显发虚。
+ * 仅 HIGH/ULTRA 档有限跟随 (带封顶), 配合 AdaptiveResolution 形成双保险:
+ * 像素量上升导致帧率下降时, 自适应分辨率会自动下调 resolutionScale 补偿。
+ * LOW/MEDIUM 保持 1.0 — 低端设备性能优先。
+ */
+function cappedDpr(cap: number): number {
+  if (typeof window === 'undefined') return 1.0;
+  const dpr = window.devicePixelRatio || 1;
+  return Math.min(dpr, cap);
+}
 
 function detectGpuRenderer(): string {
   try {

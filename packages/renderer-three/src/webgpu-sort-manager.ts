@@ -86,6 +86,14 @@ export class WebGPUSortManager {
   // CPU 回退: 位置数据缓存
   private _cpuPositions: Float32Array | null = null;
 
+  // ★ §2.3: 复用对象, 消除每次排序的分配:
+  //   readback buffer (按 splatCount 按需扩容, 场景切换时重建)
+  //   uniform data (32B) / 排序索引数组 (避免 Array.from 装箱)
+  private _readbackBuffer: GPUBuffer | null = null;
+  private _readbackCapacity = 0;
+  private _sortUniformData = new ArrayBuffer(32);
+  private _sortUniformView = new DataView(this._sortUniformData);
+
   // State
   private splatCount = 0;
   private initialized = false;
@@ -204,13 +212,13 @@ export class WebGPUSortManager {
     const startTime = performance.now();
 
     // 更新 uniform buffer (相机位置 + splat 数量)
-    const uniformData = new ArrayBuffer(32);
-    const view = new DataView(uniformData);
+    // ★ §2.3: 复用 _sortUniformData, 避免每次排序 new ArrayBuffer(32)
+    const view = this._sortUniformView;
     view.setFloat32(0, camX, true);
     view.setFloat32(4, camY, true);
     view.setFloat32(8, camZ, true);
     view.setUint32(12, this.splatCount, true);
-    this.device.queue.writeBuffer(this.uniformBuffer!, 0, uniformData);
+    this.device.queue.writeBuffer(this.uniformBuffer!, 0, this._sortUniformData);
 
     // Pass 1: GPU 并行计算距离
     const encoder = this.device.createCommandEncoder();
@@ -221,11 +229,8 @@ export class WebGPUSortManager {
     pass.dispatchWorkgroups(numWorkgroups);
     pass.end();
 
-    // 创建 readback buffer 并复制距离数据
-    const readbackBuffer = this.device.createBuffer({
-      size: this.splatCount * 4,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-    });
+    // ★ §2.3: 复用 readback buffer (按容量按需扩容), 避免每次排序新建/销毁 1M×4B buffer
+    const readbackBuffer = this.ensureReadbackBuffer(this.splatCount);
     encoder.copyBufferToBuffer(
       this.distanceBuffer!,
       0,
@@ -235,14 +240,14 @@ export class WebGPUSortManager {
     );
 
     this.device.queue.submit([encoder.finish()]);
-    await this.device.queue.onSubmittedWorkDone();
+    // ★ §2.3: 移除 onSubmittedWorkDone() — 它会等待所有已提交工作 (含渲染),
+    //   引入不必要的 CPU-GPU 同步; mapAsync 本身保证该 buffer 的写入完成。
+    await readbackBuffer.mapAsync(GPUMapMode.READ);
 
-    // ★ try/finally 确保 readbackBuffer 在任何情况下都被销毁 (防止 GPU 内存泄漏)
     try {
       // 读取 GPU 计算的距离
-      await readbackBuffer.mapAsync(GPUMapMode.READ);
       const distances = new Float32Array(
-        readbackBuffer.getMappedRange().slice(0),
+        readbackBuffer.getMappedRange(0, this.splatCount * 4).slice(0),
       );
       readbackBuffer.unmap();
 
@@ -250,12 +255,10 @@ export class WebGPUSortManager {
       const indices = new Uint32Array(this.splatCount);
       for (let i = 0; i < this.splatCount; i++) indices[i] = i;
 
-      // 按距离降序排序 (远 → 近, 符合 3DGS back-to-front 渲染顺序)
-      const indexArray = Array.from(indices);
-      indexArray.sort((a, b) => distances[b] - distances[a]);
-      for (let i = 0; i < this.splatCount; i++) {
-        indices[i] = indexArray[i];
-      }
+      // ★ §2.3: 直接在 TypedArray 上带比较器排序 (降序: 远 → 近,
+      //   符合 3DGS back-to-front 渲染顺序), 消除 Array.from 的 1M 装箱开销。
+      //   注意: 同一距离下 TypedArray sort 不稳定, 但同距项渲染顺序无视觉差异。
+      indices.sort((a, b) => distances[b] - distances[a]);
 
       // 写回排序后的索引到 GPU buffer
       this.device.queue.writeBuffer(this.indexBuffer!, 0, indices.buffer as ArrayBuffer);
@@ -268,10 +271,28 @@ export class WebGPUSortManager {
         count: this.splatCount,
         method: 'gpu-hybrid',
       };
-    } finally {
-      // ★ 确保 readbackBuffer 在正常/异常路径下都被销毁
-      readbackBuffer.destroy();
+    } catch (err) {
+      // 排序失败: 确保 buffer 解除映射后供下次复用, 再向上抛 (调用方回退/警告)
+      readbackBuffer.unmap();
+      throw err;
     }
+  }
+
+  /**
+   * ★ §2.3: 获取容量足够的复用 readback buffer (MAP_READ | COPY_DST)。
+   * 仅在容量不足时重建, 场景切换 (uploadPositions) 会随其他 buffer 一起销毁。
+   */
+  private ensureReadbackBuffer(count: number): GPUBuffer {
+    const needed = Math.max(count * 4, 4);
+    if (!this._readbackBuffer || this._readbackCapacity < needed) {
+      this._readbackBuffer?.destroy();
+      this._readbackBuffer = this.device!.createBuffer({
+        size: needed,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      });
+      this._readbackCapacity = needed;
+    }
+    return this._readbackBuffer;
   }
 
   /**
@@ -331,12 +352,8 @@ export class WebGPUSortManager {
     const indices = new Uint32Array(count);
     for (let i = 0; i < count; i++) indices[i] = i;
 
-    // 按距离降序排序 (远 → 近, back-to-front)
-    const indexArray = Array.from(indices);
-    indexArray.sort((a, b) => distances[b] - distances[a]);
-    for (let i = 0; i < count; i++) {
-      indices[i] = indexArray[i];
-    }
+    // ★ §2.3: 直接在 TypedArray 上带比较器排序 (降序: 远 → 近, back-to-front)
+    indices.sort((a, b) => distances[b] - distances[a]);
 
     return {
       indices,
@@ -378,10 +395,13 @@ export class WebGPUSortManager {
     this.indexBuffer?.destroy();
     this.distanceBuffer?.destroy();
     this.uniformBuffer?.destroy();
+    this._readbackBuffer?.destroy();
     this.positionBuffer = null;
     this.indexBuffer = null;
     this.distanceBuffer = null;
     this.uniformBuffer = null;
+    this._readbackBuffer = null;
+    this._readbackCapacity = 0;
   }
 
   /** 创建 distance compute shader 管线 */

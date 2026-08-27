@@ -3,6 +3,7 @@ import {
   decodeSpz,
   decodeSpzInWorker,
   parseSpzHeader,
+  readSpzHeader,
   validateSpzHeader,
   SPZ_MAGIC,
   SPZ_VERSION,
@@ -512,5 +513,71 @@ describe('decodeSpz — 边界条件', () => {
     const splatBytes = await decodeSpz(spzData);
 
     expect(splatBytes.byteLength).toBe(5 * SPLAT_BYTES);
+  });
+});
+
+// ── 权威布局 (2026-08-27): 整文件单个 gzip 流 ─────────────
+
+describe('decodeSpz — 权威布局: 整文件 gzip (Spark 兼容)', () => {
+  /** Gzip 解压 */
+  async function gzipDecompressLocal(data: Uint8Array): Promise<Uint8Array> {
+    const stream = new Blob([data as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  /** 构造权威布局文件: 将旧布局 [未压缩 header][gzip body] 转为 [整文件 gzip] */
+  async function createWholeGzipSpz(splats: TestSplat[], opts?: { shDegree?: number }): Promise<ArrayBuffer> {
+    const legacy = new Uint8Array(await createMockSpzFile(splats, opts));
+    const body = await gzipDecompressLocal(legacy.subarray(HEADER_SIZE));
+    const full = new Uint8Array(HEADER_SIZE + body.length);
+    full.set(legacy.subarray(0, HEADER_SIZE), 0);
+    full.set(body, HEADER_SIZE);
+    return (await gzipCompress(full)).buffer as ArrayBuffer;
+  }
+
+  it('★ 文件以 gzip magic 开头, decodeSpz 自动识别并解码', async () => {
+    const splats = createTestSplats(4);
+    const spzData = await createWholeGzipSpz(splats);
+
+    expect(new Uint8Array(spzData)[0]).toBe(0x1f);
+    expect(new Uint8Array(spzData)[1]).toBe(0x8b);
+
+    const splatBytes = await decodeSpz(spzData);
+    expect(splatBytes.byteLength).toBe(4 * SPLAT_BYTES);
+
+    // 位置 round-trip
+    const view = new DataView(splatBytes.buffer);
+    expect(view.getFloat32(0, true)).toBeCloseTo(splats[0].x, 1);
+    expect(view.getFloat32(4, true)).toBeCloseTo(splats[0].y, 1);
+    expect(view.getFloat32(8, true)).toBeCloseTo(splats[0].z, 1);
+  });
+
+  it('★ readSpzHeader 对权威布局返回正确元信息', async () => {
+    const splats = createTestSplats(7);
+    const spzData = await createWholeGzipSpz(splats);
+
+    const header = await readSpzHeader(spzData);
+    expect(header.magic).toBe(SPZ_MAGIC);
+    expect(header.version).toBe(SPZ_VERSION);
+    expect(header.numSplats).toBe(7);
+  });
+
+  it('★ readSpzHeader 对旧布局 (未压缩 header) 同样兼容', async () => {
+    const splats = createTestSplats(6);
+    const legacyData = await createMockSpzFile(splats);
+
+    const header = await readSpzHeader(legacyData);
+    expect(header.numSplats).toBe(6);
+  });
+
+  it('★ 两种布局解码结果一致 (布局迁移无损)', async () => {
+    const splats = createTestSplats(5);
+    const legacyData = await createMockSpzFile(splats);
+    const wholeData = await createWholeGzipSpz(splats);
+
+    const fromLegacy = await decodeSpz(legacyData);
+    const fromWhole = await decodeSpz(wholeData);
+
+    expect(Array.from(fromWhole)).toEqual(Array.from(fromLegacy));
   });
 });

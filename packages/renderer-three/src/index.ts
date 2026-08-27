@@ -32,7 +32,7 @@ import { FrustumCulling } from './frustum-culling.js';
 import { SplatBufferPool } from './buffer-pool.js';
 import { DragLookControls } from './drag-look-controls.js';
 import { concatChunksInWorker } from './sog-concat-worker.js';
-import { parseSpzHeader } from './spz-decoder-worker.js';
+import { readSpzHeader } from './spz-decoder-worker.js';
 import { injectAfterMainBegin as injectAfterMainBeginFn, injectBeforePattern as injectBeforePatternFn, injectBeforeMainEnd as injectBeforeMainEndFn, inferGLSLType as inferGLSLTypeFn } from './shader-utils.js';
 // ★ M4: 共享模块
 import { KeyboardControls } from './keyboard-controls.js';
@@ -116,8 +116,9 @@ export class RenderManager implements RendererAdapter {
   private _frustumCulling?: FrustumCulling;
   private _frustumFrameCounter = 0;
 
-  // ★ H4: SplatBufferPool 缓冲池
+  // ★ H4: SplatBufferPool 缓冲池 (★ D-10: 追踪已发放缓冲, 场景切换时归还)
   private _bufferPool = new SplatBufferPool({ maxPoolSize: 8 });
+  private _pooledSceneBuffers: ArrayBuffer[] = [];
 
   // ★ H5: _lodReady 信号消费
   private _lodReadyLogged = false;
@@ -127,8 +128,11 @@ export class RenderManager implements RendererAdapter {
 
   // ★ Shader 注入
   private _shaderInjections = new Map<string, ShaderInjection>();
-  private _compiledMaterials = new Set<THREE.Material>();
   private _injectionUniforms = new Map<string, Record<string, THREE.IUniform>>();
+
+  // ★ N-01: 页面可见性暂停 (移动端省电)
+  private _visibilityHandler?: () => void;
+  private _wasRunningBeforeHide = false;
 
   constructor(options: RenderManagerOptions = {}) {
     this.deviceProfile = detectDeviceTier();
@@ -250,10 +254,79 @@ export class RenderManager implements RendererAdapter {
       this._keyboard.setup();
     }
 
-    // ★ 单一 RAF 循环
+    // ★ 单一 RAF 循环 (★ D-04: 提取为 _startRenderLoop, start 与 context restore 共用)
+    this._startRenderLoop();
+
+    this.ro = new ResizeObserver(([entry]) => {
+      const { width: w, height: h } = entry.contentRect;
+      if (w === 0 || h === 0) return;
+      this.cssWidth = w;
+      this.cssHeight = h;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      this.updateRenderSize();
+    });
+    this.ro.observe(this.container);
+
+    // ★ H2: WebGL context lost/restore 事件处理
+    //   context 丢失后 GPU buffer 全部失效, 需重新加载场景
+    //   移动端和集显设备在内存压力下高发
+    this._contextLostHandler = (e: Event) => {
+      e.preventDefault();
+      console.warn('[RenderManager] WebGL context lost — GPU 资源已释放, 等待 restore...');
+      this._running = false;
+    };
+    this._contextRestoredHandler = () => {
+      console.info('[RenderManager] WebGL context restored — 重新加载场景');
+      this._running = true;
+      if (this._currentSceneSource) {
+        this.loadScene(this._currentSceneSource, this._currentSceneOptions).catch((err) => {
+          console.error('[RenderManager] context restored 后重载场景失败:', err);
+        });
+      }
+      // ★ D-04: 重启主循环 — 与 start() 共用同一实现,
+      //   保证恢复后帧回调/相机缓存/注入 uniform 更新不丢失 (移动端 context 丢失高发路径)
+      this._startRenderLoop();
+    };
+    renderer.domElement.addEventListener('webglcontextlost', this._contextLostHandler);
+    renderer.domElement.addEventListener('webglcontextrestored', this._contextRestoredHandler);
+
+    // ★ N-01: 页面隐藏时暂停渲染循环 (移动端切后台省电, PC 多标签省 CPU)
+    if (typeof document !== 'undefined') {
+      this._visibilityHandler = () => {
+        if (this._destroyed) return;
+        if (document.hidden) {
+          if (this._running) {
+            this._wasRunningBeforeHide = true;
+            this._running = false; // 循环在下一帧退出并重置 rafId
+            this.adaptive?.suspend();
+          }
+        } else if (this._wasRunningBeforeHide) {
+          this._wasRunningBeforeHide = false;
+          this.adaptive?.resume();
+          this._running = true;
+          this._startRenderLoop();
+        }
+      };
+      document.addEventListener('visibilitychange', this._visibilityHandler);
+    }
+  }
+
+  /**
+   * ★ D-04: 主渲染循环唯一实现 — start() 与 context restored 处理器共用,
+   *   杠绝双份循环逻辑漂移 (旧实现 restore 后的精简循环丢失了帧回调/
+   *   相机缓存/注入 uniform 更新, 导致移动端恢复后插件停更与热点错位)。
+   */
+  private _startRenderLoop(): void {
+    if (this.rafId !== 0) return; // 循环已在运行
+
     let lastTime = performance.now();
     const loop = () => {
-      if (!this._running || this._destroyed) return;
+      if (!this._running || this._destroyed) {
+        // ★ 退出时重置 rafId, 允许后续重启 (context restore / 可见性恢复)
+        this.rafId = 0;
+        return;
+      }
 
       const now = performance.now();
       const rawDt = now - lastTime;
@@ -271,13 +344,19 @@ export class RenderManager implements RendererAdapter {
       const dt = Math.min(this._smoothDt, 50);
 
       // ★ M4: 键盘移动 (共享模块)
-      this._keyboard.applyMovement(camera, dt);
+      if (this.camera) {
+        this._keyboard.applyMovement(this.camera, dt);
+      }
 
-      controls.update();
-      renderer.render(scene, camera);
+      this.controls?.update();
+      if (this.renderer && this.scene && this.camera) {
+        this.renderer.render(this.scene, this.camera);
+      }
 
       // ★ M4: 更新矩阵缓存 (共享模块)
-      this._cameraCache.update(camera);
+      if (this.camera) {
+        this._cameraCache.update(this.camera);
+      }
 
       // ★ M4: 帧回调 (共享模块)
       this._frameCallbacks.invoke(dt);
@@ -309,56 +388,6 @@ export class RenderManager implements RendererAdapter {
       this.rafId = requestAnimationFrame(loop);
     };
     this.rafId = requestAnimationFrame(loop);
-
-    this.ro = new ResizeObserver(([entry]) => {
-      const { width: w, height: h } = entry.contentRect;
-      if (w === 0 || h === 0) return;
-      this.cssWidth = w;
-      this.cssHeight = h;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      this.updateRenderSize();
-    });
-    this.ro.observe(this.container);
-
-    // ★ H2: WebGL context lost/restore 事件处理
-    //   context 丢失后 GPU buffer 全部失效, 需重新加载场景
-    //   移动端和集显设备在内存压力下高发
-    this._contextLostHandler = (e: Event) => {
-      e.preventDefault();
-      console.warn('[RenderManager] WebGL context lost — GPU 资源已释放, 等待 restore...');
-      this._running = false;
-    };
-    this._contextRestoredHandler = () => {
-      console.info('[RenderManager] WebGL context restored — 重新加载场景');
-      this._running = true;
-      if (this._currentSceneSource) {
-        this.loadScene(this._currentSceneSource, this._currentSceneOptions).catch((err) => {
-          console.error('[RenderManager] context restored 后重载场景失败:', err);
-        });
-      }
-      // 重启 RAF 循环
-      if (this.rafId === 0) {
-        let lastTime = performance.now();
-        const loop = () => {
-          if (!this._running || this._destroyed) return;
-          const now = performance.now();
-          this._smoothDt = this._smoothDt * 0.9 + (now - lastTime) * 0.1;
-          lastTime = now;
-          const dt = Math.min(this._smoothDt, 50);
-          this._keyboard.applyMovement(this.camera!, dt);
-          this.controls?.update();
-          if (this.renderer && this.scene && this.camera) {
-            this.renderer.render(this.scene, this.camera);
-          }
-          this.adaptive?.sample();
-          this.rafId = requestAnimationFrame(loop);
-        };
-        this.rafId = requestAnimationFrame(loop);
-      }
-    };
-    renderer.domElement.addEventListener('webglcontextlost', this._contextLostHandler);
-    renderer.domElement.addEventListener('webglcontextrestored', this._contextRestoredHandler);
   }
 
   stop(): void {
@@ -369,6 +398,10 @@ export class RenderManager implements RendererAdapter {
 
   async loadScene(source: string, options?: LoadOptions): Promise<void> {
     if (!this.scene) throw new Error('RenderManager 未启动');
+    // ★ D-06: 空 source 检查前置 — 避免先构造 SplatMesh 再 reject 的反模式
+    if (!source) {
+      throw new Error('loadScene: source 为空');
+    }
 
     // 中止之前的 SOG 流式加载 (如果有)
     this._sogStreamer?.abort();
@@ -381,6 +414,12 @@ export class RenderManager implements RendererAdapter {
       this.currentSplat = undefined;
     }
 
+    // ★ D-10/H4: 旧场景已卸载 — 将其降采样缓冲归还池中, 供新场景复用 (激活池命中率)
+    for (const buf of this._pooledSceneBuffers) {
+      this._bufferPool.release(buf);
+    }
+    this._pooledSceneBuffers = [];
+
     this._lodReady = false;
     this._lodReadyLogged = false;
     // ★ M2 衍生: 重置预构建 LOD 数据
@@ -391,77 +430,116 @@ export class RenderManager implements RendererAdapter {
     this._currentSceneSource = source;
     this._currentSceneOptions = options;
 
-    // ★ 若提供 lodSource (SOG 流式 LOD URL)，优先使用流式加载
-    if (options?.lodSource) {
-      try {
-        await this.loadSceneWithSog(options.lodSource, options);
-        return;
-      } catch (err) {
-        console.warn(
-          '[RenderManager] SOG 流式加载失败, 回退到 source 直接加载:',
-          err instanceof Error ? err.message : err,
-        );
-        // 回退到 source 直接加载
+    // ★ §2.5/N-06: 加载期间暂停自适应分辨率采样 (加载期帧率低, 防止误降分辨率);
+    //   finally 确保任何分支 (含提前 return 与异常) 都恢复
+    this.adaptive?.suspend();
+    try {
+      // ★ 若提供 lodSource (SOG 流式 LOD URL)，优先使用流式加载
+      if (options?.lodSource) {
+        try {
+          await this.loadSceneWithSog(options.lodSource, options);
+          return;
+        } catch (err) {
+          console.warn(
+            '[RenderManager] SOG 流式加载失败, 回退到 source 直接加载:',
+            err instanceof Error ? err.message : err,
+          );
+          // 回退到 source 直接加载
+        }
       }
-    }
 
-    // ★ C1: 对 .spz 文件使用原生 Spark 加载, 保留 SH 球谐系数
-    if (source.endsWith('.spz')) {
-      try {
-        await this.loadSceneWithSpz(source, options);
-        return;
-      } catch (err) {
-        console.warn('[RenderManager] SPZ 原生加载失败, 回退到 URL 直接加载:', err);
+      // ★ C1: 对 .spz 文件使用原生 Spark 加载, 保留 SH 球谐系数
+      if (source.endsWith('.spz')) {
+        try {
+          await this.loadSceneWithSpz(source, options);
+          return;
+        } catch (err) {
+          console.warn('[RenderManager] SPZ 原生加载失败, 回退到 URL 直接加载:', err);
+        }
       }
-    }
 
-    // 直接加载 source
-    // P0: 对 .splat 文件执行 fetch + truncate, 确保实际限制 splat 数量
-    if (source.endsWith('.splat') && this.tierSettings.maxSplats < 10_000_000) {
-      try {
-        await this.loadSceneWithTruncatedSplat(source, options);
-        return;
-      } catch (err) {
-        console.warn('[RenderManager] 截断加载失败, 回退到 URL 直接加载:', err);
+      // 直接加载 source
+      // P0: 对 .splat 文件执行 fetch + truncate, 确保实际限制 splat 数量
+      if (source.endsWith('.splat') && this.tierSettings.maxSplats < 10_000_000) {
+        try {
+          await this.loadSceneWithTruncatedSplat(source, options);
+          return;
+        } catch (err) {
+          console.warn('[RenderManager] 截断加载失败, 回退到 URL 直接加载:', err);
+        }
       }
-    }
 
-    return new Promise<void>((resolve, reject) => {
-      new SplatMesh({
-        url: source,
-        maxSplats: this.tierSettings.maxSplats,
-        onProgress: (e: ProgressEvent) => {
-          if (e.lengthComputable && options?.onProgress) {
-            options.onProgress(e.loaded, e.total);
-          }
+      // ★ D-06: URL 直加载路径加超时保护, 并在超时后忽略迟到的 onLoad,
+      //   避免 onLoad 永不触发时 Promise 永久挂起、超时与成功竞态时状态不一致
+      let settled = false;
+      await this._withTimeout(
+        new Promise<void>((resolve) => {
+          new SplatMesh({
+            url: source,
+            maxSplats: this.tierSettings.maxSplats,
+            onProgress: (e: ProgressEvent) => {
+              if (e.lengthComputable && options?.onProgress) {
+                options.onProgress(e.loaded, e.total);
+              }
+            },
+            onLoad: async (loadedMesh: SplatMesh) => {
+              // 超时后迟到的 onLoad: 丢弃网格, 不再修改场景状态
+              if (settled) {
+                loadedMesh.dispose();
+                return;
+              }
+              settled = true;
+
+              // ★ Bug 1 修复: 无条件垂直翻转 (Y-down → Y-up)
+              if (this._autoOrient) {
+                loadedMesh.rotation.x = Math.PI;
+              }
+
+              this.scene!.add(loadedMesh);
+              this.currentSplat = loadedMesh;
+
+              // ★ Bug 2 修复: 基于包围盒自动定位摄像机
+              this.positionCameraToBounds(loadedMesh);
+
+              // ★ Bug 4 修复: 构建 LOD 树 (P0: 根据设备分级选择质量)
+              if (this._enableLod) {
+                this.buildLod(loadedMesh);
+              }
+
+              // ★ 应用 Shader 注入
+              this.applyInjectionsToMaterial();
+
+              resolve();
+            },
+          });
+        }),
+        30_000,
+        `loadScene 超时 (30s): ${source}`,
+      );
+      // 标记已结算, 后续迟到的 onLoad 一律忽略 (含超时后异常路径)
+      settled = true;
+    } finally {
+      this.adaptive?.resume();
+    }
+  }
+
+  /**
+   * ★ D-06: Promise 超时包装 — 解决时自动清理定时器,
+   * 避免成功路径定时器驻留、超时与成功竞态。
+   */
+  private _withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(message)), ms);
+      promise.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
         },
-        onLoad: async (loadedMesh: SplatMesh) => {
-          // ★ Bug 1 修复: 无条件垂直翻转 (Y-down → Y-up)
-          if (this._autoOrient) {
-            loadedMesh.rotation.x = Math.PI;
-          }
-
-          this.scene!.add(loadedMesh);
-          this.currentSplat = loadedMesh;
-
-          // ★ Bug 2 修复: 基于包围盒自动定位摄像机
-          this.positionCameraToBounds(loadedMesh);
-
-          // ★ Bug 4 修复: 构建 LOD 树 (P0: 根据设备分级选择质量)
-          if (this._enableLod) {
-            this.buildLod(loadedMesh);
-          }
-
-          // ★ 应用 Shader 注入
-          this.applyInjectionsToMaterial();
-
-          resolve();
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
         },
-      });
-
-      if (!source) {
-        reject(new Error('loadScene: source 为空'));
-      }
+      );
     });
   }
 
@@ -502,8 +580,10 @@ export class RenderManager implements RendererAdapter {
     // ★ 均匀降采样: 每隔 step 个 splat 取 1 个, 保持空间覆盖均匀
     const step = totalSplats / maxSplats;
     const sampledSplats = Math.floor(totalSplats / step);
-    // ★ H4: 使用 SplatBufferPool 复用 ArrayBuffer, 减少 GC 压力
+    // ★ H4: 使用 SplatBufferPool 复用 ArrayBuffer, 减少 GC 压力;
+    //   ★ D-10: 追踪发放的缓冲, 场景切换/销毁时归还池中激活复用
     const sampledData = new Uint8Array(this._bufferPool.acquire(sampledSplats * 32));
+    this._pooledSceneBuffers.push(sampledData.buffer);
 
     for (let i = 0; i < sampledSplats; i++) {
       const srcOffset = Math.floor(i * step) * 32;
@@ -622,8 +702,8 @@ export class RenderManager implements RendererAdapter {
       }
     }
 
-    // 2. 解析 header (获取 splat 数量, 用于日志)
-    const header = parseSpzHeader(spzData);
+    // 2. 解析 header (获取 splat 数量, 用于日志) — 异步读取, 自动兼容两种布局
+    const header = await readSpzHeader(spzData);
     console.info(
       `[RenderManager] SPZ 文件已下载: ${header.numSplats.toLocaleString()} splats, ` +
       `${(spzData.byteLength / 1024 / 1024).toFixed(2)} MB (压缩), shDegree=${header.shDegree}`,
@@ -790,7 +870,9 @@ export class RenderManager implements RendererAdapter {
     if (loadedSplats > maxSplats) {
       const step = loadedSplats / maxSplats;
       const sampledSplats = Math.floor(loadedSplats / step);
+      // ★ D-10: 追踪发放的缓冲, 场景切换/销毁时归还池中激活复用
       const sampledData = new Uint8Array(this._bufferPool.acquire(sampledSplats * 32));
+      this._pooledSceneBuffers.push(sampledData.buffer);
 
       for (let i = 0; i < sampledSplats; i++) {
         const srcOffset = Math.floor(i * step) * 32;
@@ -982,6 +1064,9 @@ export class RenderManager implements RendererAdapter {
         case ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT:
           // ★ 在 main() 末尾注入 (fragColor 赋值之后)
           //
+          // ★ D-12: 该钩子现行语义 = 注入到 main() 末尾 (与 FRAGMENT_MAIN_END 相同),
+          //   枚举定义处已标 @deprecated, 此处保持向后兼容行为不变。
+          //
           // Spark 的 fragment shader 使用 GLSL ES 3.00 (glslVersion: THREE.GLSL3),
           // 输出变量为 `out vec4 fragColor`, 在 main() 内通过 `fragColor = ...` 赋值。
           //
@@ -1066,12 +1151,24 @@ export class RenderManager implements RendererAdapter {
     this._keyboard.teardown();
     this.ro?.disconnect();
     this.ro = undefined;
+
+    // ★ N-01: 注销可见性监听, 避免泄漏与销毁后回调
+    if (this._visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = undefined;
+    }
+
     if (this.currentSplat) {
       this.scene?.remove(this.currentSplat);
       this.currentSplat.dispose();
       this.currentSplat = undefined;
     }
-    this._compiledMaterials.clear();
+    // ★ D-10/H4: 销毁时归还追踪中的降采样缓冲并清空池, 释放全部内存
+    for (const buf of this._pooledSceneBuffers) {
+      this._bufferPool.release(buf);
+    }
+    this._pooledSceneBuffers = [];
+    this._bufferPool.clear();
     this.controls?.dispose();
     this.controls = undefined;
     this.spark?.parent?.remove(this.spark);
@@ -1372,7 +1469,7 @@ export type {
 } from './sog-streamer.js';
 
 // ─── SPZ 解码 (★ C1: decodeSpzInWorker 已不再用于加载路径, 保留导出供向后兼容) ──
-export { decodeSpzInWorker, decodeSpz, parseSpzHeader, validateSpzHeader, SPZ_MAGIC, SPZ_VERSION } from './spz-decoder-worker.js';
+export { decodeSpzInWorker, decodeSpz, parseSpzHeader, readSpzHeader, validateSpzHeader, SPZ_MAGIC, SPZ_VERSION } from './spz-decoder-worker.js';
 export type { SpzHeader } from './spz-decoder-worker.js';
 
 // ─── P2-1: 视锥剔除预处理 ─────────────────────────────────
