@@ -1,6 +1,6 @@
 {
   "name": "@3dgs/vue",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Vue 适配层 — <TourViewer /> 组件",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@3dgs/plugins",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "3DGS 漫游框架插件 — 热点系统、相机控制、场景过渡、Shader 注入等领域功能",
   "type": "module",
   "main": "./dist/index.js",
