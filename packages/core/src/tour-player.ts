@@ -42,10 +42,19 @@ export class TourPlayer {
     this.container = container;
   }
 
-  /** 挂载渲染器（在 load 前调用） */
+  /** 挂载渲染器（在 load 前调用; 已加载后调用则为切换渲染器） */
   setRenderer(renderer: RendererAdapter): void {
     this.renderer = renderer;
     renderer.mount(this.container);
+
+    // ★ 修复: 已加载状态下切换渲染器 (如 demo 后端切换) 时重新注册帧回调。
+    //   旧回调挂在已销毁的渲染器上, 不重挂会导致插件 (热点投影/过渡等) 停更。
+    if (this._loaded) {
+      this._frameUnsub?.();
+      this._frameUnsub = renderer.onFrame((dt) => {
+        this.onFrame(dt);
+      });
+    }
   }
 
   /** 注册插件（需在 load 前调用） */
@@ -56,6 +65,11 @@ export class TourPlayer {
 
   /** 加载漫游配置并启动渲染 */
   async load(config: string | TourConfig): Promise<void> {
+    // ★ D-13: 校验已销毁实例 — _destroyed 从"置位后从未读取"变为真实防护,
+    //   避免组件卸载后异步回调仍向已销毁播放器加载场景导致资源泄漏/异常
+    if (this._destroyed) {
+      throw new Error('TourPlayer 已销毁, 无法加载');
+    }
     try {
       const runtime: TourRuntime = typeof config === 'string'
         ? await this.loader.load(config)
@@ -84,6 +98,7 @@ export class TourPlayer {
   /** 切换场景 */
   async switchScene(id: string, transition?: Partial<SceneTransition>): Promise<void> {
     if (!this.sceneManager) throw new Error('TourPlayer 未加载');
+    if (this._destroyed) throw new Error('TourPlayer 已销毁, 无法切换场景');
 
     // ★ 发出场景切换前事件 — 过渡动画插件监听此事件执行 fade-out
     this.emit('scene:switching', { sceneId: id, transition });
