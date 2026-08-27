@@ -607,8 +607,12 @@ describe('端到端转换测试: PLY → SPLAT → SPZ → SOG', () => {
     const spzData = await writeSpz(cloud, { shDegree: 0 });
     expect(spzData.byteLength).toBeGreaterThan(16); // At least header
 
-    // 验证 SPZ magic
-    const view = new DataView(spzData.buffer.slice(spzData.byteOffset, spzData.byteOffset + spzData.byteLength));
+    // 验证 SPZ 布局: 整文件单个 gzip 流, 解压后 = [16B header][body] (与 Spark 一致)
+    expect(spzData[0]).toBe(0x1f); // gzip magic
+    expect(spzData[1]).toBe(0x8b);
+    const spzStream = new Blob([spzData as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const decompressed = new Uint8Array(await new Response(spzStream).arrayBuffer());
+    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
     expect(view.getUint32(0, true)).toBe(1347635022); // SPZ_MAGIC
     expect(view.getUint32(4, true)).toBe(2); // version
     expect(view.getUint32(8, true)).toBe(5); // numPoints
@@ -725,9 +729,11 @@ describe('端到端转换测试: PLY → SPLAT → SPZ → SOG', () => {
     const sogMeta = parseSogMetadata(sogBuffer);
     expect(sogMeta.numSplats).toBe(10);
 
-    // 6. Cloud → SPZ
+    // 6. Cloud → SPZ (整文件 gzip 布局, 解压后读 header)
     const spzData = await writeSpz(cloud2, { shDegree: 0 });
-    const spzView = new DataView(spzData.buffer.slice(spzData.byteOffset, spzData.byteOffset + spzData.byteLength));
+    const spzStream = new Blob([spzData as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const spzDecompressed = new Uint8Array(await new Response(spzStream).arrayBuffer());
+    const spzView = new DataView(spzDecompressed.buffer, spzDecompressed.byteOffset, spzDecompressed.byteLength);
     expect(spzView.getUint32(8, true)).toBe(10); // numPoints
 
     // 验证整条链路的位置数据一致 (容差范围内)

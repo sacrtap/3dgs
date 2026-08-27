@@ -31,6 +31,20 @@ import {
 
 const program = new Command();
 
+/**
+ * ★ D-03: 将 Node Buffer 安全转换为独立 ArrayBuffer。
+ *
+ * `fs.readFile` 返回的 Buffer 可能来自共享内存池 (byteOffset !== 0),
+ * 此时 `.buffer` 暴露的是整个池的 ArrayBuffer — 解析器会读到错误偏移的
+ * 数据或越界 (小文件高发)。统一切片出精确范围, 杠绝该隐患。
+ */
+function toArrayBuffer(buffer: Buffer): ArrayBuffer {
+  // 拷贝为独立视图, 同时规避 Buffer.buffer 的 ArrayBufferLike (SharedArrayBuffer) 类型问题
+  const copy = new Uint8Array(buffer.byteLength);
+  copy.set(buffer);
+  return copy.buffer;
+}
+
 program
   .name('3dgs-convert')
   .description('3DGS 数据转换 CLI — PLY → SPLAT / SPZ / SOG')
@@ -162,9 +176,9 @@ async function convertPly(
   const plySize = plyBuffer.byteLength;
   console.log(`   文件大小: ${(plySize / 1024 / 1024).toFixed(2)} MB`);
 
-  // 解析 PLY
+  // 解析 PLY (★ D-03: 安全切片, 避免 Buffer 池多余字节)
   console.log('🔍 解析 PLY...');
-  const cloud = loadGaussiansFromPly(plyBuffer.buffer, { source: input });
+  const cloud = loadGaussiansFromPly(toArrayBuffer(plyBuffer), { source: input });
   console.log(`   高斯核数: ${cloud.vertexCount.toLocaleString()}`);
   console.log(`   SH 阶数: ${cloud.shDegree}`);
 
@@ -186,9 +200,9 @@ async function convertSplat(
   const splatSize = splatBuffer.byteLength;
   console.log(`   文件大小: ${(splatSize / 1024 / 1024).toFixed(2)} MB`);
 
-  // 解析 .splat
+  // 解析 .splat (★ D-03: 安全切片, 避免 Buffer 池多余字节)
   console.log('🔍 解析 SPLAT...');
-  const cloud = loadGaussiansFromSplat(splatBuffer.buffer, { source: input });
+  const cloud = loadGaussiansFromSplat(toArrayBuffer(splatBuffer), { source: input });
   console.log(`   高斯核数: ${cloud.vertexCount.toLocaleString()}`);
   console.log(`   SH 阶数: ${cloud.shDegree} (.splat 不含 SH)`);
 
@@ -467,7 +481,7 @@ async function showInfo(input: string): Promise<void> {
       break;
     }
     case '.sog': {
-      const meta = parseSogMetadata(buffer.buffer);
+      const meta = parseSogMetadata(toArrayBuffer(buffer));
       console.log(`   类型: Spatially Ordered Gaussians`);
       console.log(`   高斯核数: ${meta.numSplats.toLocaleString()}`);
       console.log(`   分块数: ${meta.numChunks}`);
@@ -477,7 +491,7 @@ async function showInfo(input: string): Promise<void> {
       break;
     }
     case '.ply': {
-      const cloud = loadGaussiansFromPly(buffer.buffer, { source: input });
+      const cloud = loadGaussiansFromPly(toArrayBuffer(buffer), { source: input });
       console.log(`   类型: PLY (Polygon File Format)`);
       console.log(`   高斯核数: ${cloud.vertexCount.toLocaleString()}`);
       console.log(`   SH 阶数: ${cloud.shDegree}`);
