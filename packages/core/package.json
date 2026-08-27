@@ -1,6 +1,6 @@
 {
   "name": "@3dgs/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "3DGS 渲染引擎核心 — 框架无关的 TourPlayer、SceneManager、PluginSystem",
   "type": "module",
   "main": "./dist/index.js",
