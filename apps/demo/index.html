@@ -2,12 +2,14 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>3DGS 性能基准测试 — 5 场景 × 4 格式</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #111; color: #eee; font-family: system-ui, sans-serif; }
-#viewer { width: 100%; height: 100%; position: relative; }
+/* ★ N-04: 移动端触控适配 — canvas 触摸不触发页面滚动/下拉刷新, 限制过度滚动 */
+#viewer { width: 100%; height: 100%; position: relative; overscroll-behavior: contain; }
+#viewer canvas { touch-action: none; }
 #info { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 8px; font-size: 14px; pointer-events: none; text-align: center; max-width: 80%; }
 #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
 #loading .spinner { width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
@@ -70,6 +72,14 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
 .shader-toggle-row.active .shader-toggle-switch { background: rgba(86,156,214,0.6); }
 .shader-toggle-row.active .shader-toggle-switch::after { transform: translateX(16px); background: #fff; }
 
+/* ★ 空间扩展面板 (热点/图像/视频嵌入) */
+#extend-panel { background: rgba(10,12,18,0.82); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px 12px; font-size: 12px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 4px 16px rgba(0,0,0,0.4); flex-shrink: 0; }
+#extend-panel .extend-title { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.92); letter-spacing: 0.3px; margin-bottom: 8px; }
+#extend-panel .extend-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#extend-panel .extend-btn { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: rgba(255,255,255,0.8); font-size: 11px; padding: 6px 4px; border-radius: 6px; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+#extend-panel .extend-btn:hover { background: rgba(86,156,214,0.35); border-color: rgba(86,156,214,0.7); }
+#extend-panel .extend-btn-danger:hover { background: rgba(214,86,86,0.3); border-color: rgba(214,86,86,0.6); }
+
 /* 性能基准面板 */
 #bench-panel { background: rgba(10,12,18,0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 10px 12px; font-size: 11px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.4); flex-shrink: 0; }
 #bench-panel .bench-title { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.92); margin-bottom: 8px; }
@@ -101,6 +111,17 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
 #controls-panel .toggle-btn:hover { color: rgba(255,255,255,0.8); }
 #controls-panel.collapsed .panel-body { display: none; }
 #controls-panel.collapsed { padding: 8px 14px; max-width: none; }
+
+/* ★ N-04: 窄屏 (移动端) 适配 — 收起操作说明与基准面板, 压缩右侧面板避免遮挡画面;
+   安全区内边距适配刘海屏 (viewport-fit=cover) */
+@media (max-width: 768px) {
+  #controls-panel { display: none; }
+  #bench-panel { display: none !important; }
+  #right-panel { max-width: 160px; top: 8px; right: 8px; bottom: 8px; }
+  #backend-panel { top: calc(8px + env(safe-area-inset-top)); left: calc(8px + env(safe-area-inset-left)); }
+  #info { bottom: calc(12px + env(safe-area-inset-bottom)); font-size: 12px; }
+  #hud { font-size: 10px; top: 52px; }
+}
 </style>
 </head>
 <body>
@@ -130,6 +151,16 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
         <button class="shader-clear-btn" id="shader-clear-btn" disabled>清除全部</button>
       </div>
       <div id="shader-toggles"></div>
+    </div>
+    <div id="extend-panel">
+      <div class="extend-title">✨ 空间扩展</div>
+      <div class="extend-buttons">
+        <button class="extend-btn" id="btn-add-hotspot">➕ 热点(弹出)</button>
+        <button class="extend-btn" id="btn-add-scene-hotspot">🚪 场景切换热点</button>
+        <button class="extend-btn" id="btn-embed-image">🖼️ 嵌入图像</button>
+        <button class="extend-btn" id="btn-embed-video">🎬 嵌入视频</button>
+        <button class="extend-btn extend-btn-danger" id="btn-clear-embeds">🗑️ 清除媒体</button>
+      </div>
     </div>
     <div id="bench-panel">
       <div class="bench-title">📊 性能基准</div>
@@ -167,6 +198,8 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #111; colo
 <script type="module">
 import { TourPlayer, ShaderHookPoint } from '@3dgs/core';
 import { createRenderer, RenderManager } from '@3dgs/renderer-three';
+import { createHotspotSystem, createMediaEmbed, createPreset } from '@3dgs/plugins';
+import { extractCameraPose } from '@3dgs/plugins/media-embed';
 
 async function main() {
   const container = document.getElementById('viewer');
@@ -178,6 +211,12 @@ async function main() {
 
   // ── 创建播放器 ──
   const player = new TourPlayer(container);
+
+  // ── 插件: 热点系统 (含点击弹出) + 空间媒体嵌入 (图像/视频) ──
+  const hotspotSys = createHotspotSystem();
+  const mediaEmbed = createMediaEmbed();
+  player.use(hotspotSys);
+  player.use(mediaEmbed);
 
   // ── 渲染后端管理 ──
   let renderer = null;
@@ -225,7 +264,7 @@ async function main() {
       formats: {
         ply:  { url: null, size: '—', desc: '无 PLY 源文件' },
         splat:{ url: '/kitchen.splat', size: '7.6 MB', desc: '.splat (32B/splat)' },
-        spz:  { url: '/kitchen.spz', size: '3.6 MB', desc: 'SPZ (gzip 压缩)' },
+        spz:  { url: '/kitchen.spz', size: '3.7 MB', desc: 'SPZ (gzip 压缩)' },
         sog:  { url: '/kitchen.sog', size: '7.2 MB', desc: 'SOG 流式 LOD' },
       },
     },
@@ -235,8 +274,8 @@ async function main() {
       formats: {
         ply:  { url: '/demo1.ply', size: '15.4 MB', desc: 'PLY 原始格式' },
         splat:{ url: '/demo1.splat', size: '30.3 MB', desc: '.splat (32B/splat)' },
-        spz:  { url: '/demo1.spz', size: '15.2 MB', desc: 'SPZ (gzip 压缩)' },
-        sog:  { url: '/demo1.sog', size: '28.9 MB', desc: 'SOG 流式 LOD' },
+        spz:  { url: '/demo1.spz', size: '14.4 MB', desc: 'SPZ (gzip 压缩)' },
+        sog:  { url: '/demo1.sog', size: '29.0 MB', desc: 'SOG 流式 LOD' },
       },
     },
     storysplat: {
@@ -245,7 +284,7 @@ async function main() {
       formats: {
         ply:  { url: null, size: '—', desc: '无 PLY 源文件' },
         splat:{ url: '/storysplat.splat', size: '39.7 MB', desc: '.splat (32B/splat)' },
-        spz:  { url: '/storysplat.spz', size: '19.5 MB', desc: 'SPZ (gzip 压缩)' },
+        spz:  { url: '/storysplat.spz', size: '19.8 MB', desc: 'SPZ (gzip 压缩)' },
         sog:  { url: '/storysplat.sog', size: '37.4 MB', desc: 'SOG 流式 LOD' },
       },
     },
@@ -255,8 +294,8 @@ async function main() {
       formats: {
         ply:  { url: '/demo2.ply', size: '61.7 MB', desc: 'PLY 原始格式' },
         splat:{ url: '/demo2.splat', size: '121.3 MB', desc: '.splat (32B/splat)' },
-        spz:  { url: '/demo2.spz', size: '60.1 MB', desc: 'SPZ (gzip 压缩)' },
-        sog:  { url: '/demo2.sog', size: '116.8 MB', desc: 'SOG 流式 LOD' },
+        spz:  { url: '/demo2.spz', size: '56.3 MB', desc: 'SPZ (gzip 压缩)' },
+        sog:  { url: '/demo2.sog', size: '116.9 MB', desc: 'SOG 流式 LOD' },
       },
     },
     garden: {
@@ -265,7 +304,7 @@ async function main() {
       formats: {
         ply:  { url: '/garden.ply', size: '90.6 MB', desc: 'PLY 原始格式' },
         splat:{ url: '/garden.splat', size: '178.1 MB', desc: '.splat (32B/splat)' },
-        spz:  { url: '/garden.spz', size: '84.7 MB', desc: 'SPZ (gzip 压缩)' },
+        spz:  { url: '/garden.spz', size: '79.8 MB', desc: 'SPZ (gzip 压缩)' },
         sog:  { url: '/garden.sog', size: '168.4 MB', desc: 'SOG 流式 LOD' },
       },
     },
@@ -482,8 +521,101 @@ async function main() {
         u.uResolution.value = [size.width, size.height];
       },
     },
+    // ★ 预设效果库 (@3dgs/plugins createPreset): 复古/反色/扫描线
+    'sepia': createPreset('sepia', { intensity: 0.85 }),
+    'invert': createPreset('invert', { intensity: 0.9 }),
+    'scanline': createPreset('scanline', { intensity: 0.6 }),
   };
   const activeShaderEffects = new Set();
+
+  // ── ★ 空间扩展: 热点(弹出)/图像/视频嵌入按钮 ──
+  let embedSeq = 0;
+
+  /** 相机前方 depth 米处的世界坐标 (用于动态放置热点/媒体) */
+  function cameraForwardPoint(depth) {
+    const pose = extractCameraPose(renderer.getViewProjectionMatrix());
+    if (!pose) return [0, 0, 0];
+    return [
+      pose.center[0] - pose.zAxis[0] * depth,
+      pose.center[1] - pose.zAxis[1] * depth,
+      pose.center[2] - pose.zAxis[2] * depth,
+    ];
+  }
+
+  document.getElementById('btn-add-hotspot').onclick = () => {
+    const id = 'dyn-hs-' + (++embedSeq);
+    hotspotSys.addHotspot({
+      id,
+      type: 'scene',
+      position: cameraForwardPoint(2.5),
+      style: { color: '#7cc4ff', glow: true, pulse: true, size: 36 },
+      popup: {
+        title: `动态热点 #${embedSeq}`,
+        content: '这是运行时添加的热点, 点击后弹出此面板。<br/><b>popup</b> 配置支持 标题 / HTML 内容 / 内嵌图片。',
+        imageUrl: '/demo-photo.png',
+        width: 300,
+      },
+    });
+    showInfo(`已添加热点 ${id} (相机前方 2.5m), 点击热点试试弹出面板`);
+  };
+
+  document.getElementById('btn-add-scene-hotspot').onclick = () => {
+    // 选择一个不同于当前的目标场景 (循环取下一个)
+    const sceneIds = Object.keys(config.scenes);
+    const idx = sceneIds.indexOf(currentSceneId);
+    const targetId = sceneIds[(idx + 1) % sceneIds.length];
+    const targetTitle = config.scenes[targetId]?.title || targetId;
+
+    const id = 'dyn-scene-hs-' + (++embedSeq);
+    hotspotSys.addHotspot({
+      id,
+      type: 'scene',
+      position: cameraForwardPoint(2.5),
+      targetScene: targetId,
+      transition: { type: 'fade', duration: 600 },
+      style: { color: '#ffd27c', glow: true, pulse: true, size: 40 },
+      onHover: { tooltip: `前往 ${targetTitle}` },
+    });
+    showInfo(`已添加场景切换热点 ${id} → ${targetTitle}, 点击热点切换场景`);
+  };
+
+  document.getElementById('btn-embed-image').onclick = () => {
+    const id = 'dyn-img-' + (++embedSeq);
+    mediaEmbed.add({
+      id,
+      type: 'image',
+      url: '/demo-photo.png',
+      position: cameraForwardPoint(3),
+      width: 2.4, height: 1.35,
+      feather: 0.1,
+      depthBlur: { start: 4, range: 8, max: 3 },
+    });
+    showInfo(`已嵌入图像 ${id} (相机前方 3m, 羽化+深度模糊融合)`);
+  };
+
+  document.getElementById('btn-embed-video').onclick = () => {
+    const id = 'dyn-video-' + (++embedSeq);
+    mediaEmbed.add({
+      id,
+      type: 'video',
+      url: '/demo-video.webm',
+      position: cameraForwardPoint(3),
+      width: 2.0, height: 1.125,
+      autoplay: true, loop: true, muted: true,
+      feather: 0.08,
+      nearFade: 0.8,
+    });
+    showInfo(`已嵌入视频 ${id} (自动循环播放, 点击视频可暂停/继续)`);
+  };
+
+  document.getElementById('btn-clear-embeds').onclick = () => {
+    for (const cfg of mediaEmbed.list()) mediaEmbed.remove(cfg.id);
+    showInfo('已清除全部嵌入媒体');
+  };
+
+  player.on('media:ready', (d) => { console.log('[demo] media ready:', d.id); });
+  player.on('media:error', (d) => { showInfo(`媒体加载失败: ${d.url}`); });
+  player.on('hotspot:popup-open', (d) => { console.log('[demo] popup open:', d.id); });
 
   function toggleShaderEffect(effectId, enabled) {
     const effect = shaderEffects[effectId];
@@ -549,6 +681,9 @@ async function main() {
         'grayscale': '⚫ 灰度模式',
         'pulse': '✨ 脉冲动画',
         'vignette': '🔍 暗角效果',
+        'sepia': '🟤 复古色调',
+        'invert': '🔄 颜色反转',
+        'scanline': '📺 扫描线',
       };
       const shaderToggleRows = {};
       for (const [id, label] of Object.entries(effectLabels)) {
@@ -644,37 +779,55 @@ async function main() {
     q: document.getElementById('key-q'),
     e: document.getElementById('key-e'),
   };
-  frameUnsub = renderer.onFrame(() => {
-    recordFrame();
-    frameCount++;
-    const now = performance.now();
 
-    const activeKeys = renderer.getActiveMoveKeys ? renderer.getActiveMoveKeys() : [];
-    for (const [k, el] of Object.entries(keyEls)) {
-      if (el) el.classList.toggle('active', activeKeys.includes(k));
-    }
+  /**
+   * ★ FPS 监控回调工厂 — 三处注册点 (初始/后端切换/回退) 共用同一实现, 避免多副本漂移。
+   *
+   * 帧间断保护: 帧间隔 > 250ms 说明 RAF 曾被中断 (页面隐藏暂停/长阻塞任务/
+   * 渲染器切换)。此时统计窗口横跨中断期, 直接平均会算出错误低值 (如后台恢复后瞬间的 "FPS: 7"), 需重启窗口。
+   */
+  function createHudCallback() {
+    let lastFrameAt = performance.now();
+    return () => {
+      recordFrame();
+      frameCount++;
+      const now = performance.now();
 
-    if (now - fpsTimer >= 500) {
-      fps = Math.round((frameCount * 1000) / (now - fpsTimer));
-      frameCount = 0;
-      fpsTimer = now;
-      const resScale = renderer.getResolutionScale ? renderer.getResolutionScale() : 1.0;
-      const isolated = RenderManager.isCrossOriginIsolated() ? '✓' : '✗';
-      const lodStatus = renderer.isLodReady ? (renderer.isLodReady() ? '✓' : '✗') : '—';
-      const gpuInfo = webgpuCapability.adapterInfo
-        ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}`
-        : 'N/A';
-      const gpuType = webgpuCapability.gpuType ? ` [${webgpuCapability.gpuType}]` : '';
-      const scene = sceneData[currentSceneId];
-      hudEl.innerHTML = [
-        `Backend: ${backend.toUpperCase()} | Tier: ${tierNames[tier]} | FPS: ${fps}`,
-        `GPU: ${gpuInfo}${gpuType} | SAB: ${isolated} | LOD: ${lodStatus}`,
-        `Scene: ${scene?.title} (${scene?.splatCount}) | Format: ${currentFormat.toUpperCase()} | Res: ${(resScale * 100).toFixed(0)}%`,
-      ].join('<br>');
+      const activeKeys = renderer.getActiveMoveKeys ? renderer.getActiveMoveKeys() : [];
+      for (const [k, el] of Object.entries(keyEls)) {
+        if (el) el.classList.toggle('active', activeKeys.includes(k));
+      }
 
-      if (bench.collecting) updateBenchStats();
-    }
-  });
+      if (now - lastFrameAt > 250) {
+        // 帧间断: 重启窗口 (当前帧计入), 不基于陈旧时间基线计算/刷新 HUD,
+        // 保留中断前最后一次有效 FPS 显示, 下一窗口自动恢复正常值。
+        frameCount = 1;
+        fpsTimer = now;
+      } else if (now - fpsTimer >= 500) {
+        fps = Math.round((frameCount * 1000) / (now - fpsTimer));
+        frameCount = 0;
+        fpsTimer = now;
+        const resScale = renderer.getResolutionScale ? renderer.getResolutionScale() : 1.0;
+        const isolated = RenderManager.isCrossOriginIsolated() ? '✓' : '✗';
+        const lodStatus = renderer.isLodReady ? (renderer.isLodReady() ? '✓' : '✗') : '—';
+        const gpuInfo = webgpuCapability?.adapterInfo
+          ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}`
+          : 'N/A';
+        const gpuType = webgpuCapability?.gpuType ? ` [${webgpuCapability.gpuType}]` : '';
+        const scene = sceneData[currentSceneId];
+        hudEl.innerHTML = [
+          `Backend: ${backend.toUpperCase()} | Tier: ${tierNames[tier]} | FPS: ${fps}`,
+          `GPU: ${gpuInfo}${gpuType} | SAB: ${isolated} | LOD: ${lodStatus}`,
+          `Scene: ${scene?.title} (${scene?.splatCount}) | Format: ${currentFormat.toUpperCase()} | Res: ${(resScale * 100).toFixed(0)}%`,
+        ].join('<br>');
+
+        if (bench.collecting) updateBenchStats();
+      }
+      lastFrameAt = now;
+    };
+  }
+
+  frameUnsub = renderer.onFrame(createHudCallback());
 
   // ── 事件 ──
   player.on('scene:switched', (data) => {
@@ -682,6 +835,7 @@ async function main() {
     showInfo(`已切换到场景: ${d?.sceneId || ''}`);
     updateSelector(d?.sceneId);
     currentSceneId = d?.sceneId || currentSceneId;
+    window.__currentSceneId = currentSceneId; // 供外部/测试读取当前场景
     updateFormatPanel();
   });
 
@@ -897,38 +1051,8 @@ async function main() {
       player.setRenderer(renderer);
       renderer.start();
 
-      // 5. 重新设置帧回调 (FPS 监控等)
-      frameUnsub = renderer.onFrame(() => {
-        recordFrame();
-        frameCount++;
-        const now = performance.now();
-
-        const activeKeys = renderer.getActiveMoveKeys ? renderer.getActiveMoveKeys() : [];
-        for (const [k, el] of Object.entries(keyEls)) {
-          if (el) el.classList.toggle('active', activeKeys.includes(k));
-        }
-
-        if (now - fpsTimer >= 500) {
-          fps = Math.round((frameCount * 1000) / (now - fpsTimer));
-          frameCount = 0;
-          fpsTimer = now;
-          const resScale = renderer.getResolutionScale ? renderer.getResolutionScale() : 1.0;
-          const isolated = RenderManager.isCrossOriginIsolated() ? '✓' : '✗';
-          const lodStatus = renderer.isLodReady ? (renderer.isLodReady() ? '✓' : '✗') : '—';
-          const gpuInfo = webgpuCapability?.adapterInfo
-            ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}`
-            : 'N/A';
-          const gpuType = webgpuCapability?.gpuType ? ` [${webgpuCapability.gpuType}]` : '';
-          const scene = sceneData[currentSceneId];
-          hudEl.innerHTML = [
-            `Backend: ${backend.toUpperCase()} | Tier: ${tierNames[tier]} | FPS: ${fps}`,
-            `GPU: ${gpuInfo}${gpuType} | SAB: ${isolated} | LOD: ${lodStatus}`,
-            `Scene: ${scene?.title} (${scene?.splatCount}) | Format: ${currentFormat.toUpperCase()} | Res: ${(resScale * 100).toFixed(0)}%`,
-          ].join('<br>');
-
-          if (bench.collecting) updateBenchStats();
-        }
-      });
+      // 5. 重新设置帧回调 (FPS 监控等) — 共用 createHudCallback, 帧间断保护自动生效
+      frameUnsub = renderer.onFrame(createHudCallback());
 
       // 6. 重新加载当前场景 (使用当前格式)
       applyFormatToConfig();
@@ -963,35 +1087,8 @@ async function main() {
         player.setRenderer(renderer);
         renderer.start();
 
-        // 重新设置帧回调
-        frameUnsub = renderer.onFrame(() => {
-          recordFrame();
-          frameCount++;
-          const now = performance.now();
-          const activeKeys = renderer.getActiveMoveKeys ? renderer.getActiveMoveKeys() : [];
-          for (const [k, el] of Object.entries(keyEls)) {
-            if (el) el.classList.toggle('active', activeKeys.includes(k));
-          }
-          if (now - fpsTimer >= 500) {
-            fps = Math.round((frameCount * 1000) / (now - fpsTimer));
-            frameCount = 0;
-            fpsTimer = now;
-            const resScale = renderer.getResolutionScale ? renderer.getResolutionScale() : 1.0;
-            const isolated = RenderManager.isCrossOriginIsolated() ? '✓' : '✗';
-            const lodStatus = renderer.isLodReady ? (renderer.isLodReady() ? '✓' : '✗') : '—';
-            const gpuInfo = webgpuCapability?.adapterInfo
-              ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}`
-              : 'N/A';
-            const gpuType = webgpuCapability?.gpuType ? ` [${webgpuCapability.gpuType}]` : '';
-            const scene = sceneData[currentSceneId];
-            hudEl.innerHTML = [
-              `Backend: ${backend.toUpperCase()} | Tier: ${tierNames[tier]} | FPS: ${fps}`,
-              `GPU: ${gpuInfo}${gpuType} | SAB: ${isolated} | LOD: ${lodStatus}`,
-              `Scene: ${scene?.title} (${scene?.splatCount}) | Format: ${currentFormat.toUpperCase()} | Res: ${(resScale * 100).toFixed(0)}%`,
-            ].join('<br>');
-            if (bench.collecting) updateBenchStats();
-          }
-        });
+        // 重新设置帧回调 — 共用 createHudCallback
+        frameUnsub = renderer.onFrame(createHudCallback());
 
         // 重新加载场景
         applyFormatToConfig();
@@ -1204,6 +1301,14 @@ async function main() {
   };
 
   window.__benchReady = true;
+  window.__currentSceneId = currentSceneId; // 当前场景 id (供外部/测试读取)
+  // 调试探针 (供验证脚本定位媒体投影)
+  window.__cameraForwardPoint = cameraForwardPoint;
+  window.__getMediaPose = () => extractCameraPose(renderer.getViewProjectionMatrix());
+  window.__getMediaOverlaySize = () => {
+    const ov = document.querySelector('[class*="3dgs-media-overlay"]');
+    return ov ? { w: ov.clientWidth, h: ov.clientHeight, perspective: ov.style.perspective } : null;
+  };
 }
 
 main().catch((err) => {

@@ -85,6 +85,53 @@ interface SplatData {
 }
 
 /**
+ * ★ D-01 纯函数: 合并"全量有序索引"与"可见位图" → 绘制索引 = 有序 ∩ 可见。
+ *
+ * 提取为独立函数便于单元测试 (不依赖 GPU 设备)。
+ *
+ * @param sorted 排序产出的全量有序索引 (可为 null — 首次排序完成前)
+ * @param mask 裁剪产出的可见位图 (1=可见, 可为 null — 裁剪未执行)
+ * @param count splat 总数
+ * @param out 输出数组 (容量 >= count, 复用避免分配)
+ * @param cullEnabled 裁剪是否启用 (关闭时直接采用排序/自然顺序)
+ * @returns 可见数量 (draw 调用数)
+ */
+export function mergeSortedVisibleIndices(
+  sorted: Uint32Array | null,
+  mask: Uint8Array | null,
+  count: number,
+  out: Uint32Array,
+  cullEnabled: boolean,
+): number {
+  let n = 0;
+
+  if (cullEnabled && mask) {
+    if (sorted && sorted.length >= count) {
+      // 正常路径: 按排序顺序过滤出可见项 (保持 back-to-front 顺序)
+      for (let i = 0; i < count; i++) {
+        const idx = sorted[i];
+        if (mask[idx]) out[n++] = idx;
+      }
+    } else {
+      // 首次排序完成前: 按自然顺序过滤 (顺序未排序但裁剪已生效)
+      for (let i = 0; i < count; i++) {
+        if (mask[i]) out[n++] = i;
+      }
+    }
+  } else {
+    // 裁剪关闭: 直接采用排序结果 (或自然顺序)
+    if (sorted && sorted.length >= count) {
+      out.set(sorted.subarray(0, count));
+    } else {
+      for (let i = 0; i < count; i++) out[i] = i;
+    }
+    n = count;
+  }
+
+  return n;
+}
+
+/**
  * WebGPURenderManager — WebGPU 原生 3DGS 渲染器
  *
  * ⚠️ **@experimental** — 此渲染器尚未经过完整验证, 不建议在生产环境使用。
@@ -186,14 +233,21 @@ export class WebGPURenderManager implements RendererAdapter {
 
   // ★ 视锥裁剪
   private _frustum = new THREE.Frustum();
-  private _visibleIndices: Uint32Array | null = null;
   private _visibleCount = 0;
   private _frustumCullEnabled = true;
   private _frustumUpdateInterval = 3; // 每 3 帧更新一次视锥
   private _frustumFrameCounter = 0;
   // ★ 复用对象, 消除每帧分配
   private _tmpPos = new THREE.Vector3();
-  private _fullIndices: Uint32Array | null = null;
+  // ★ §2.6: 复用投影屏幕矩阵, 消除每 3 帧分配 THREE.Matrix4
+  private _tmpProjScreen = new THREE.Matrix4();
+  // ★ D-01 单一索引管线: 排序产出全量有序索引 (_lastSortResult),
+  //   裁剪产出可见位图 (_visibleMask), 合并后仅写入一次 GPU index buffer
+  private _visibleMask: Uint8Array | null = null;
+  private _drawIndices: Uint32Array | null = null;
+  // ★ N-01: 页面可见性暂停 (移动端省电)
+  private _visibilityHandler?: () => void;
+  private _wasRunningBeforeHide = false;
   // ★ 复用 uniform ArrayBuffer, 消除每帧分配
   // ★ M4-P2.1: 扩展为 192 字节 (VP 64 + view 64 + camPos 16 + focal 8 + splatCount 4 + time 4 + pad 8 = 168 → 176 对齐, 取 192 留余量)
   private _uniformData = new ArrayBuffer(192);
@@ -460,6 +514,28 @@ this.deviceProfile = detectDeviceTier();
     this._running = true;
     this._lastFrameTime = performance.now();
     this.renderLoop();
+
+    // ★ N-01: 页面隐藏时暂停渲染循环 (移动端切后台省电, PC 多标签省 CPU)
+    if (typeof document !== 'undefined') {
+      this._visibilityHandler = () => {
+        if (this._destroyed) return;
+        if (document.hidden) {
+          if (this._running) {
+            this._wasRunningBeforeHide = true;
+            this.stop();
+            this.adaptive?.suspend();
+          }
+        } else if (this._wasRunningBeforeHide) {
+          this._wasRunningBeforeHide = false;
+          this.adaptive?.resume();
+          this._running = true;
+          // 重置时间基准, 防止隐藏期间产生巨大 dt 尖峰
+          this._lastFrameTime = performance.now();
+          this.renderLoop();
+        }
+      };
+      document.addEventListener('visibilitychange', this._visibilityHandler);
+    }
   }
 
   stop(): void {
@@ -478,6 +554,11 @@ this.deviceProfile = detectDeviceTier();
     this._sogStreamer = undefined;
     this._sogLodLevels = undefined;
     this._sogLodBase = undefined;
+
+    // ★ §2.5/N-06: 加载期间暂停自适应分辨率, 防止低帧率误降分辨率;
+    //   finally 确保任何分支 (含提前 return 与异常) 都恢复采样
+    this.adaptive?.suspend();
+    try {
 
     // ★ M4-P2.2: 若提供 lodSource (SOG 流式 LOD URL), 优先使用
     if (options?.lodSource) {
@@ -514,6 +595,10 @@ this.deviceProfile = detectDeviceTier();
 
     // 默认: .splat 格式 (fetch + parseSplatData)
     await this.loadSceneWithSplat(source, options);
+    } finally {
+      // ★ §2.5/N-06: 加载结束恢复自适应分辨率采样
+      this.adaptive?.resume();
+    }
   }
 
   /**
@@ -677,6 +762,22 @@ this.deviceProfile = detectDeviceTier();
       this.splatData = splatData;
     }
 
+    // ★ D-09: 坐标系翻转 — 翻转数据而非相机 (与 RenderManager "翻转 mesh" 策略一致)。
+    //   旧实现在 positionCameraToBounds() 的 lookAt 之后再 camera.rotation.x = Math.PI,
+    //   直接覆盖 lookAt 结果导致初始视角不可预期; 改为上传前对 positions 的 y 取反。
+    if (this._autoOrient) {
+      const pos = this.splatData.positions;
+      for (let i = 1; i < pos.length; i += 3) {
+        pos[i] = -pos[i];
+      }
+    }
+
+    // ★ D-01: 场景数据变更 — 旧排序结果/可见位图对新数据无效, 重置索引管线状态;
+    //   index buffer 已由 uploadSplatData 初始化为自然顺序, 首次裁剪/排序后自动收敛
+    this._lastSortResult = null;
+    this._visibleMask = null;
+    this._visibleCount = this.splatData.count;
+
     if (options?.onProgress) {
       options.onProgress(this.splatData.count, this.splatData.count);
     }
@@ -692,14 +793,9 @@ this.deviceProfile = detectDeviceTier();
       this.sortManager.uploadPositions(this.splatData.positions);
     }
 
-    // 自动定位相机
+    // 自动定位相机 (★ D-09: lookAt 结果即为最终朝向, 不再被相机翻转覆盖)
     if (this.camera && this.splatData) {
       this.positionCameraToBounds();
-    }
-
-    // 坐标系翻转 (与 RenderManager 一致: Y-down → Y-up)
-    if (this._autoOrient && this.camera) {
-      this.camera.rotation.x = Math.PI;
     }
 
     // ★ 初始化视锥裁剪
@@ -770,6 +866,12 @@ this.deviceProfile = detectDeviceTier();
     this.stop();
     this._keyboard.teardown();
     this._sorting = false;
+
+    // ★ N-01: 注销可见性监听, 避免泄漏与销毁后回调
+    if (this._visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = undefined;
+    }
 
     // ★ M4-P2.2: 中止 SOG 流式加载
     this._sogStreamer?.abort();
@@ -894,10 +996,9 @@ this.deviceProfile = detectDeviceTier();
           // ★ 设备已销毁或丢失时, 不再写入 buffer
           if (this._destroyed || this._deviceLost) return;
           this._lastSortResult = result;
-          // 将排序后的索引写入渲染 buffer
-          if (this.device && this.splatBuffers.index && this.splatData) {
-            this.device.queue.writeBuffer(this.splatBuffers.index, 0, result.indices.buffer as ArrayBuffer);
-          }
+          // ★ D-01: 不直接写 index buffer, 而是与可见位图合并后统一写入,
+          //   避免排序结果被裁剪结果覆盖 (或反之) 导致排序/裁剪双双失效
+          this.mergeAndUploadIndices();
         }).catch((err) => {
           this._sorting = false;
           // ★ 设备已销毁或丢失时, 静默处理 (不打印警告)
@@ -1019,16 +1120,17 @@ this.deviceProfile = detectDeviceTier();
 
   // ★ 视锥裁剪方法 ─────────────────────────────────────────
 
-  /** 更新视锥体 */
+  /** 更新视锥体 (★ §2.6: 复用 _tmpProjScreen, 消除每 3 帧分配) */
   private updateFrustum(): void {
     if (!this.camera) return;
 
-    const projScreenMatrix = new THREE.Matrix4();
-    projScreenMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
-    this._frustum.setFromProjectionMatrix(projScreenMatrix);
+    this._tmpProjScreen.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    this._frustum.setFromProjectionMatrix(this._tmpProjScreen);
   }
 
-  /** 执行视锥裁剪，返回可见 splat 索引 (★ 复用对象, 消除每帧分配) */
+  /**
+   * 执行视锥裁剪 (★ D-01: 产出可见位图, 不再直接写 index buffer)
+   */
   private performFrustumCull(): void {
     if (!this.splatData || !this._frustumCullEnabled) {
       this._visibleCount = this.splatData?.count ?? 0;
@@ -1038,48 +1140,54 @@ this.deviceProfile = detectDeviceTier();
     const positions = this.splatData.positions;
     const count = this.splatData.count;
 
-    // 分配可见索引数组 (如果未分配或大小不足)
-    if (!this._visibleIndices || this._visibleIndices.length < count) {
-      this._visibleIndices = new Uint32Array(count);
+    // 分配/复用可见位图 (1 byte/splat, 1M splats 仅 1MB)
+    if (!this._visibleMask || this._visibleMask.length < count) {
+      this._visibleMask = new Uint8Array(count);
     }
 
-    // ★ 复用 _fullIndices, 避免每 3 帧分配 ~1MB Uint32Array
-    if (!this._fullIndices || this._fullIndices.length < count) {
-      this._fullIndices = new Uint32Array(count);
-    }
-
-    let visibleCount = 0;
     // ★ 复用 _tmpPos, 避免每帧创建 THREE.Vector3
     const tmpPos = this._tmpPos;
+    const mask = this._visibleMask;
 
-    // 遍历所有 splat 进行视锥测试
+    // 遍历所有 splat 进行视锥测试 (中心点);
+    //   精确可见数由 mergeSortedVisibleIndices 统计并写回 _visibleCount
     for (let i = 0; i < count; i++) {
       tmpPos.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
-
-      // 简单的视锥测试: 只检查中心点
-      if (this._frustum.containsPoint(tmpPos)) {
-        this._visibleIndices[visibleCount++] = i;
-      }
+      mask[i] = this._frustum.containsPoint(tmpPos) ? 1 : 0;
     }
 
-    this._visibleCount = visibleCount;
+    // ★ D-01: 裁剪结果不直接写入, 与排序结果合并后统一写入一次,
+    //   保证 index buffer 始终 = 有序 ∩ 可见 (alpha 混合顺序正确且裁剪生效)
+    this.mergeAndUploadIndices();
+  }
 
-    // 更新 GPU buffer 中的可见索引
-    if (this.device && this.splatBuffers.index && visibleCount > 0 && !this._deviceLost) {
-      const fullIndices = this._fullIndices;
+  /**
+   * ★ D-01 单一索引管线合并步骤:
+   *   drawIndices[0..visibleCount) = sortedIndices.filter(i => visibleMask[i])
+   *
+   * 由排序回调与裁剪更新共同触发 (取较晚发生者), 合并后仅写入一次 GPU,
+   * draw 调用数 = visibleCount。
+   */
+  private mergeAndUploadIndices(): void {
+    if (!this.device || !this.splatBuffers.index || !this.splatData || this._deviceLost) return;
 
-      // 先填充可见索引
-      for (let i = 0; i < visibleCount; i++) {
-        fullIndices[i] = this._visibleIndices[i];
-      }
+    const count = this.splatData.count;
+    if (count === 0) return;
 
-      // 再填充剩余索引 (避免渲染时读取未初始化数据)
-      for (let i = visibleCount; i < count; i++) {
-        fullIndices[i] = 0; // 指向第一个 splat (会被裁剪掉)
-      }
-
-      this.device.queue.writeBuffer(this.splatBuffers.index, 0, fullIndices.buffer);
+    if (!this._drawIndices || this._drawIndices.length < count) {
+      this._drawIndices = new Uint32Array(count);
     }
+
+    const n = mergeSortedVisibleIndices(
+      this._lastSortResult?.indices ?? null,
+      this._visibleMask,
+      count,
+      this._drawIndices,
+      this._frustumCullEnabled,
+    );
+    this._visibleCount = n;
+
+    this.device.queue.writeBuffer(this.splatBuffers.index, 0, this._drawIndices.buffer as ArrayBuffer, 0, n * 4);
   }
 
   /** ★ M4-P2.3: 将 Shader 注入应用到 WGSL 源码 */
@@ -1102,6 +1210,8 @@ this.deviceProfile = detectDeviceTier();
           code = injectWgslAfterMainBegin(code, 'fs_main', taggedCode);
           break;
         case ShaderHookPoint.FRAGMENT_BEFORE_OUTPUT:
+          // ★ D-12: 现行语义 = main() 末尾 (与 FRAGMENT_MAIN_END 相同), 枚举已标 @deprecated;
+          //   WGSL 下两者注入位置一致, 保持向后兼容行为不变。
           code = injectWgslBeforeMainEnd(code, 'fs_main', taggedCode);
           break;
         case ShaderHookPoint.FRAGMENT_MAIN_END:

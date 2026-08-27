@@ -29,6 +29,8 @@ export class AdaptiveResolution {
   private fpsSamples: number[] = [];
   private lastTime = performance.now();
   private onScaleChange?: (scale: number) => void;
+  // ★ §2.5/N-06: 暂停标志 — 加载/LOD 构建期间不采样, 防止低帧率误降分辨率
+  private _suspended = false;
 
   constructor(
     initialScale: number,
@@ -53,6 +55,10 @@ export class AdaptiveResolution {
     const dt = now - this.lastTime;
     this.lastTime = now;
 
+    // ★ §2.5/N-06: 暂停期间仅维护时间基准, 不采样不调整,
+    //   避免加载期低帧率把分辨率降下去后缓慢回升导致首屏长时间低画质
+    if (this._suspended) return;
+
     if (dt > 0 && dt < 1000) {
       this.fpsSamples.push(1000 / dt);
     }
@@ -74,6 +80,31 @@ export class AdaptiveResolution {
   setScale(scale: number): void {
     this.currentScale = Math.max(this.opts.minScale, Math.min(this.opts.maxScale, scale));
     this.onScaleChange?.(this.currentScale);
+  }
+
+  /**
+   * ★ §2.5/N-06: 暂停采样 (加载期/页面隐藏时调用)
+   *
+   * 暂停期间 sample() 仅维护时间基准, 不记录帧率也不调整分辨率。
+   */
+  suspend(): void {
+    this._suspended = true;
+  }
+
+  /**
+   * ★ §2.5/N-06: 恢复采样 — 重置时间基准与样本窗口,
+   * 避免暂停期间累积的陈旧样本干扰决策。
+   */
+  resume(): void {
+    this._suspended = false;
+    this.lastTime = performance.now();
+    this.fpsSamples = [];
+    this.frameCount = 0;
+  }
+
+  /** 是否处于暂停状态 */
+  get suspended(): boolean {
+    return this._suspended;
   }
 
   // ─── 内部 ────────────────────────────────────────────────

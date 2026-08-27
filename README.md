@@ -79,8 +79,9 @@ Open `http://localhost:5173` to experience multi-scene tours, hotspot navigation
 ### Rendering Engine
 
 - **Dual Backend** — WebGL2 + Spark (production-ready, 98%+ browsers) **and** WebGPU native (experimental, WGSL shaders + GPU compute sort)
-- **Device Tiering** — Auto-detects hardware (CPU cores, memory, GPU model) and dynamically adjusts render parameters
-- **Adaptive Resolution** — Automatically lowers render resolution when FPS drops below threshold
+- **Device Tiering** — Auto-detects hardware (CPU cores, memory, GPU model, touch capability — iPadOS correctly classified as mobile) and dynamically adjusts render parameters
+- **Adaptive Resolution** — Automatically lowers render resolution when FPS drops below threshold; suspended during scene loading to avoid false downscaling, capped pixel-ratio follow on HIGH/ULTRA tiers for high-DPI sharpness
+- **Power & Battery Aware** — Render loop pauses automatically when the page is hidden (visibilitychange), resumes without frame-time spikes
 - **DragLookControls** — Drag-to-look camera controls, similar to panorama viewers
 - **Keyboard Movement** — WASD horizontal movement + QE vertical movement with speed interpolation
 
@@ -97,14 +98,17 @@ Open `http://localhost:5173` to experience multi-scene tours, hotspot navigation
 |--------|-------------|-------------|
 | **PLY** | Raw 3DGS training output | 1× |
 | **SPLAT** | antimatter15 format (32 bytes/splat) | ~1× |
-| **SPZ** | Niantic SPZ v2 format (gzip compressed) | ~10× |
+| **SPZ** | Niantic SPZ v2 format (gzip compressed) | ~2× measured from .splat |
 | **SOG** | Spatially Ordered Gaussians (streaming LOD) | On-demand |
+
+> **Benchmark highlights (2026-08-27, 5 scenes × formats):** On a 248K-splat scene all formats render at ~60 FPS — SPZ loads fastest (405 ms, 48% the size of .splat); for large scenes (>1M splats) SOG loads fastest (1.2 s vs 10.9 s for .splat on a 5.8M scene) with equal FPS. Conversion throughput ≈ 120K–500K splats/s. See the [full performance report](benchmarks/reports/performance-report-full-2026-08-27.md).
 
 ### Plugin Ecosystem
 
 | Plugin | Description |
 |--------|-------------|
-| **HotspotSystem** | Hotspots — scene navigation, info labels, URL links, auto-preload |
+| **HotspotSystem** | Hotspots — scene navigation, info labels, URL links, auto-preload, **click popup panels** |
+| **MediaEmbed** | Spatial media — embed images/videos into the scene as world-space planes (seamless blending, video playback) |
 | **CameraControls** | Camera — drag rotate, wheel zoom, damping |
 | **DepthOcclusion** | Depth occlusion — semi-transparent when hotspot is blocked |
 | **TouchGestures** | Touch — pinch zoom, two-finger rotate, inertia |
@@ -112,7 +116,7 @@ Open `http://localhost:5173` to experience multi-scene tours, hotspot navigation
 | **Fullscreen** | Fullscreen — double-click toggle, ESC to exit |
 | **LoadingIndicator** | Loading indicator — spinner, progress percentage |
 | **AutoRotate** | Auto-rotate — configurable speed/delay |
-| **ShaderInjection** | Shader injection — custom GLSL (WebGL2) / WGSL (WebGPU) code injection |
+| **ShaderInjection** | Shader injection — custom GLSL (WebGL2) / WGSL (WebGPU) code injection + **built-in preset effects** |
 
 ---
 
@@ -235,7 +239,7 @@ Convert PLY files to optimized web formats:
 # PLY → SPLAT (no compression, fastest loading)
 npx 3dgs-convert ply-to-splat input.ply -o output.splat
 
-# PLY → SPZ (gzip compressed, ~10x compression ratio)
+# PLY → SPZ (gzip compressed, ~2x smaller than .splat measured)
 npx 3dgs-convert ply-to-spz input.ply -o output.spz --sh-degree 1
 
 # PLY → SOG (streaming LOD, progressive loading)
@@ -540,7 +544,17 @@ player.use(createMyPlugin());
 
 ## Data Format Guide
 
-All three formats have **similar steady-state FPS** (variance < 5%). Format choice mainly affects loading experience and LOD quality.
+All three formats have **similar steady-state FPS** (variance < 5%) on small scenes. Format choice mainly affects loading experience and transfer size. Verified by the [2026-08-27 full benchmark](benchmarks/reports/performance-report-full-2026-08-27.md):
+
+| Format | Load time (248K scene) | File size | Notes |
+|--------|-----------------------|-----------|-------|
+| SPLAT | 529 ms | 7.6 MB | Simplest pipeline, best for desktop |
+| SPZ | **405 ms** | 3.7 MB (48%) | Best for mobile / slow networks |
+| SOG | 444 ms | 7.2 MB | Streaming first frame; fastest load for large scenes |
+
+> ⚠️ For scenes over 1M splats, prefer **SOG** or **SPLAT**: the SPZ native path does not downsample, and unconverted PLY performs worst.
+>
+> ⚠️ **Quality note:** On large scenes the renderer downsamples `.splat`/`.sog` to the device-tier `maxSplats` cap (250K–2.5M) for performance, while direct `.ply` loading renders the full count — so a converted file can *look* lower quality than the original even though the conversion is near-lossless (verified ≤ 0.5/255 color error). See [conversion quality analysis](docs/convert-quality-analysis.md).
 
 ### Recommended by Use Case
 
@@ -821,12 +835,23 @@ pnpm --filter @3dgs/core dev        # Watch mode
 
 ```bash
 pnpm typecheck       # Type checking
-pnpm test            # Unit tests (411 cases)
+pnpm test            # Unit tests (473 cases, no build required)
 pnpm test:coverage   # Coverage report
 pnpm lint            # ESLint
 pnpm lint:fix        # Auto-fix
 pnpm format          # Prettier
+pnpm clean           # Remove all dist outputs (cross-platform)
 ```
+
+### Performance Benchmarks
+
+```bash
+pnpm build && (cd apps/demo && npx vite preview --port 4173)
+node benchmarks/run-benchmark-full.mjs          # Render-side: 5 scenes × formats (Playwright)
+node benchmarks/run-convert-full.mjs            # Conversion: perf + quality (13 tasks)
+```
+
+Reports are generated under `benchmarks/reports/`. Latest: [performance-report-full-2026-08-27.md](benchmarks/reports/performance-report-full-2026-08-27.md).
 
 ### Docs Site
 

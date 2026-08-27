@@ -10,6 +10,46 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./hotspot": {
+      "types": "./dist/hotspot/index.d.ts",
+      "default": "./dist/hotspot/index.js"
+    },
+    "./camera-controls": {
+      "types": "./dist/camera-controls/index.d.ts",
+      "default": "./dist/camera-controls/index.js"
+    },
+    "./scene-transition": {
+      "types": "./dist/scene-transition/index.d.ts",
+      "default": "./dist/scene-transition/index.js"
+    },
+    "./touch-gestures": {
+      "types": "./dist/touch-gestures/index.d.ts",
+      "default": "./dist/touch-gestures/index.js"
+    },
+    "./fullscreen": {
+      "types": "./dist/fullscreen/index.d.ts",
+      "default": "./dist/fullscreen/index.js"
+    },
+    "./loading-indicator": {
+      "types": "./dist/loading-indicator/index.d.ts",
+      "default": "./dist/loading-indicator/index.js"
+    },
+    "./auto-rotate": {
+      "types": "./dist/auto-rotate/index.d.ts",
+      "default": "./dist/auto-rotate/index.js"
+    },
+    "./media-embed": {
+      "types": "./dist/media-embed/index.d.ts",
+      "default": "./dist/media-embed/index.js"
+    },
+    "./depth-occlusion": {
+      "types": "./dist/depth-occlusion/index.d.ts",
+      "default": "./dist/depth-occlusion/index.js"
+    },
+    "./shader-injection": {
+      "types": "./dist/shader-injection/index.d.ts",
+      "default": "./dist/shader-injection/index.js"
     }
   },
   "files": [
@@ -47,7 +87,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "clean": "rm -rf dist"
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
     "@3dgs/core": "workspace:*"

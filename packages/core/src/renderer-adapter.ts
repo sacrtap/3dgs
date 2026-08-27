@@ -48,7 +48,17 @@ export enum ShaderHookPoint {
   VERTEX_MAIN_END = 'vertex_main_end',
   /** 片段着色器: main() 开头 */
   FRAGMENT_MAIN_BEGIN = 'fragment_main_begin',
-  /** 片段着色器: 颜色计算后, 最终输出前 */
+  /**
+   * 片段着色器: 颜色输出钩子。
+   *
+   * ★ D-12 语义说明 (与历史文档不同, 请以本注释为准):
+   * 因 Spark GLSL3 下 `fragColor` 赋值时序问题, 该钩子实际注入到
+   * main() **末尾** (fragColor 赋值**之后**), 行为与 FRAGMENT_MAIN_END 完全相同。
+   * 依赖旧语义"最终输出前"的注入代码仍可工作 (fragColor 在 main 末尾
+   * 赋值后到写出前仍可修改), 但两个枚举值语义重叠, 新代码建议直接用 FRAGMENT_MAIN_END。
+   *
+   * @deprecated 语义与 FRAGMENT_MAIN_END 重叠, 后续版本可能移除; 保留仅为向后兼容。
+   */
   FRAGMENT_BEFORE_OUTPUT = 'fragment_before_output',
   /** 片段着色器: main() 结尾 */
   FRAGMENT_MAIN_END = 'fragment_main_end',

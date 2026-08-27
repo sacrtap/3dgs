@@ -12,21 +12,33 @@
 
 import type { TourPlugin, FrameContext, TourPluginContext } from '@3dgs/core';
 import { HotspotManager } from './hotspot-manager.js';
-import type { HotspotExtension } from './hotspot-config.js';
+import type { HotspotExtension, HotspotConfig } from './hotspot-config.js';
 
 export interface HotspotSystemOptions {
   /** 是否自动预加载场景跳转目标 (默认 true) */
   preloadTargets?: boolean;
 }
 
-export function createHotspotSystem(options: HotspotSystemOptions = {}): TourPlugin {
+/** 热点系统插件对外接口 (配置驱动 + 运行时增删/弹窗控制) */
+export interface HotspotSystemPlugin extends TourPlugin {
+  /** ★ 运行时添加热点 (同 id 替换; 不依赖场景配置, 适合编辑器/动态交互) */
+  addHotspot(config: HotspotConfig): void;
+  /** ★ 运行时移除热点 */
+  removeHotspot(id: string): void;
+  /** ★ 程序化打开某热点的弹出面板 */
+  openPopup(id: string): boolean;
+  /** ★ 关闭当前弹出面板 */
+  closePopup(): void;
+}
+
+export function createHotspotSystem(options: HotspotSystemOptions = {}): HotspotSystemPlugin {
   const { preloadTargets = true } = options;
 
   let manager: HotspotManager;
   let ctx: TourPluginContext;
   let unsubSceneSwitched: (() => void) | undefined;
 
-  return {
+  const plugin: HotspotSystemPlugin = {
     name: 'hotspot-system',
     version: '0.1.0',
 
@@ -62,6 +74,15 @@ export function createHotspotSystem(options: HotspotSystemOptions = {}): TourPlu
           instance,
         });
 
+        // ★ 点击弹出面板 (配置了 popup 的热点自动弹出)
+        if (config.popup) {
+          manager.openPopup(config.id);
+          ctx.player.emit('hotspot:popup-open', {
+            id: config.id,
+            popup: config.popup,
+          });
+        }
+
         // 场景跳转热点
         if (config.type === 'scene' && config.targetScene) {
           ctx.player.switchScene(config.targetScene, config.transition).catch((err) => {
@@ -84,6 +105,15 @@ export function createHotspotSystem(options: HotspotSystemOptions = {}): TourPlu
           id: instance.config.id,
           config: instance.config,
         });
+      });
+
+      // ★ 弹出面板关闭事件转发 (遮罩/关闭按钮/场景切换触发)
+      manager.onPopupClose((instance) => {
+        if (instance) {
+          ctx.player.emit('hotspot:popup-close', {
+            id: instance.config.id,
+          });
+        }
       });
 
       // 监听场景切换事件 — 加载新场景的热点
@@ -129,9 +159,39 @@ export function createHotspotSystem(options: HotspotSystemOptions = {}): TourPlu
       unsubSceneSwitched?.();
       manager?.destroy();
     },
+
+    // ── ★ 运行时 API (动态添加/移除热点 + 弹窗控制) ──
+    addHotspot(config: HotspotConfig) {
+      if (!manager) return;
+      const current = manager.list().map((i) => i.config).filter((c) => c.id !== config.id);
+      manager.setHotspots([...current, config]);
+    },
+
+    removeHotspot(id: string) {
+      if (!manager) return;
+      manager.setHotspots(manager.list().map((i) => i.config).filter((c) => c.id !== id));
+    },
+
+    openPopup(id: string) {
+      if (!manager) return false;
+      const ok = manager.openPopup(id);
+      if (ok) {
+        const inst = manager.get(id);
+        if (inst?.config.popup) {
+          ctx.player.emit('hotspot:popup-open', { id, popup: inst.config.popup });
+        }
+      }
+      return ok;
+    },
+
+    closePopup() {
+      manager?.closePopup();
+    },
   };
+
+  return plugin;
 }
 
 export { HotspotManager } from './hotspot-manager.js';
-export type { HotspotConfig, HotspotExtension, HotspotType, HotspotStyle, HotspotVisibility, HotspotAction, HotspotHover } from './hotspot-config.js';
+export type { HotspotConfig, HotspotExtension, HotspotType, HotspotStyle, HotspotVisibility, HotspotAction, HotspotHover, HotspotPopup } from './hotspot-config.js';
 export type { HotspotInstance } from './hotspot-manager.js';

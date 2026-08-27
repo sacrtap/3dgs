@@ -46,7 +46,7 @@
  * [来源: DecompressionStream — developer.mozilla.org/en-US/docs/Web/API/DecompressionStream]
  */
 
-/** SPZ 魔数 = 0x50474853 ("SGHP" LE) */
+/** SPZ 魔数 = 0x5053474E ("NGSP" LE, Niantic SPZ 官方魔数) */
 export const SPZ_MAGIC = 1347635022;
 
 /** SPZ 版本 */
@@ -118,12 +118,16 @@ export function validateSpzHeader(header: SpzHeader): void {
 /**
  * 将 SPZ 格式解码为 .splat 格式
  *
- * 输入: SPZ 文件的完整 ArrayBuffer (含 header + gzip body)
+ * 输入: SPZ 文件的完整 ArrayBuffer
  * 输出: .splat 格式的 Uint8Array (32 bytes/splat)
  *
+ * 支持两种布局 (自动检测):
+ *   A. 权威布局 (Spark/Niantic): 整文件 = 单个 gzip 流, 解压后 = header + body
+ *   B. 旧版布局 (本项目 M5 时期): 16B 未压缩 header + gzip body (向后兼容)
+ *
  * 解码步骤:
- *   1. 解析 SPZ header (16 bytes)
- *   2. gzip 解压 body
+ *   1. 检测布局并解压得到 [header + body]
+ *   2. 解析 SPZ header (16 bytes)
  *   3. 反量化各属性流 → .splat 格式
  *
  * 注意: .splat 格式不支持 SH 球谐系数, SH 数据被跳过。
@@ -132,16 +136,17 @@ export function validateSpzHeader(header: SpzHeader): void {
  * [来源: SPZ 反量化公式 — packages/convert/src/spz-writer.ts 编码逻辑的逆运算]
  */
 export async function decodeSpz(data: ArrayBuffer): Promise<Uint8Array> {
-  // 1. 解析 header
-  const header = parseSpzHeader(data);
+  // 1. 检测布局并解压 → [header + body]
+  const full = await spzDecompressWhole(new Uint8Array(data));
+
+  // 2. 解析 header
+  const header = parseSpzHeader(full);
   validateSpzHeader(header);
 
   const { numSplats, fractionalBits } = header;
   const fraction = 1 << fractionalBits;
 
-  // 2. gzip 解压 body
-  const compressedBody = new Uint8Array(data, SPZ_HEADER_SIZE);
-  const decompressed = await gzipDecompress(compressedBody);
+  const decompressed = full.subarray(SPZ_HEADER_SIZE);
 
   // 3. 计算各属性流偏移
   // SH 数据被跳过 (.splat 格式不支持 SH), shDim 仅用于文档说明
@@ -293,6 +298,41 @@ async function gzipDecompress(compressed: Uint8Array): Promise<Uint8Array> {
 }
 
 /**
+ * ★ 布局检测 + 解压 → 返回 [header(16B) + body] 完整流。
+ *
+ * - 文件以 gzip magic (1F 8B) 开头 → 权威布局: 整文件解压即可;
+ * - 否则 → 旧版布局: 前 16B 为未压缩 header, 其余为 gzip body, 拼接返回。
+ */
+async function spzDecompressWhole(fileBytes: Uint8Array): Promise<Uint8Array> {
+  if (fileBytes.length >= 2 && fileBytes[0] === 0x1f && fileBytes[1] === 0x8b) {
+    return gzipDecompress(fileBytes);
+  }
+  // 旧版布局兼容: 先解析并校验未压缩 header (无效文件尽早报错), 再解压 body 拼接
+  const legacyHeader = parseSpzHeader(fileBytes);
+  validateSpzHeader(legacyHeader);
+  const header = fileBytes.subarray(0, SPZ_HEADER_SIZE);
+  const body = await gzipDecompress(fileBytes.subarray(SPZ_HEADER_SIZE));
+  const merged = new Uint8Array(SPZ_HEADER_SIZE + body.length);
+  merged.set(header, 0);
+  merged.set(body, SPZ_HEADER_SIZE);
+  return merged;
+}
+
+/**
+ * ★ 读取 SPZ header (异步, 自动处理两种布局)。
+ *
+ * 供仅需元信息 (如日志打印 numSplats/shDegree) 的调用方使用,
+ * 避免为取 16 字节头解码整个文件之外的额外工作。
+ */
+export async function readSpzHeader(data: ArrayBuffer | Uint8Array): Promise<SpzHeader> {
+  const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const whole = await spzDecompressWhole(u8);
+  const header = parseSpzHeader(whole);
+  validateSpzHeader(header);
+  return header;
+}
+
+/**
  * 读取 24-bit 有符号整数 (little-endian)
  *
  * [来源: packages/convert/src/spz-writer.ts:188-192 writeInt24LE 的逆运算]
@@ -360,8 +400,32 @@ async function gzipDecompress(compressed) {
 }
 
 async function decodeSpz(data) {
-  // 1. 解析 header
-  var view = new DataView(data);
+  // 1. 布局检测 + 解压 → [header + body]
+  //    权威布局: 整文件单个 gzip 流; 旧版布局: 16B 未压缩 header + gzip body
+  var u8 = new Uint8Array(data);
+  var full;
+  if (u8.length >= 2 && u8[0] === 0x1f && u8[1] === 0x8b) {
+    full = await gzipDecompress(u8);
+  } else {
+    // 旧版布局: 先校验未压缩 header (无效文件尽早报错), 再解压 body 拼接
+    var legacyView = new DataView(data);
+    var legacyMagic = legacyView.getUint32(0, true);
+    if (legacyMagic !== SPZ_MAGIC) {
+      throw new Error('无效的 SPZ 文件: magic 不匹配 (0x' + legacyMagic.toString(16) + ')');
+    }
+    var legacyVersion = legacyView.getUint32(4, true);
+    if (legacyVersion !== SPZ_VERSION) {
+      throw new Error('不支持的 SPZ 版本: ' + legacyVersion);
+    }
+    var headerBytes = u8.subarray(0, SPZ_HEADER_SIZE);
+    var bodyBytes = await gzipDecompress(u8.subarray(SPZ_HEADER_SIZE));
+    full = new Uint8Array(SPZ_HEADER_SIZE + bodyBytes.length);
+    full.set(headerBytes, 0);
+    full.set(bodyBytes, SPZ_HEADER_SIZE);
+  }
+
+  // 2. 解析 header (位于解压流开头 16 字节)
+  var view = new DataView(full.buffer, full.byteOffset, full.byteLength);
   var magic = view.getUint32(0, true);
   if (magic !== SPZ_MAGIC) {
     throw new Error('无效的 SPZ 文件: magic 不匹配 (0x' + magic.toString(16) + ')');
@@ -375,9 +439,7 @@ async function decodeSpz(data) {
   var fractionalBits = view.getUint8(13);
   var fraction = 1 << fractionalBits;
 
-  // 2. gzip 解压 body
-  var compressedBody = new Uint8Array(data, SPZ_HEADER_SIZE);
-  var decompressed = await gzipDecompress(compressedBody);
+  var decompressed = full.subarray(SPZ_HEADER_SIZE);
 
   // 3. 计算各属性流偏移
   var shDim = SH_DIM[shDegree] || 0;

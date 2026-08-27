@@ -45,7 +45,7 @@ export interface PlyData {
   data: Map<string, Record<string, number | number[]>[]>;
 }
 
-const DATA_TYPE_SIZE: Record<PlyDataType, number> = {
+export const DATA_TYPE_SIZE: Record<PlyDataType, number> = {
   char: 1, uchar: 1, int8: 1, uint8: 1,
   short: 2, ushort: 2, int16: 2, uint16: 2,
   int: 4, uint: 4, int32: 4, uint32: 4,

@@ -126,6 +126,8 @@ export class SogStreamer {
   private options: SogStreamerOptions;
   private metadata: SogMetadata | null = null;
   private loadedChunks: Set<number> = new Set();
+  /** ★ D-02: 记录加载失败的 chunk, start() 结束时若有缺失则抛错触发回退链 */
+  private failedChunks: Set<number> = new Set();
   private aborted = false;
   /** ★ C2: AbortController 用于中断正在进行的 fetch 请求 */
   private _abortController?: AbortController;
@@ -192,6 +194,16 @@ export class SogStreamer {
       await this.loadChunksParallel();
     } else {
       await this.loadChunksSequential();
+    }
+
+    // ★ D-02: 若有失败 chunk 则抛错 — 旧实现仅调 onError 后照常 resolve,
+    //   导致下游拼接出稀疏空洞 (undefined) 直接崩溃; 抛错后渲染器回退链接管。
+    //   abort() 触发的中止不算失败 (新场景加载会主动中止旧加载)。
+    if (!this.aborted && this.failedChunks.size > 0) {
+      const failed = Array.from(this.failedChunks).sort((a, b) => a - b);
+      throw new Error(
+        `SOG 加载失败: ${this.failedChunks.size}/${this.metadata?.numChunks ?? '?'} 个 chunk 加载失败 [${failed.slice(0, 10).join(', ')}${failed.length > 10 ? ', ...' : ''}]`,
+      );
     }
 
     this.options.onComplete?.();
@@ -469,6 +481,12 @@ export class SogStreamer {
       this.loadedChunks.add(index);
       this.options.onChunkLoaded?.(index, decompressedData, chunk.count);
     } catch (err) {
+      // ★ D-02: 失败计入集合 — 不再静默吞掉, start() 结束时据此抛错,
+      //   避免 chunkDataList 出现稀疏空洞导致下游拼接崩溃而非走回退链。
+      //   主动 abort 产生的中断不计为失败。
+      if (!this.aborted) {
+        this.failedChunks.add(index);
+      }
       this.options.onError?.(
         err instanceof Error ? err : new Error(String(err)),
       );

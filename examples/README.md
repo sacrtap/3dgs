@@ -18,6 +18,7 @@
 | 10 | `10-webgpu-backend.ts` | WebGPU 后端 — 自动检测 + GPU 类型 + 纹理压缩 |
 | 11 | `11-sog-streaming.ts` | SOG 流式加载 — 分块渐进 + onFirstFrame + LOD 树 |
 | 12 | `12-performance-tuning.ts` | 性能调优 — blurAmount/minAlpha/排序节流/视锥裁剪 |
+| 13 | `13-spatial-extensions.ts` | 空间扩展 — 热点弹出面板 + 图像/视频嵌入 + Shader 预设 |
 
 ## 运行方式
 

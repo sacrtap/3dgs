@@ -79,8 +79,9 @@ cd 3dgs && pnpm install && pnpm --filter @3dgs/demo dev
 ### 渲染引擎
 
 - **双后端** — WebGL2 + Spark（生产就绪，覆盖 98%+ 浏览器）**及** WebGPU 原生（实验性，WGSL 着色器 + GPU compute 排序）
-- **设备分级** — 自动检测硬件能力（CPU 核心数、内存、GPU 型号），动态选择渲染参数
-- **自适应分辨率** — 帧率低于阈值时自动降低渲染分辨率，保障流畅度
+- **设备分级** — 自动检测硬件能力（CPU 核心数、内存、GPU 型号、触控能力 — iPadOS 正确识别为移动端），动态选择渲染参数
+- **自适应分辨率** — 帧率低于阈值时自动降低渲染分辨率，保障流畅度；场景加载期间暂停采样避免误降，HIGH/ULTRA 档高分屏有限跟随 devicePixelRatio 提升清晰度
+- **省电感知** — 页面隐藏时自动暂停渲染循环（visibilitychange），恢复无帧时间尖峰，移动端切后台不耗电
 - **DragLookControls** — 拖拽式视角控制，类似全景查看器交互
 - **键盘移动** — WASD 水平移动 + QE 升降，带速度插值平滑
 
@@ -97,14 +98,17 @@ cd 3dgs && pnpm install && pnpm --filter @3dgs/demo dev
 |------|------|--------|
 | **PLY** | 原始 3DGS 训练输出格式 | 1× |
 | **SPLAT** | antimatter15 格式（32 字节/splat） | ~1× |
-| **SPZ** | Niantic SPZ v2 格式（gzip 压缩） | ~10× |
+| **SPZ** | Niantic SPZ v2 格式（gzip 压缩） | 实测相对 .splat ~2× |
 | **SOG** | Spatially Ordered Gaussians（流式 LOD） | 按需加载 |
+
+> **基准测试亮点（2026-08-27，5 场景 × 格式全量）**: 248K splat 场景下各格式稳态均 ~60 FPS — SPZ 加载最快（405ms，体积仅为 .splat 的 48%）；大场景（>1M splats）SOG 加载最快（5.8M 场景 1.2s，SPLAT 需 10.9s）且帧率持平。转换吞吐约 12~50 万 splats/秒。详见[完整性能报告](benchmarks/reports/performance-report-full-2026-08-27.md)。
 
 ### 插件生态
 
 | 插件 | 说明 |
 |------|------|
-| **HotspotSystem** | 热点系统 — 场景跳转、信息标注、URL 链接、自动预加载 |
+| **HotspotSystem** | 热点系统 — 场景跳转、信息标注、URL 链接、自动预加载、**点击弹出面板** |
+| **MediaEmbed** | 空间媒体嵌入 — 图像/视频以世界坐标平面嵌入场景（无缝融合、视频播放） |
 | **CameraControls** | 相机控制 — 鼠标拖拽旋转、滚轮缩放、阻尼平滑 |
 | **DepthOcclusion** | 深度遮挡检测 — 热点被遮挡时半透明显示 |
 | **TouchGestures** | 多指触摸手势 — 捏合缩放、双指旋转、惯性滚动 |
@@ -112,7 +116,7 @@ cd 3dgs && pnpm install && pnpm --filter @3dgs/demo dev
 | **Fullscreen** | 全屏切换 — 双击切换、ESC 退出 |
 | **LoadingIndicator** | 加载指示器 — spinner 动画、进度显示 |
 | **AutoRotate** | 自动旋转 — 可配置速度/延迟 |
-| **ShaderInjection** | Shader 注入 — 自定义 GLSL（WebGL2）/ WGSL（WebGPU）代码注入 |
+| **ShaderInjection** | Shader 注入 — 自定义 GLSL（WebGL2）/ WGSL（WebGPU）代码注入 + **内置预设效果** |
 
 ---
 
@@ -235,7 +239,7 @@ npm install -g @3dgs/convert
 # PLY → SPLAT (无压缩，最快加载)
 npx 3dgs-convert ply-to-splat input.ply -o output.splat
 
-# PLY → SPZ (gzip 压缩，~10x 压缩比)
+# PLY → SPZ (gzip 压缩，实测相对 .splat ~2×)
 npx 3dgs-convert ply-to-spz input.ply -o output.spz --sh-degree 1
 
 # PLY → SOG (流式 LOD，支持渐进式加载)
@@ -540,7 +544,17 @@ player.use(createMyPlugin());
 
 ## 数据格式选择指南
 
-三者的**稳态渲染 FPS 基本一致**（差异 < 5%），格式选择主要影响加载体验和 LOD 质量。
+小场景下三者的**稳态渲染 FPS 基本一致**（差异 < 5%），格式选择主要影响加载体验和传输体积。以下数据经 [2026-08-27 全量基准测试](benchmarks/reports/performance-report-full-2026-08-27.md)验证：
+
+| 格式 | 加载时间（248K 场景） | 文件体积 | 适用 |
+|------|---------------------|---------|------|
+| SPLAT | 529 ms | 7.6 MB | 管线最简单，桌面端首选 |
+| SPZ | **405 ms** | 3.7 MB（48%） | 移动端 / 弱网首选 |
+| SOG | 444 ms | 7.2 MB | 流式首帧；大场景加载最快 |
+
+> ⚠️ 超过 1M splats 的场景请优先选择 **SOG** 或 **SPLAT**：SPZ 原生加载路径不做降采样，未转换的 PLY 性能最差。
+>
+> ⚠️ **质量说明**：大场景下渲染器会把 `.splat`/`.sog` 按设备档 `maxSplats`（250K–2.5M）降采样以保性能，而 `.ply` 直载渲染全量——因此转换产物可能**看起来**不如原文件，但转换本身近乎无损（实测颜色误差 ≤0.5/255）。详见[转换质量分析](docs/convert-quality-analysis.md)。
 
 ### 按使用场景推荐
 
@@ -821,12 +835,23 @@ pnpm --filter @3dgs/core dev        # 监听模式
 
 ```bash
 pnpm typecheck       # 类型检查
-pnpm test            # 单元测试 (411 个用例)
+pnpm test            # 单元测试 (473 个用例, 无需先构建)
 pnpm test:coverage   # 覆盖率报告
 pnpm lint            # ESLint 检查
 pnpm lint:fix        # 自动修复
 pnpm format          # Prettier 格式化
+pnpm clean           # 清理全部 dist 产物 (跨平台)
 ```
+
+### 性能基准测试
+
+```bash
+pnpm build && (cd apps/demo && npx vite preview --port 4173)
+node benchmarks/run-benchmark-full.mjs          # 渲染端: 5 场景 × 格式 (Playwright)
+node benchmarks/run-convert-full.mjs            # 转换: 性能 + 质量 (13 组任务)
+```
+
+报告生成于 `benchmarks/reports/`。最新：[performance-report-full-2026-08-27.md](benchmarks/reports/performance-report-full-2026-08-27.md)。
 
 ### 文档站点
 

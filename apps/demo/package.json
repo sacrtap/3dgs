@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "media:generate": "node scripts/generate-media.mjs"
   },
   "dependencies": {
     "@3dgs/core": "workspace:*",

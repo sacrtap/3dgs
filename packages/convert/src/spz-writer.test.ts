@@ -54,7 +54,15 @@ async function gzipDecompress(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(decompressed);
 }
 
-/** 解析 SPZ header (与 spz-decoder-worker.ts 同步) */
+/**
+ * ★ 权威布局 (2026-08-27 勘误后): 整个文件 = 单个 gzip 流,
+ * 解压后 = [16B header][body]。与 Spark SpzWriter.finalize 一致。
+ */
+async function decompressSpz(result: Uint8Array): Promise<Uint8Array> {
+  return gzipDecompress(result);
+}
+
+/** 解析 SPZ header (作用于解压后的流, 与 spz-decoder-worker.ts 同步) */
 function parseSpzHeader(data: Uint8Array): {
   magic: number;
   version: number;
@@ -74,26 +82,31 @@ function parseSpzHeader(data: Uint8Array): {
   };
 }
 
-// ── M5 修复验证: Header 未压缩 + Body gzip 压缩 ────────────
+// ── 布局验证: 整文件 gzip (与 Spark 兼容) ──────────────────
 
-describe('writeSpz — M5 修复: Header 未压缩', () => {
-  it('★ 输出前 4 字节为 SPZ_MAGIC (非 gzip magic)', async () => {
+describe('writeSpz — 权威布局: 整文件 gzip', () => {
+  it('★ 输出前 2 字节为 gzip magic (Spark GunzipReader 从字节 0 解压)', async () => {
     const cloud = createTestCloud(10);
     const result = await writeSpz(cloud);
-    const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
 
-    // SPZ magic = 0x50474853 LE
-    expect(view.getUint32(0, true)).toBe(SPZ_MAGIC);
-
-    // 确保不是 gzip magic (0x1f 0x8b)
-    expect(result[0]).not.toBe(GZIP_MAGIC_0);
-    expect(result[1]).not.toBe(GZIP_MAGIC_1);
+    expect(result[0]).toBe(GZIP_MAGIC_0);
+    expect(result[1]).toBe(GZIP_MAGIC_1);
   });
 
-  it('★ Header (16 bytes) 全部未压缩 — 字段值正确', async () => {
+  it('★ 解压后前 4 字节为 SPZ_MAGIC', async () => {
+    const cloud = createTestCloud(10);
+    const result = await writeSpz(cloud);
+    const decompressed = await decompressSpz(result);
+    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
+
+    expect(view.getUint32(0, true)).toBe(SPZ_MAGIC);
+  });
+
+  it('★ Header (16 bytes) 字段值正确 (解压后)', async () => {
     const cloud = createTestCloud(20);
     const result = await writeSpz(cloud, { fractionalBits: 12, flagAntiAlias: true });
-    const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+    const decompressed = await decompressSpz(result);
+    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
 
     expect(view.getUint32(0, true)).toBe(SPZ_MAGIC);
     expect(view.getUint32(4, true)).toBe(SPZ_VERSION);
@@ -104,33 +117,24 @@ describe('writeSpz — M5 修复: Header 未压缩', () => {
     expect(view.getUint8(15)).toBe(0);    // reserved
   });
 
-  it('★ Body 部分 (offset 16+) 为 gzip 压缩数据', async () => {
-    const cloud = createTestCloud(5);
-    const result = await writeSpz(cloud);
-
-    // gzip 流以 0x1f 0x8b 开头
-    expect(result[HEADER_SIZE]).toBe(GZIP_MAGIC_0);
-    expect(result[HEADER_SIZE + 1]).toBe(GZIP_MAGIC_1);
-  });
-
-  it('★ 输出总长度 = headerSize + gzipBodyLength', async () => {
+  it('★ 解压后总长度 = headerSize + bodySize, 压缩后更小', async () => {
     const cloud = createTestCloud(100);
     const result = await writeSpz(cloud);
-
-    const compressedBodyLength = result.byteLength - HEADER_SIZE;
+    const decompressed = await decompressSpz(result);
 
     // 原始 body 大小 (100 splats, shDegree=0): 19 bytes/splat
     const rawBodySize = 100 * (9 + 1 + 3 + 3 + 3);
 
-    // gzip 压缩后应小于原始大小
-    expect(compressedBodyLength).toBeLessThan(rawBodySize);
-    expect(result.byteLength).toBeGreaterThan(HEADER_SIZE);
+    expect(decompressed.byteLength).toBe(HEADER_SIZE + rawBodySize);
+    // 整文件压缩后应小于未压缩总大小
+    expect(result.byteLength).toBeLessThan(HEADER_SIZE + rawBodySize);
   });
 
   it('★ flagAntiAlias=false 时 flags bit 0 = 0', async () => {
     const cloud = createTestCloud(3);
     const result = await writeSpz(cloud, { flagAntiAlias: false });
-    const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+    const decompressed = await decompressSpz(result);
+    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
 
     expect(view.getUint8(14) & 1).toBe(0);
   });
@@ -139,47 +143,46 @@ describe('writeSpz — M5 修复: Header 未压缩', () => {
     for (const shDegree of [0, 1, 2, 3]) {
       const cloud = createTestCloud(5, shDegree);
       const result = await writeSpz(cloud, { shDegree });
-      const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+      const decompressed = await decompressSpz(result);
+      const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
 
       expect(view.getUint8(12)).toBe(shDegree);
     }
   });
 });
 
-// ── M5 修复验证: Body 可正确解压 ─────────────────────────
+// ── Body 数据验证 (解压流的 offset 16+) ───────────────────
 
-describe('writeSpz — M5 修复: Body gzip 解压验证', () => {
-  it('★ Body 解压后大小 = 预期 body 大小', async () => {
+describe('writeSpz — Body 数据验证', () => {
+  it('★ Body 大小 = 预期属性流总大小', async () => {
     const numSplats = 50;
     const shDegree = 0;
     const cloud = createTestCloud(numSplats, shDegree);
     const result = await writeSpz(cloud);
 
-    // 解压 body
-    const compressedBody = result.slice(HEADER_SIZE);
-    const decompressed = await gzipDecompress(compressedBody);
+    const decompressed = await decompressSpz(result);
+    const body = decompressed.subarray(HEADER_SIZE);
 
     // 预期 body 大小 = positions + alphas + colors + scales + rotations + sh
     const shDim = SH_DIM[shDegree] ?? 0;
     const expectedBodySize = numSplats * (9 + 1 + 3 + 3 + 3) + numSplats * shDim * 3;
 
-    expect(decompressed.byteLength).toBe(expectedBodySize);
+    expect(body.byteLength).toBe(expectedBodySize);
   });
 
-  it('★ Body 解压后 position 数据正确', async () => {
+  it('★ Body position 数据正确', async () => {
     const cloud = createTestCloud(10);
     const result = await writeSpz(cloud, { fractionalBits: 12 });
 
-    const compressedBody = result.slice(HEADER_SIZE);
-    const decompressed = await gzipDecompress(compressedBody);
+    const decompressed = await decompressSpz(result);
+    const body = decompressed.subarray(HEADER_SIZE);
 
     // Position 在 body 开头, 每个 splat 9 bytes (3 × 24-bit int)
-    // 验证第一个 splat 的 position
     const fraction = 1 << 12;
     const readInt24LE = (offset: number): number => {
-      const lo = decompressed[offset];
-      const mid = decompressed[offset + 1];
-      const hi = decompressed[offset + 2];
+      const lo = body[offset];
+      const mid = body[offset + 1];
+      const hi = body[offset + 2];
       let val = lo | (mid << 8) | (hi << 16);
       if (val & 0x800000) val -= 0x1000000;
       return val;
@@ -194,18 +197,18 @@ describe('writeSpz — M5 修复: Body gzip 解压验证', () => {
     expect(pz).toBeCloseTo(cloud.splats[0].z, 1);
   });
 
-  it('★ Body 解压后 alpha 数据正确', async () => {
+  it('★ Body alpha 数据正确', async () => {
     const cloud = createTestCloud(5);
     const result = await writeSpz(cloud);
 
-    const compressedBody = result.slice(HEADER_SIZE);
-    const decompressed = await gzipDecompress(compressedBody);
+    const decompressed = await decompressSpz(result);
+    const body = decompressed.subarray(HEADER_SIZE);
 
     // Alpha 在 positions 之后: offset = numSplats * 9
     const alphaOffset = 5 * 9;
     for (let i = 0; i < 5; i++) {
       const expectedAlpha = Math.max(0, Math.min(255, Math.round(cloud.splats[i].opacity * 255)));
-      expect(decompressed[alphaOffset + i]).toBe(expectedAlpha);
+      expect(body[alphaOffset + i]).toBe(expectedAlpha);
     }
   });
 
@@ -215,24 +218,25 @@ describe('writeSpz — M5 修复: Body gzip 解压验证', () => {
     const cloud = createTestCloud(numSplats, shDegree);
     const result = await writeSpz(cloud, { shDegree });
 
-    const compressedBody = result.slice(HEADER_SIZE);
-    const decompressed = await gzipDecompress(compressedBody);
+    const decompressed = await decompressSpz(result);
+    const body = decompressed.subarray(HEADER_SIZE);
 
     const shDim = SH_DIM[shDegree]; // 3
     const expectedBodySize = numSplats * (9 + 1 + 3 + 3 + 3) + numSplats * shDim * 3;
 
-    expect(decompressed.byteLength).toBe(expectedBodySize);
+    expect(body.byteLength).toBe(expectedBodySize);
   });
 });
 
-// ── M5 修复验证: parseSpzHeader 兼容性 ───────────────────
+// ── Header 解析兼容性 ─────────────────────────────────────
 
-describe('writeSpz — M5 修复: Header 解析兼容性', () => {
-  it('★ writeSpz 输出可被 parseSpzHeader 正确解析', async () => {
+describe('writeSpz — Header 解析兼容性', () => {
+  it('★ writeSpz 输出解压后可被 parseSpzHeader 正确解析', async () => {
     const cloud = createTestCloud(15);
     const result = await writeSpz(cloud);
+    const decompressed = await decompressSpz(result);
 
-    const header = parseSpzHeader(result);
+    const header = parseSpzHeader(decompressed);
 
     expect(header.magic).toBe(SPZ_MAGIC);
     expect(header.version).toBe(SPZ_VERSION);
@@ -244,22 +248,22 @@ describe('writeSpz — M5 修复: Header 解析兼容性', () => {
   it('★ header magic 校验通过 (不抛异常)', async () => {
     const cloud = createTestCloud(3);
     const result = await writeSpz(cloud);
-    const header = parseSpzHeader(result);
+    const decompressed = await decompressSpz(result);
+    const header = parseSpzHeader(decompressed);
 
     expect(header.magic).toBe(SPZ_MAGIC);
     expect(header.version).toBe(2);
-    // validateSpzHeader 等效检查
-    expect(header.magic).not.toBe(0x00088b1f); // gzip magic LE
   });
 });
 
 // ── 边界条件 ─────────────────────────────────────────────
 
 describe('writeSpz — 边界条件', () => {
-  it('单个 splat 也能正确生成 (header 未压缩)', async () => {
+  it('单个 splat 也能正确生成', async () => {
     const cloud = createTestCloud(1);
     const result = await writeSpz(cloud);
-    const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+    const decompressed = await decompressSpz(result);
+    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
 
     expect(view.getUint32(0, true)).toBe(SPZ_MAGIC);
     expect(view.getUint32(8, true)).toBe(1);
@@ -268,17 +272,19 @@ describe('writeSpz — 边界条件', () => {
   it('空 cloud (0 splats) 也能正确生成 header', async () => {
     const cloud = createTestCloud(0);
     const result = await writeSpz(cloud);
-    const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+    const decompressed = await decompressSpz(result);
+    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
 
     expect(view.getUint32(0, true)).toBe(SPZ_MAGIC);
     expect(view.getUint32(8, true)).toBe(0);
-    expect(result.byteLength).toBeGreaterThanOrEqual(HEADER_SIZE);
+    expect(decompressed.byteLength).toBeGreaterThanOrEqual(HEADER_SIZE);
   });
 
   it('自定义 fractionalBits 在 header 中正确记录', async () => {
     const cloud = createTestCloud(5);
     const result = await writeSpz(cloud, { fractionalBits: 10 });
-    const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+    const decompressed = await decompressSpz(result);
+    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
 
     expect(view.getUint8(13)).toBe(10);
   });

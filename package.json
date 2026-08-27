@@ -12,6 +12,7 @@
     "url": "https://github.com/sacrtap/3dgs/issues"
   },
   "license": "MIT",
+  "type": "module",
   "author": "sacrtap",
   "keywords": [
     "3dgs",
@@ -29,15 +30,15 @@
   "scripts": {
     "build": "pnpm -r run build",
     "dev": "pnpm -r --parallel run dev",
-    "lint": "eslint packages/*/src --max-warnings 0",
-    "lint:fix": "eslint packages/*/src --fix",
+    "lint": "eslint \"packages/*/src/**/*.ts\" \"packages/*/src/**/*.tsx\" --max-warnings 0",
+    "lint:fix": "eslint \"packages/*/src/**/*.ts\" \"packages/*/src/**/*.tsx\" --fix",
     "format": "prettier --write \"packages/*/src/**/*.ts\" \"packages/*/src/**/*.tsx\"",
     "format:check": "prettier --check \"packages/*/src/**/*.ts\" \"packages/*/src/**/*.tsx\"",
-    "typecheck": "pnpm --filter './packages/*' exec tsc --noEmit",
+    "typecheck": "pnpm --filter \"@3dgs/*\" --filter \"!@3dgs/demo\" --filter \"!@3dgs/docs\" --no-bail exec tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "clean": "pnpm -r run clean",
+    "clean": "node scripts/clean.mjs",
     "changeset": "changeset",
     "version": "changeset version",
     "publish": "changeset publish"

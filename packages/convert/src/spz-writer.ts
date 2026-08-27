@@ -1,26 +1,31 @@
 /**
  * SPZ 格式写入器 — Niantic Labs SPZ v2 格式
  *
- * Header (16 bytes):
- *   magic          Uint32 LE  = 0x50474853 (1347635022)
- *   version        Uint32 LE  = 2
- *   numPoints      Uint32 LE
- *   shDegree       Uint8
- *   fractionalBits Uint8      (default 12)
- *   flags          Uint8      (bit 0 = antialiased)
- *   reserved       Uint8      = 0
+ * 文件布局 (权威规范, 与 Spark SpzWriter.finalize 一致):
+ *   整个文件 = 单个 gzip 流, 解压后为:
+ *   Header (16 bytes):
+ *     magic          Uint32 LE  = 0x5053474E (1347635022, "NGSP")
+ *     version        Uint32 LE  = 2
+ *     numPoints      Uint32 LE
+ *     shDegree       Uint8
+ *     fractionalBits Uint8      (default 12)
+ *     flags          Uint8      (bit 0 = antialiased)
+ *     reserved       Uint8      = 0
+ *   Body (属性流, 紧随 header):
+ *     1. Positions   N × 9 bytes  (3 × 24-bit signed int LE, quantized by 1<<fractionalBits)
+ *     2. Alphas      N × 1 byte   (uint8, alpha * 255)
+ *     3. Colors      N × 3 bytes  (uint8 × 3, DC color encoded)
+ *     4. Scales      N × 3 bytes  (uint8 × 3, log-scale encoded)
+ *     5. Rotations   N × 3 bytes  (uint8 × 3, xyz stored; w = sqrt(1-x²-y²-z²))
+ *     6. SH          N × shDim×3 bytes (uint8, quantized)
  *
- * Body (gzip compressed, separate attribute streams):
- *   1. Positions   N × 9 bytes  (3 × 24-bit signed int LE, quantized by 1<<fractionalBits)
- *   2. Alphas      N × 1 byte   (uint8, alpha * 255)
- *   3. Colors      N × 3 bytes  (uint8 × 3, DC color encoded)
- *   4. Scales      N × 3 bytes  (uint8 × 3, log-scale encoded)
- *   5. Rotations   N × 3 bytes  (uint8 × 3, xyz stored; w = sqrt(1-x²-y²-z²))
- *   6. SH          N × shDim×3 bytes (uint8, quantized)
+ * ★ 布局勘误 (2026-08-27): 早期版本 (M5) 曾输出"未压缩 header + gzip body",
+ *   与 Spark SpzReader (GunzipReader 从字节 0 解压整个文件) 不兼容,
+ *   导致原生加载报 "Invalid gzip header"。现按权威布局输出整文件 gzip。
  *
- * [来源: Spark 源码 — SpzWriter class, node_modules/@sparkjsdev/spark/dist/spark.module.js:16894]
+ * [来源: Spark 源码 — SpzWriter.finalize, node_modules/@sparkjsdev/spark/dist/spark.module.js:17029]
+ * [来源: Spark 源码 — SpzReader/GunzipReader, spark.module.js:16695/2310]
  * [来源: SPZ 格式 — github.com/nianticlabs/spz]
- * [来源: Spark 源码 — SpzReader.parseSplats, node_modules/@sparkjsdev/spark/dist/spark.module.js:16734]
  */
 
 import type { GaussianCloud } from './gaussian-loader.js';
@@ -180,15 +185,11 @@ export async function writeSpz(
     }
   }
 
-  // ── M5 修复: 仅压缩 body 部分, header 保持未压缩 ──
-  // SPZ v2 格式规范: Header (16 bytes, 未压缩) + Body (gzip compressed)
-  // 原代码 gzipCompress(u8) 压缩整个 buffer → magic 不匹配 → 解码失败
-  const headerBytes = u8.slice(0, headerSize);
-  const compressedBody = await gzipCompress(u8.slice(headerSize));
-  const result = new Uint8Array(headerSize + compressedBody.byteLength);
-  result.set(headerBytes, 0);
-  result.set(compressedBody, headerSize);
-  return result;
+  // ── 布局修复 (2026-08-27): 整文件 gzip (header + body 一起压缩) ──
+  // 权威布局 (Spark SpzWriter.finalize): 单个 gzip 流, 解压后 = header + body。
+  // Spark SpzReader 用 GunzipReader 从字节 0 解压整个文件;
+  // 旧版 M5 "header 不压缩" 布局会导致 Spark 报 "Invalid gzip header"。
+  return gzipCompress(u8);
 }
 
 /** 位置量化: round(x * fraction), clamped to ±8388607 (24-bit signed) */

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { DeviceTier } from '@3dgs/core';
-import { getTierSettings } from './device-tier.js';
+import { getTierSettings, detectDeviceTier } from './device-tier.js';
 
 describe('getTierSettings — P0 新增字段验证', () => {
   // 所有设备分级
@@ -324,5 +324,106 @@ describe('getTierSettings — L1 衡生 focalAdjustment 验证', () => {
     expect(low.focalAdjustment).toBeLessThanOrEqual(medium.focalAdjustment);
     expect(medium.focalAdjustment).toBeLessThanOrEqual(high.focalAdjustment);
     expect(high.focalAdjustment).toBeLessThanOrEqual(ultra.focalAdjustment);
+  });
+});
+
+// ── ★ N-03: iPadOS 检测 / ★ N-02: 高分屏 pixelRatio 适配 ──
+
+describe('detectDeviceTier — N-03 iPadOS 移动设备识别', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubNavigator(ua: string, opts?: { maxTouchPoints?: number; cores?: number; memory?: number }) {
+    vi.stubGlobal('navigator', {
+      userAgent: ua,
+      hardwareConcurrency: opts?.cores ?? 8,
+      deviceMemory: opts?.memory ?? 8,
+      maxTouchPoints: opts?.maxTouchPoints ?? 0,
+    });
+  }
+
+  it('iPadOS Safari (UA=Macintosh + 多触点) 识别为移动设备', () => {
+    // iPadOS 13+ Safari UA 与 macOS 相同, 仅靠 UA 会误判为桌面端 → 分到高档导致卡顿
+    stubNavigator(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+      { maxTouchPoints: 5 },
+    );
+    const profile = detectDeviceTier();
+    expect(profile.isMobile).toBe(true);
+  });
+
+  it('真桌面 Mac (无多触点) 不误判为移动设备', () => {
+    stubNavigator(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
+      { maxTouchPoints: 0 },
+    );
+    const profile = detectDeviceTier();
+    expect(profile.isMobile).toBe(false);
+  });
+
+  it('iPhone UA 仍识别为移动设备 (回归)', () => {
+    stubNavigator(
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+      { maxTouchPoints: 5, cores: 6, memory: 4 },
+    );
+    const profile = detectDeviceTier();
+    expect(profile.isMobile).toBe(true);
+  });
+
+  it('Android UA 仍识别为移动设备 (回归)', () => {
+    stubNavigator(
+      'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36',
+      { maxTouchPoints: 10 },
+    );
+    const profile = detectDeviceTier();
+    expect(profile.isMobile).toBe(true);
+  });
+
+  it('iPad 被分到移动档 (LOW/MEDIUM) 而非桌面高档', () => {
+    stubNavigator(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
+      { maxTouchPoints: 5, cores: 8, memory: 8 },
+    );
+    const profile = detectDeviceTier();
+    // 移动设备最高只到 MEDIUM — 避免桌面 HIGH/ULTRA 参数压垮平板
+    expect([DeviceTier.LOW, DeviceTier.MEDIUM]).toContain(profile.tier);
+  });
+});
+
+describe('getTierSettings — N-02 高分屏 pixelRatio 适配', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('无 window (Node/CI): 全部档位回退 1.0', () => {
+    for (const tier of [DeviceTier.LOW, DeviceTier.MEDIUM, DeviceTier.HIGH, DeviceTier.ULTRA]) {
+      expect(getTierSettings(tier).pixelRatio).toBe(1.0);
+    }
+  });
+
+  it('dpr=2 时 HIGH/ULTRA 档有限跟随 (封顶 1.25 / 1.5), LOW/MEDIUM 保持 1.0', () => {
+    vi.stubGlobal('window', { devicePixelRatio: 2 });
+
+    expect(getTierSettings(DeviceTier.LOW).pixelRatio).toBe(1.0);
+    expect(getTierSettings(DeviceTier.MEDIUM).pixelRatio).toBe(1.0);
+    // 性能优先: 封顶而非完全跟随 (dpr=2 时像素量 4x, 不可无限制)
+    expect(getTierSettings(DeviceTier.HIGH).pixelRatio).toBe(1.25);
+    expect(getTierSettings(DeviceTier.ULTRA).pixelRatio).toBe(1.5);
+  });
+
+  it('dpr=1 (普通屏): 各档均为 1.0, 无额外像素负担', () => {
+    vi.stubGlobal('window', { devicePixelRatio: 1 });
+
+    for (const tier of [DeviceTier.LOW, DeviceTier.MEDIUM, DeviceTier.HIGH, DeviceTier.ULTRA]) {
+      expect(getTierSettings(tier).pixelRatio).toBe(1.0);
+    }
+  });
+
+  it('dpr=3 旗舰手机: 封顶生效 (不超过 1.25 / 1.5)', () => {
+    vi.stubGlobal('window', { devicePixelRatio: 3 });
+
+    expect(getTierSettings(DeviceTier.HIGH).pixelRatio).toBeLessThanOrEqual(1.25);
+    expect(getTierSettings(DeviceTier.ULTRA).pixelRatio).toBeLessThanOrEqual(1.5);
   });
 });

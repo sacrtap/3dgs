@@ -53,6 +53,9 @@ export function TourViewer({
   // ★ 使用 ref 包裹 config 和 initialScene, 仅在真正变化时触发
   const configRef = useRef(config);
   const initialSceneRef = useRef(initialScene);
+  // ★ D-05: 首次挂载守卫 — 主 effect 已负责首次 load,
+  //   [config] effect 首挂载执行会触发双重加载 (load 事件两次/请求重复)
+  const isFirstMount = useRef(true);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -130,6 +133,14 @@ export function TourViewer({
   // ★ config 变化时重新加载 (不重建 TourPlayer)
   useEffect(() => {
     configRef.current = config;
+
+    // ★ D-05: 跳过首次挂载 — 首次加载由主 effect ([renderer, plugins]) 负责,
+    //   避免两个 effect 都在挂载时执行 player.load() 导致双重加载
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      return;
+    }
+
     const player = playerRef.current;
     if (!player) return;
 
