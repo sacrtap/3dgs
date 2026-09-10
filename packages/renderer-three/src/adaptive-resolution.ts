@@ -112,25 +112,18 @@ export class AdaptiveResolution {
   private adjust(): void {
     if (this.fpsSamples.length < 10) return;
 
-    const avgFps =
-      this.fpsSamples.reduce((a, b) => a + b, 0) / this.fpsSamples.length;
+    const avgFps = this.fpsSamples.reduce((a, b) => a + b, 0) / this.fpsSamples.length;
 
     if (avgFps < this.opts.minFps && this.currentScale > this.opts.minScale) {
       // 帧率过低 — 降低分辨率
-      const newScale = Math.max(
-        this.opts.minScale,
-        this.currentScale - this.opts.step,
-      );
+      const newScale = Math.max(this.opts.minScale, this.currentScale - this.opts.step);
       if (newScale !== this.currentScale) {
         this.currentScale = newScale;
         this.onScaleChange?.(this.currentScale);
       }
     } else if (avgFps > this.opts.targetFps && this.currentScale < this.opts.maxScale) {
       // 帧率充足 — 尝试恢复分辨率
-      const newScale = Math.min(
-        this.opts.maxScale,
-        this.currentScale + this.opts.step,
-      );
+      const newScale = Math.min(this.opts.maxScale, this.currentScale + this.opts.step);
       if (newScale !== this.currentScale) {
         this.currentScale = newScale;
         this.onScaleChange?.(this.currentScale);

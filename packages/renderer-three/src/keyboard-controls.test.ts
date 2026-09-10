@@ -109,7 +109,7 @@ describe('KeyboardControls', () => {
       controls.setup();
       controls.setup();
       // 只注册一次 keydown
-      const keydownCalls = addSpy.mock.calls.filter(c => c[0] === 'keydown');
+      const keydownCalls = addSpy.mock.calls.filter((c) => c[0] === 'keydown');
       expect(keydownCalls).toHaveLength(1);
     });
 
@@ -289,7 +289,9 @@ describe('KeyboardControls', () => {
 
       // teardown 后速度归零, 位置应减速趋近停止 (但不完全停, 因为指数衰减)
       // 主要验证: 位置变化率大幅减小
-      expect(Math.abs(camera.position.z - posBeforeTeardown)).toBeLessThan(Math.abs(posBeforeTeardown));
+      expect(Math.abs(camera.position.z - posBeforeTeardown)).toBeLessThan(
+        Math.abs(posBeforeTeardown),
+      );
     });
   });
 });

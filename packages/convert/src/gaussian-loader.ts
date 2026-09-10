@@ -13,7 +13,12 @@
  */
 
 import { parsePly } from './ply-parser.js';
-import { parsePlyHeader, tryFastPathParsePly, buildCloudFromFastPath, DATA_TYPE_SIZE } from './ply-parser.js';
+import {
+  parsePlyHeader,
+  tryFastPathParsePly,
+  buildCloudFromFastPath,
+  DATA_TYPE_SIZE,
+} from './ply-parser.js';
 import type { PlyHeader } from './ply-parser.js';
 
 /** 单个高斯核的完整属性 (归一化后) */
@@ -35,7 +40,7 @@ export interface GaussianSplat {
   rotZ: number;
 
   // 颜色 (0-1 范围, SH DC 分量)
-  colorR: number;  // 0-1
+  colorR: number; // 0-1
   colorG: number;
   colorB: number;
 
@@ -104,7 +109,12 @@ export function loadGaussiansFromPly(
     const isSuperSplatHeader = vertexPropNames.includes('packed_position');
 
     if (isSuperSplatHeader) {
-      const fast = loadSuperSplatFastPath(buffer, headerResult.header, headerResult.headerEnd, source);
+      const fast = loadSuperSplatFastPath(
+        buffer,
+        headerResult.header,
+        headerResult.headerEnd,
+        source,
+      );
       if (fast) return fast;
     } else {
       const fastData = tryFastPathParsePly(buffer, headerResult.header, headerResult.headerEnd);
@@ -201,7 +211,10 @@ export function loadGaussiansFromPly(
       rotZ = Number(row.rot_3) || 0;
     } else {
       // 简单点云: identity quaternion
-      rotW = 1; rotX = 0; rotY = 0; rotZ = 0;
+      rotW = 1;
+      rotX = 0;
+      rotY = 0;
+      rotZ = 0;
     }
 
     // ── 颜色 ──
@@ -217,7 +230,9 @@ export function loadGaussiansFromPly(
       colorG = Number(row.green) / 255;
       colorB = Number(row.blue) / 255;
     } else {
-      colorR = 0.8; colorG = 0.8; colorB = 0.8; // 默认灰色
+      colorR = 0.8;
+      colorG = 0.8;
+      colorB = 0.8; // 默认灰色
     }
 
     // ── 不透明度 ──
@@ -240,9 +255,16 @@ export function loadGaussiansFromPly(
     }
 
     splats.push({
-      x, y, z,
-      scaleX, scaleY, scaleZ,
-      rotW, rotX, rotY, rotZ,
+      x,
+      y,
+      z,
+      scaleX,
+      scaleY,
+      scaleZ,
+      rotW,
+      rotX,
+      rotY,
+      rotZ,
       colorR: clamp01(colorR),
       colorG: clamp01(colorG),
       colorB: clamp01(colorB),
@@ -266,21 +288,48 @@ export function loadGaussiansFromPly(
  * SuperSplat 打包 PLY 的 chunk 元数据
  */
 interface SuperSplatChunk {
-  min_x: number; min_y: number; min_z: number;
-  max_x: number; max_y: number; max_z: number;
-  min_scale_x: number; min_scale_y: number; min_scale_z: number;
-  max_scale_x: number; max_scale_y: number; max_scale_z: number;
-  min_r: number; min_g: number; min_b: number;
-  max_r: number; max_g: number; max_b: number;
+  min_x: number;
+  min_y: number;
+  min_z: number;
+  max_x: number;
+  max_y: number;
+  max_z: number;
+  min_scale_x: number;
+  min_scale_y: number;
+  min_scale_z: number;
+  max_scale_x: number;
+  max_scale_y: number;
+  max_scale_z: number;
+  min_r: number;
+  min_g: number;
+  min_b: number;
+  max_r: number;
+  max_g: number;
+  max_b: number;
 }
 
 const SQRT2 = Math.sqrt(2);
 
 /** SuperSplat chunk element 必需的 18 个范围属性 (顺序无关, 按名查找) */
 const SS_CHUNK_PROPS = [
-  'min_x', 'min_y', 'min_z', 'max_x', 'max_y', 'max_z',
-  'min_scale_x', 'min_scale_y', 'min_scale_z', 'max_scale_x', 'max_scale_y', 'max_scale_z',
-  'min_r', 'min_g', 'min_b', 'max_r', 'max_g', 'max_b',
+  'min_x',
+  'min_y',
+  'min_z',
+  'max_x',
+  'max_y',
+  'max_z',
+  'min_scale_x',
+  'min_scale_y',
+  'min_scale_z',
+  'max_scale_x',
+  'max_scale_y',
+  'max_scale_z',
+  'min_r',
+  'min_g',
+  'min_b',
+  'max_r',
+  'max_g',
+  'max_b',
 ] as const;
 
 /**
@@ -314,7 +363,12 @@ function loadSuperSplatFastPath(
   if (!SS_CHUNK_PROPS.every((n) => chunkPropIndex.has(n))) return null;
   if (!chunkEl.properties.every((p) => DATA_TYPE_SIZE[p.type] === 4)) return null; // chunk 全部为 4B float
 
-  const packedProps = ['packed_position', 'packed_rotation', 'packed_scale', 'packed_color'] as const;
+  const packedProps = [
+    'packed_position',
+    'packed_rotation',
+    'packed_scale',
+    'packed_color',
+  ] as const;
   const vertexPropOffset = new Map<string, number>();
   let off = 0;
   for (const p of vertexEl.properties) {
@@ -325,10 +379,13 @@ function loadSuperSplatFastPath(
   }
   const vertexStride = off;
   if (!packedProps.every((n) => vertexPropOffset.has(n))) return null;
-  if (!packedProps.every((n) => {
-    const p = vertexEl.properties.find((x) => x.name === n)!;
-    return DATA_TYPE_SIZE[p.type] === 4;
-  })) return null; // packed_* 必须为 4B (uint32)
+  if (
+    !packedProps.every((n) => {
+      const p = vertexEl.properties.find((x) => x.name === n)!;
+      return DATA_TYPE_SIZE[p.type] === 4;
+    })
+  )
+    return null; // packed_* 必须为 4B (uint32)
 
   // ── 计算各 element 的文件偏移 (按头部声明顺序) ──
   let cursor = headerEnd;
@@ -346,12 +403,24 @@ function loadSuperSplatFastPath(
   const chunkBase = elementOffset.get('chunk')!;
   const chunkStride = chunkEl.properties.length * 4;
   const idxOf = (name: string) => chunkPropIndex.get(name)! * 4;
-  const cMinX = idxOf('min_x'), cMinY = idxOf('min_y'), cMinZ = idxOf('min_z');
-  const cMaxX = idxOf('max_x'), cMaxY = idxOf('max_y'), cMaxZ = idxOf('max_z');
-  const cMinSX = idxOf('min_scale_x'), cMinSY = idxOf('min_scale_y'), cMinSZ = idxOf('min_scale_z');
-  const cMaxSX = idxOf('max_scale_x'), cMaxSY = idxOf('max_scale_y'), cMaxSZ = idxOf('max_scale_z');
-  const cMinR = idxOf('min_r'), cMinG = idxOf('min_g'), cMinB = idxOf('min_b');
-  const cMaxR = idxOf('max_r'), cMaxG = idxOf('max_g'), cMaxB = idxOf('max_b');
+  const cMinX = idxOf('min_x'),
+    cMinY = idxOf('min_y'),
+    cMinZ = idxOf('min_z');
+  const cMaxX = idxOf('max_x'),
+    cMaxY = idxOf('max_y'),
+    cMaxZ = idxOf('max_z');
+  const cMinSX = idxOf('min_scale_x'),
+    cMinSY = idxOf('min_scale_y'),
+    cMinSZ = idxOf('min_scale_z');
+  const cMaxSX = idxOf('max_scale_x'),
+    cMaxSY = idxOf('max_scale_y'),
+    cMaxSZ = idxOf('max_scale_z');
+  const cMinR = idxOf('min_r'),
+    cMinG = idxOf('min_g'),
+    cMinB = idxOf('min_b');
+  const cMaxR = idxOf('max_r'),
+    cMaxG = idxOf('max_g'),
+    cMaxB = idxOf('max_b');
 
   // ── 逐顶点解码 ──
   const count = vertexEl.count;
@@ -373,9 +442,18 @@ function loadSuperSplatFastPath(
     const packedColor = dv.getUint32(row + pcOff, true);
 
     // 位置 (x: 11bit / y: 10bit / z: 11bit)
-    const x = ((packedPosition >>> 21) & 2047) / 2047 * (dv.getFloat32(cb + cMaxX, true) - dv.getFloat32(cb + cMinX, true)) + dv.getFloat32(cb + cMinX, true);
-    const y = ((packedPosition >>> 11) & 1023) / 1023 * (dv.getFloat32(cb + cMaxY, true) - dv.getFloat32(cb + cMinY, true)) + dv.getFloat32(cb + cMinY, true);
-    const z = (packedPosition & 2047) / 2047 * (dv.getFloat32(cb + cMaxZ, true) - dv.getFloat32(cb + cMinZ, true)) + dv.getFloat32(cb + cMinZ, true);
+    const x =
+      (((packedPosition >>> 21) & 2047) / 2047) *
+        (dv.getFloat32(cb + cMaxX, true) - dv.getFloat32(cb + cMinX, true)) +
+      dv.getFloat32(cb + cMinX, true);
+    const y =
+      (((packedPosition >>> 11) & 1023) / 1023) *
+        (dv.getFloat32(cb + cMaxY, true) - dv.getFloat32(cb + cMinY, true)) +
+      dv.getFloat32(cb + cMinY, true);
+    const z =
+      ((packedPosition & 2047) / 2047) *
+        (dv.getFloat32(cb + cMaxZ, true) - dv.getFloat32(cb + cMinZ, true)) +
+      dv.getFloat32(cb + cMinZ, true);
 
     // 旋转 (smallest-three, 10bit × 3 + 2bit order)
     const r0 = (((packedRotation >>> 20) & 1023) / 1023 - 0.5) * SQRT2;
@@ -390,25 +468,47 @@ function loadSuperSplatFastPath(
 
     // 缩放 (log 空间 → exp)
     const scaleX = Math.exp(
-      ((packedScale >>> 21) & 2047) / 2047 * (dv.getFloat32(cb + cMaxSX, true) - dv.getFloat32(cb + cMinSX, true)) + dv.getFloat32(cb + cMinSX, true),
+      (((packedScale >>> 21) & 2047) / 2047) *
+        (dv.getFloat32(cb + cMaxSX, true) - dv.getFloat32(cb + cMinSX, true)) +
+        dv.getFloat32(cb + cMinSX, true),
     );
     const scaleY = Math.exp(
-      ((packedScale >>> 11) & 1023) / 1023 * (dv.getFloat32(cb + cMaxSY, true) - dv.getFloat32(cb + cMinSY, true)) + dv.getFloat32(cb + cMinSY, true),
+      (((packedScale >>> 11) & 1023) / 1023) *
+        (dv.getFloat32(cb + cMaxSY, true) - dv.getFloat32(cb + cMinSY, true)) +
+        dv.getFloat32(cb + cMinSY, true),
     );
     const scaleZ = Math.exp(
-      (packedScale & 2047) / 2047 * (dv.getFloat32(cb + cMaxSZ, true) - dv.getFloat32(cb + cMinSZ, true)) + dv.getFloat32(cb + cMinSZ, true),
+      ((packedScale & 2047) / 2047) *
+        (dv.getFloat32(cb + cMaxSZ, true) - dv.getFloat32(cb + cMinSZ, true)) +
+        dv.getFloat32(cb + cMinSZ, true),
     );
 
     // 颜色 + 不透明度 (8bit × 4, chunk 范围映射)
-    const colorR = ((packedColor >>> 24) & 255) / 255 * (dv.getFloat32(cb + cMaxR, true) - dv.getFloat32(cb + cMinR, true)) + dv.getFloat32(cb + cMinR, true);
-    const colorG = ((packedColor >>> 16) & 255) / 255 * (dv.getFloat32(cb + cMaxG, true) - dv.getFloat32(cb + cMinG, true)) + dv.getFloat32(cb + cMinG, true);
-    const colorB = ((packedColor >>> 8) & 255) / 255 * (dv.getFloat32(cb + cMaxB, true) - dv.getFloat32(cb + cMinB, true)) + dv.getFloat32(cb + cMinB, true);
+    const colorR =
+      (((packedColor >>> 24) & 255) / 255) *
+        (dv.getFloat32(cb + cMaxR, true) - dv.getFloat32(cb + cMinR, true)) +
+      dv.getFloat32(cb + cMinR, true);
+    const colorG =
+      (((packedColor >>> 16) & 255) / 255) *
+        (dv.getFloat32(cb + cMaxG, true) - dv.getFloat32(cb + cMinG, true)) +
+      dv.getFloat32(cb + cMinG, true);
+    const colorB =
+      (((packedColor >>> 8) & 255) / 255) *
+        (dv.getFloat32(cb + cMaxB, true) - dv.getFloat32(cb + cMinB, true)) +
+      dv.getFloat32(cb + cMinB, true);
     const opacity = (packedColor & 255) / 255;
 
     splats[i] = {
-      x, y, z,
-      scaleX, scaleY, scaleZ,
-      rotW, rotX, rotY, rotZ,
+      x,
+      y,
+      z,
+      scaleX,
+      scaleY,
+      scaleZ,
+      rotW,
+      rotX,
+      rotY,
+      rotZ,
       colorR: clamp01(colorR),
       colorG: clamp01(colorG),
       colorB: clamp01(colorB),
@@ -449,12 +549,24 @@ function loadSuperSplatPly(
   }
 
   const ssChunks: SuperSplatChunk[] = chunkData.map((row) => ({
-    min_x: Number(row.min_x), min_y: Number(row.min_y), min_z: Number(row.min_z),
-    max_x: Number(row.max_x), max_y: Number(row.max_y), max_z: Number(row.max_z),
-    min_scale_x: Number(row.min_scale_x), min_scale_y: Number(row.min_scale_y), min_scale_z: Number(row.min_scale_z),
-    max_scale_x: Number(row.max_scale_x), max_scale_y: Number(row.max_scale_y), max_scale_z: Number(row.max_scale_z),
-    min_r: Number(row.min_r), min_g: Number(row.min_g), min_b: Number(row.min_b),
-    max_r: Number(row.max_r), max_g: Number(row.max_g), max_b: Number(row.max_b),
+    min_x: Number(row.min_x),
+    min_y: Number(row.min_y),
+    min_z: Number(row.min_z),
+    max_x: Number(row.max_x),
+    max_y: Number(row.max_y),
+    max_z: Number(row.max_z),
+    min_scale_x: Number(row.min_scale_x),
+    min_scale_y: Number(row.min_scale_y),
+    min_scale_z: Number(row.min_scale_z),
+    max_scale_x: Number(row.max_scale_x),
+    max_scale_y: Number(row.max_scale_y),
+    max_scale_z: Number(row.max_scale_z),
+    min_r: Number(row.min_r),
+    min_g: Number(row.min_g),
+    min_b: Number(row.min_b),
+    max_r: Number(row.max_r),
+    max_g: Number(row.max_g),
+    max_b: Number(row.max_b),
   }));
 
   const splats: GaussianSplat[] = [];
@@ -475,9 +587,11 @@ function loadSuperSplatPly(
 
     // ── 位置解包 ──
     // x: bits 21-31 (11 bits, 0-2047), y: bits 11-20 (10 bits, 0-1023), z: bits 0-10 (11 bits, 0-2047)
-    const x = ((packed_position >>> 21) & 2047) / 2047 * (chunk.max_x - chunk.min_x) + chunk.min_x;
-    const y = ((packed_position >>> 11) & 1023) / 1023 * (chunk.max_y - chunk.min_y) + chunk.min_y;
-    const z = (packed_position & 2047) / 2047 * (chunk.max_z - chunk.min_z) + chunk.min_z;
+    const x =
+      (((packed_position >>> 21) & 2047) / 2047) * (chunk.max_x - chunk.min_x) + chunk.min_x;
+    const y =
+      (((packed_position >>> 11) & 1023) / 1023) * (chunk.max_y - chunk.min_y) + chunk.min_y;
+    const z = ((packed_position & 2047) / 2047) * (chunk.max_z - chunk.min_z) + chunk.min_z;
 
     // ── 旋转解包 (smallest-three 编码) ──
     // r0: bits 20-29, r1: bits 10-19, r2: bits 0-9, order: bits 30-31
@@ -495,26 +609,37 @@ function loadSuperSplatPly(
 
     // ── 缩放解包 (log 空间) ──
     const scaleX = Math.exp(
-      ((packed_scale >>> 21) & 2047) / 2047 * (chunk.max_scale_x - chunk.min_scale_x) + chunk.min_scale_x,
+      (((packed_scale >>> 21) & 2047) / 2047) * (chunk.max_scale_x - chunk.min_scale_x) +
+        chunk.min_scale_x,
     );
     const scaleY = Math.exp(
-      ((packed_scale >>> 11) & 1023) / 1023 * (chunk.max_scale_y - chunk.min_scale_y) + chunk.min_scale_y,
+      (((packed_scale >>> 11) & 1023) / 1023) * (chunk.max_scale_y - chunk.min_scale_y) +
+        chunk.min_scale_y,
     );
     const scaleZ = Math.exp(
-      (packed_scale & 2047) / 2047 * (chunk.max_scale_z - chunk.min_scale_z) + chunk.min_scale_z,
+      ((packed_scale & 2047) / 2047) * (chunk.max_scale_z - chunk.min_scale_z) + chunk.min_scale_z,
     );
 
     // ── 颜色 + 不透明度解包 ──
     // r: bits 24-31, g: bits 16-23, b: bits 8-15, opacity: bits 0-7
-    const colorR = ((packed_color >>> 24) & 255) / 255 * (chunk.max_r - chunk.min_r) + chunk.min_r;
-    const colorG = ((packed_color >>> 16) & 255) / 255 * (chunk.max_g - chunk.min_g) + chunk.min_g;
-    const colorB = ((packed_color >>> 8) & 255) / 255 * (chunk.max_b - chunk.min_b) + chunk.min_b;
+    const colorR =
+      (((packed_color >>> 24) & 255) / 255) * (chunk.max_r - chunk.min_r) + chunk.min_r;
+    const colorG =
+      (((packed_color >>> 16) & 255) / 255) * (chunk.max_g - chunk.min_g) + chunk.min_g;
+    const colorB = (((packed_color >>> 8) & 255) / 255) * (chunk.max_b - chunk.min_b) + chunk.min_b;
     const opacity = (packed_color & 255) / 255;
 
     splats.push({
-      x, y, z,
-      scaleX, scaleY, scaleZ,
-      rotW, rotX, rotY, rotZ,
+      x,
+      y,
+      z,
+      scaleX,
+      scaleY,
+      scaleZ,
+      rotW,
+      rotX,
+      rotY,
+      rotZ,
       colorR: clamp01(colorR),
       colorG: clamp01(colorG),
       colorB: clamp01(colorB),
@@ -555,12 +680,12 @@ export interface GaussianCloudSoA {
   count: number;
   shDegree: number;
   source: string;
-  positions: Float32Array;   // count * 3
-  scales: Float32Array;      // count * 3
-  rotations: Float32Array;   // count * 4
-  colors: Float32Array;      // count * 3
-  opacities: Float32Array;   // count
-  sh?: Float32Array;         // count * totalShCoeffs (可选)
+  positions: Float32Array; // count * 3
+  scales: Float32Array; // count * 3
+  rotations: Float32Array; // count * 4
+  colors: Float32Array; // count * 3
+  opacities: Float32Array; // count
+  sh?: Float32Array; // count * totalShCoeffs (可选)
 }
 
 /**

@@ -45,7 +45,7 @@ export function loadGaussiansFromSplat(
   if (remainder !== 0) {
     console.warn(
       `[splat-reader] 文件大小 ${buffer.byteLength} 不是 ${SPLAT_BYTES_PER_SPLAT} 的整数倍, ` +
-      `尾部 ${remainder} 字节将被忽略`,
+        `尾部 ${remainder} 字节将被忽略`,
     );
   }
 
@@ -79,10 +79,19 @@ export function loadGaussiansFromSplat(
     const rotZ = (view.getUint8(base + 31) - 128) / 128;
 
     splats.push({
-      x, y, z,
-      scaleX, scaleY, scaleZ,
-      rotW, rotX, rotY, rotZ,
-      colorR, colorG, colorB,
+      x,
+      y,
+      z,
+      scaleX,
+      scaleY,
+      scaleZ,
+      rotW,
+      rotX,
+      rotY,
+      rotZ,
+      colorR,
+      colorG,
+      colorB,
       opacity,
       shDegree: 0,
     });

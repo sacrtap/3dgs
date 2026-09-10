@@ -59,11 +59,11 @@ describe('WebGPUSortManager — CPU 排序 (静态方法)', () => {
   it('★ 正确按距离从远到近排序 (降序)', () => {
     // 相机在原点, splat 沿 X 轴排列
     const positions = makePositions([
-      [1, 0, 0],   // 距离=1 (最近)
-      [5, 0, 0],   // 距离=25
-      [3, 0, 0],   // 距离=9
-      [10, 0, 0],  // 距离=100 (最远)
-      [2, 0, 0],   // 距离=4
+      [1, 0, 0], // 距离=1 (最近)
+      [5, 0, 0], // 距离=25
+      [3, 0, 0], // 距离=9
+      [10, 0, 0], // 距离=100 (最远)
+      [2, 0, 0], // 距离=4
     ]);
     const result = WebGPUSortManager.sortOnCPUStatic(positions, 0, 0, 0);
 
@@ -78,10 +78,10 @@ describe('WebGPUSortManager — CPU 排序 (静态方法)', () => {
 
   it('★ 3D 空间中正确计算距离', () => {
     const positions = makePositions([
-      [0, 0, 0],     // 距离=0
-      [3, 4, 0],     // 距离=25 (3-4-5 三角形)
-      [0, 0, 10],    // 距离=100
-      [1, 1, 1],     // 距离=3
+      [0, 0, 0], // 距离=0
+      [3, 4, 0], // 距离=25 (3-4-5 三角形)
+      [0, 0, 10], // 距离=100
+      [1, 1, 1], // 距离=3
     ]);
     // 相机在 (1, 1, 1)
     const result = WebGPUSortManager.sortOnCPUStatic(positions, 1, 1, 1);
@@ -97,9 +97,9 @@ describe('WebGPUSortManager — CPU 排序 (静态方法)', () => {
   it('★ 使用平方距离 (不开方)', () => {
     // 通过验证排序顺序确认使用平方距离
     const positions = makePositions([
-      [2, 0, 0],    // 平方距离=4
-      [3, 0, 0],    // 平方距离=9
-      [1, 0, 0],    // 平方距离=1
+      [2, 0, 0], // 平方距离=4
+      [3, 0, 0], // 平方距离=9
+      [1, 0, 0], // 平方距离=1
     ]);
     const result = WebGPUSortManager.sortOnCPUStatic(positions, 0, 0, 0);
 
@@ -112,11 +112,7 @@ describe('WebGPUSortManager — CPU 排序 (静态方法)', () => {
   it('★ 排序结果包含所有原始索引 (无丢失)', () => {
     const positions: number[][] = [];
     for (let i = 0; i < 100; i++) {
-      positions.push([
-        Math.random() * 100,
-        Math.random() * 100,
-        Math.random() * 100,
-      ]);
+      positions.push([Math.random() * 100, Math.random() * 100, Math.random() * 100]);
     }
     const flat = makePositions(positions);
     const result = WebGPUSortManager.sortOnCPUStatic(flat, 50, 50, 50);
@@ -134,8 +130,8 @@ describe('WebGPUSortManager — CPU 排序 (静态方法)', () => {
     // 两个 splat 距离相同
     const positions = makePositions([
       [5, 0, 0],
-      [0, 5, 0],   // 与原点距离相同
-      [0, 0, 1],   // 最近
+      [0, 5, 0], // 与原点距离相同
+      [0, 0, 1], // 最近
     ]);
     const result = WebGPUSortManager.sortOnCPUStatic(positions, 0, 0, 0);
 
@@ -168,7 +164,9 @@ describe('WebGPUSortManager — CPU 排序 (静态方法)', () => {
 
   it('★ 排序耗时为正数', () => {
     const positions = makePositions([
-      [1, 0, 0], [2, 0, 0], [3, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [3, 0, 0],
     ]);
     const result = WebGPUSortManager.sortOnCPUStatic(positions, 0, 0, 0);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
@@ -199,7 +197,9 @@ describe('WebGPUSortManager — 实例 (无 GPU 回退)', () => {
   it('★ uploadPositions 设置 splat 数量', () => {
     const manager = new WebGPUSortManager();
     const positions = makePositions([
-      [1, 0, 0], [2, 0, 0], [3, 0, 0],
+      [1, 0, 0],
+      [2, 0, 0],
+      [3, 0, 0],
     ]);
     manager.uploadPositions(positions);
     expect(manager.getSplatCount()).toBe(3);
@@ -214,9 +214,9 @@ describe('WebGPUSortManager — 实例 (无 GPU 回退)', () => {
   it('★ sortOnCPU 实例方法返回正确排序', () => {
     const manager = new WebGPUSortManager();
     const positions = makePositions([
-      [1, 0, 0],   // 最近
-      [10, 0, 0],  // 最远
-      [5, 0, 0],   // 中间
+      [1, 0, 0], // 最近
+      [10, 0, 0], // 最远
+      [5, 0, 0], // 中间
     ]);
     manager.uploadPositions(positions);
 
@@ -294,7 +294,9 @@ describe('WebGPUSortManager — 排序正确性验证', () => {
       ]);
     }
     const flat = makePositions(positions);
-    const camX = 10, camY = 20, camZ = 30;
+    const camX = 10,
+      camY = 20,
+      camZ = 30;
 
     // 使用 sortOnCPUStatic 排序
     const result = WebGPUSortManager.sortOnCPUStatic(flat, camX, camY, camZ);
@@ -306,8 +308,9 @@ describe('WebGPUSortManager — 排序正确性验证', () => {
       const dz = p[2] - camZ;
       return dx * dx + dy * dy + dz * dz;
     });
-    const expected = Array.from({ length: positions.length }, (_, i) => i)
-      .sort((a, b) => distances[b] - distances[a]);
+    const expected = Array.from({ length: positions.length }, (_, i) => i).sort(
+      (a, b) => distances[b] - distances[a],
+    );
 
     expect(result.count).toBe(50);
     for (let i = 0; i < 50; i++) {
@@ -341,7 +344,12 @@ describe('WebGPUSortManager — 排序正确性验证', () => {
     const flat = makePositions(positions);
     const result = WebGPUSortManager.sortOnCPUStatic(flat, 0, 0, 0);
 
-    expect(sameSet(result.indices, new Uint32Array(500).map((_, i) => i))).toBe(true);
+    expect(
+      sameSet(
+        result.indices,
+        new Uint32Array(500).map((_, i) => i),
+      ),
+    ).toBe(true);
   });
 
   it('★ 相机移动后排序结果变化', () => {

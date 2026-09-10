@@ -145,8 +145,10 @@ export function createMediaEmbed(options: MediaEmbedOptions = {}): MediaEmbedPlu
     overlay.className = '3dgs-media-overlay';
     Object.assign(overlay.style, {
       position: 'absolute',
-      top: '0', left: '0',
-      width: '100%', height: '100%',
+      top: '0',
+      left: '0',
+      width: '100%',
+      height: '100%',
       pointerEvents: 'none',
       overflow: 'hidden',
       perspectiveOrigin: '50% 50%',
@@ -168,7 +170,8 @@ export function createMediaEmbed(options: MediaEmbedOptions = {}): MediaEmbedPlu
     el.dataset.mediaId = config.id;
     Object.assign(el.style, {
       position: 'absolute',
-      left: '0', top: '0',
+      left: '0',
+      top: '0',
       width: `${config.width * PX_PER_UNIT}px`,
       height: `${config.height * PX_PER_UNIT}px`,
       // ★ 变换原点取左上角 (0 0), 配合 transform 中的 translate(-50%,-50%)
@@ -180,7 +183,7 @@ export function createMediaEmbed(options: MediaEmbedOptions = {}): MediaEmbedPlu
       zIndex: '6',
       willChange: 'transform, opacity',
       // 羽化边缘: 径向渐变遮罩消除平面硬边
-      ...(makeFeatherStyle(config.feather ?? 0.08)),
+      ...makeFeatherStyle(config.feather ?? 0.08),
     } as Partial<CSSStyleDeclaration>);
 
     let media: HTMLImageElement | HTMLVideoElement;
@@ -192,11 +195,18 @@ export function createMediaEmbed(options: MediaEmbedOptions = {}): MediaEmbedPlu
       video.playsInline = true;
       video.preload = 'auto';
       video.setAttribute('playsinline', '');
-      Object.assign(video.style, { width: '100%', height: '100%', objectFit: 'fill', display: 'block' });
+      Object.assign(video.style, {
+        width: '100%',
+        height: '100%',
+        objectFit: 'fill',
+        display: 'block',
+      });
       if (config.autoplay !== false) {
         // 自动播放 (静音保证浏览器策略允许); 失败时等待首次点击
         video.autoplay = true;
-        video.play().catch(() => { /* 等待用户交互后播放 */ });
+        video.play().catch(() => {
+          /* 等待用户交互后播放 */
+        });
       }
       video.addEventListener('loadeddata', () => {
         ctx?.player.emit('media:ready', { id: config.id, type: config.type });
@@ -209,7 +219,12 @@ export function createMediaEmbed(options: MediaEmbedOptions = {}): MediaEmbedPlu
       const img = document.createElement('img');
       img.src = config.url;
       img.draggable = false;
-      Object.assign(img.style, { width: '100%', height: '100%', objectFit: 'fill', display: 'block' });
+      Object.assign(img.style, {
+        width: '100%',
+        height: '100%',
+        objectFit: 'fill',
+        display: 'block',
+      });
       img.addEventListener('load', () => {
         ctx?.player.emit('media:ready', { id: config.id, type: config.type });
       });
@@ -226,7 +241,8 @@ export function createMediaEmbed(options: MediaEmbedOptions = {}): MediaEmbedPlu
       e.stopPropagation();
       if (config.type === 'video' && config.toggleOnClick !== false) {
         const video = media as HTMLVideoElement;
-        if (video.paused) video.play().catch(() => {}); else video.pause();
+        if (video.paused) video.play().catch(() => {});
+        else video.pause();
       }
       ctx?.player.emit('media:click', { id: config.id, type: config.type });
     });
@@ -330,7 +346,14 @@ export function createMediaEmbed(options: MediaEmbedOptions = {}): MediaEmbedPlu
             cached = fixedAxes(config.orientation.yaw, config.orientation.pitch ?? 0);
             fixedAxesCache.set(key, cached);
           }
-          const m = buildWorldToCSSMatrix(pose, frameCtx.size.width, frameCtx.size.height, config.position, cached, PX_PER_UNIT);
+          const m = buildWorldToCSSMatrix(
+            pose,
+            frameCtx.size.width,
+            frameCtx.size.height,
+            config.position,
+            cached,
+            PX_PER_UNIT,
+          );
           el.style.width = `${config.width * PX_PER_UNIT}px`;
           el.style.height = `${config.height * PX_PER_UNIT}px`;
           el.style.left = '0';
@@ -404,5 +427,12 @@ export function createMediaEmbed(options: MediaEmbedOptions = {}): MediaEmbedPlu
   return plugin;
 }
 
-export { extractCameraPose, buildWorldToCSSMatrix, worldToCameraCSS, toCSSMatrix3d, billboardAxes, fixedAxes };
+export {
+  extractCameraPose,
+  buildWorldToCSSMatrix,
+  worldToCameraCSS,
+  toCSSMatrix3d,
+  billboardAxes,
+  fixedAxes,
+};
 export type { CameraPose, CameraSpacePoint, PlaneAxes } from './camera-extract.js';

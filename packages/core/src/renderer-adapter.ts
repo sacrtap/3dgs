@@ -10,10 +10,10 @@
 
 /** 设备分级 — 决定渲染参数 */
 export enum DeviceTier {
-  LOW,     // 250K splats, 0.5x 分辨率, SH 0
-  MEDIUM,  // 500K splats, 0.75x 分辨率, SH 0
-  HIGH,    // 1M splats, 1.0x 分辨率, SH 1
-  ULTRA,   // 2M+ splats, 1.0x 分辨率, SH 2
+  LOW, // 250K splats, 0.5x 分辨率, SH 0
+  MEDIUM, // 500K splats, 0.75x 分辨率, SH 0
+  HIGH, // 1M splats, 1.0x 分辨率, SH 1
+  ULTRA, // 2M+ splats, 1.0x 分辨率, SH 2
 }
 
 /** 场景加载选项 */

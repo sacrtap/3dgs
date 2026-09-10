@@ -77,26 +77,21 @@ export async function writeSpz(
   cloud: GaussianCloud,
   options: SpzWriterOptions = {},
 ): Promise<Uint8Array> {
-  const {
-    shDegree = cloud.shDegree,
-    fractionalBits = 12,
-    flagAntiAlias = true,
-  } = options;
+  const { shDegree = cloud.shDegree, fractionalBits = 12, flagAntiAlias = true } = options;
 
   const numSplats = cloud.splats.length;
   const shDim = SH_DIM[shDegree] ?? 0;
 
   // 计算各属性流大小
-  const positionsSize = numSplats * 9;   // 3 × 3 bytes (24-bit)
+  const positionsSize = numSplats * 9; // 3 × 3 bytes (24-bit)
   const alphasSize = numSplats * 1;
   const colorsSize = numSplats * 3;
   const scalesSize = numSplats * 3;
-  const rotationsSize = numSplats * 3;   // v2: 3 bytes (xyz only)
+  const rotationsSize = numSplats * 3; // v2: 3 bytes (xyz only)
   const shSize = numSplats * shDim * 3;
 
   const headerSize = 16;
-  const bodySize = positionsSize + alphasSize + colorsSize +
-                   scalesSize + rotationsSize + shSize;
+  const bodySize = positionsSize + alphasSize + colorsSize + scalesSize + rotationsSize + shSize;
   const totalSize = headerSize + bodySize;
 
   const buffer = new ArrayBuffer(totalSize);
@@ -226,7 +221,10 @@ function scaleToSpz(scale: number): number {
  * 归一化四元数并确保 w >= 0 (v2 要求 w = sqrt(...))
  */
 function normalizeQuatForSpzV2(
-  w: number, x: number, y: number, z: number,
+  w: number,
+  x: number,
+  y: number,
+  z: number,
 ): { x: number; y: number; z: number } {
   const len = Math.sqrt(w * w + x * x + y * y + z * z);
   if (len < 1e-10) return { x: 0, y: 0, z: 0 };
@@ -236,7 +234,10 @@ function normalizeQuatForSpzV2(
   let nz = z / len;
   // Ensure w >= 0 (since reader computes w = sqrt(...))
   if (nw < 0) {
-    nw = -nw; nx = -nx; ny = -ny; nz = -nz;
+    nw = -nw;
+    nx = -nx;
+    ny = -ny;
+    nz = -nz;
   }
   return { x: nx, y: ny, z: nz };
 }

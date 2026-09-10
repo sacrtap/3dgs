@@ -263,9 +263,9 @@ describe('WebGPURenderManager — .splat 数据解析', () => {
 
     // 验证 Float32 位置数据
     const view = new Float32Array(data.buffer);
-    expect(view[0]).toBeCloseTo(1.5);  // splat 0 X
-    expect(view[1]).toBeCloseTo(2.5);  // splat 0 Y
-    expect(view[2]).toBeCloseTo(3.5);  // splat 0 Z
+    expect(view[0]).toBeCloseTo(1.5); // splat 0 X
+    expect(view[1]).toBeCloseTo(2.5); // splat 0 Y
+    expect(view[2]).toBeCloseTo(3.5); // splat 0 Z
     expect(view[8]).toBeCloseTo(10.0); // splat 1 X
     expect(view[9]).toBeCloseTo(20.0); // splat 1 Y
     expect(view[10]).toBeCloseTo(30.0); // splat 1 Z
@@ -276,7 +276,7 @@ describe('WebGPURenderManager — .splat 数据解析', () => {
     // Color at byte offset 24
     expect(data[24]).toBe(200); // R
     expect(data[25]).toBe(100); // G
-    expect(data[26]).toBe(50);  // B
+    expect(data[26]).toBe(50); // B
     expect(data[27]).toBe(255); // A
   });
 
@@ -325,11 +325,7 @@ describe('WebGPURenderManager — WGSL 着色器验证', () => {
 
 describe('WebGPURenderManager — 排序集成 (CPU 回退)', () => {
   it('★ sortManager 的 CPU 排序在无 GPU 时可用', () => {
-    const positions = new Float32Array([
-      1, 0, 0,
-      5, 0, 0,
-      3, 0, 0,
-    ]);
+    const positions = new Float32Array([1, 0, 0, 5, 0, 0, 3, 0, 0]);
 
     const result = WebGPUSortManager.sortOnCPUStatic(positions, 0, 0, 0);
     expect(result.count).toBe(3);

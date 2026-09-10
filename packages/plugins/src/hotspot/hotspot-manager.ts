@@ -21,7 +21,7 @@ export interface HotspotInstance {
 
 export interface HotspotUpdateData {
   camera: { x: number; y: number; z: number };
-  vpMatrix: Float32Array;    // 16 元素 view-projection 矩阵
+  vpMatrix: Float32Array; // 16 元素 view-projection 矩阵
   width: number;
   height: number;
 }
@@ -127,8 +127,10 @@ export class HotspotManager {
     overlay.className = '3dgs-popup-overlay';
     Object.assign(overlay.style, {
       position: 'absolute',
-      top: '0', left: '0',
-      width: '100%', height: '100%',
+      top: '0',
+      left: '0',
+      width: '100%',
+      height: '100%',
       background: 'rgba(0,0,0,0.25)',
       display: 'flex',
       zIndex: '100',
@@ -162,13 +164,19 @@ export class HotspotManager {
     // 标题行 + 关闭按钮
     const header = document.createElement('div');
     Object.assign(header.style, {
-      display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px',
+      display: 'flex',
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: '8px',
       marginBottom: popup.title ? '8px' : '0',
     } as Partial<CSSStyleDeclaration>);
     if (popup.title) {
       const title = document.createElement('div');
       title.textContent = popup.title;
-      Object.assign(title.style, { fontWeight: '600', fontSize: '14px' } as Partial<CSSStyleDeclaration>);
+      Object.assign(title.style, {
+        fontWeight: '600',
+        fontSize: '14px',
+      } as Partial<CSSStyleDeclaration>);
       header.appendChild(title);
     }
     if (dismissible) {
@@ -176,7 +184,11 @@ export class HotspotManager {
       closeBtn.className = '3dgs-popup-close';
       closeBtn.textContent = '✕';
       Object.assign(closeBtn.style, {
-        cursor: 'pointer', opacity: '0.6', padding: '0 2px', fontSize: '14px', flexShrink: '0',
+        cursor: 'pointer',
+        opacity: '0.6',
+        padding: '0 2px',
+        fontSize: '14px',
+        flexShrink: '0',
       } as Partial<CSSStyleDeclaration>);
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -191,9 +203,14 @@ export class HotspotManager {
       const img = document.createElement('img');
       img.src = popup.imageUrl;
       Object.assign(img.style, {
-        width: '100%', borderRadius: '6px', marginBottom: popup.content ? '8px' : '0', display: 'block',
+        width: '100%',
+        borderRadius: '6px',
+        marginBottom: popup.content ? '8px' : '0',
+        display: 'block',
       } as Partial<CSSStyleDeclaration>);
-      img.addEventListener('error', () => { img.style.display = 'none'; });
+      img.addEventListener('error', () => {
+        img.style.display = 'none';
+      });
       panel.appendChild(img);
     }
 
@@ -272,8 +289,8 @@ export class HotspotManager {
 
       // ── 3D → Clip Space ──
       // VP 矩阵 (4x4, column-major) × position(x, y, z, 1)
-      const clipX = vpMatrix[0] * px + vpMatrix[4] * py + vpMatrix[8]  * pz + vpMatrix[12];
-      const clipY = vpMatrix[1] * px + vpMatrix[5] * py + vpMatrix[9]  * pz + vpMatrix[13];
+      const clipX = vpMatrix[0] * px + vpMatrix[4] * py + vpMatrix[8] * pz + vpMatrix[12];
+      const clipY = vpMatrix[1] * px + vpMatrix[5] * py + vpMatrix[9] * pz + vpMatrix[13];
       const clipZ = vpMatrix[2] * px + vpMatrix[6] * py + vpMatrix[10] * pz + vpMatrix[14];
       const clipW = vpMatrix[3] * px + vpMatrix[7] * py + vpMatrix[11] * pz + vpMatrix[15];
 
@@ -302,7 +319,8 @@ export class HotspotManager {
       const vis = config.visibility;
       const minDistOk = !vis?.minDistance || distance >= vis.minDistance;
       const maxDistOk = !vis?.maxDistance || distance <= vis.maxDistance;
-      const inFrustum = ndcZ >= -1 && ndcZ <= 1 && ndcX >= -1 && ndcX <= 1 && ndcY >= -1 && ndcY <= 1;
+      const inFrustum =
+        ndcZ >= -1 && ndcZ <= 1 && ndcX >= -1 && ndcX <= 1 && ndcY >= -1 && ndcY <= 1;
 
       const visible = minDistOk && maxDistOk && inFrustum;
       instance.visible = visible;
@@ -316,9 +334,7 @@ export class HotspotManager {
         instance.screenPos = { x: screenX, y: screenY };
 
         // 距离衰减
-        const opacity = vis?.maxDistance
-          ? Math.max(0.3, 1 - distance / vis.maxDistance)
-          : 1;
+        const opacity = vis?.maxDistance ? Math.max(0.3, 1 - distance / vis.maxDistance) : 1;
         el.style.opacity = String(opacity);
       } else {
         el.style.display = 'none';

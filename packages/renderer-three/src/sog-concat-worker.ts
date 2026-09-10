@@ -55,7 +55,7 @@ export async function concatChunksInWorker(chunks: ArrayBuffer[]): Promise<Array
       };
 
       // Transfer 所有 chunk buffer 到 Worker
-      const transferList = chunks.map(c => c);
+      const transferList = chunks.map((c) => c);
       worker.postMessage({ chunks: transferList }, transferList);
     } catch {
       // Worker 创建失败, 回退到主线程

@@ -1,0 +1,177 @@
+{
+  "summary": {
+    "projectName": "@3dgs/monorepo",
+    "locale": "zh-CN",
+    "modelId": "agent-work-loop-v4",
+    "reportContractVersion": 25,
+    "overview": "项目具备完整的 CI/CD 流水线、测试基础设施和多层防御的禁止路径守卫。14 个会话的会话证据显示验证闭环存在缺口：变更后验证缺失、测试文件不受 lint 约束、覆盖率无门控。嵌套 AGENTS.md 已覆盖高风险包，但跨包依赖声明为单向。",
+    "dimensions": [
+      {
+        "id": "task-understanding",
+        "label": "任务理解",
+        "score": 75,
+        "summary": "根级和嵌套 AGENTS.md 提供了清晰的项目描述、命令清单、风险控制声明和编辑边界，但跨包依赖声明为单向（convert 引用 renderer-three，但反向未声明）。",
+        "findingRefs": [
+          "cross-dep-unidirectional"
+        ]
+      },
+      {
+        "id": "controlled-execution",
+        "label": "可控执行",
+        "score": 70,
+        "summary": "工作区命令已文档化，CI 矩阵覆盖 Node 20+22，pre-commit hook 拦截禁止路径。但会话证据显示环境/配置边界是主要摩擦源，3 个候选涉及 boundary-change。",
+        "findingRefs": [
+          "test-validation-gap",
+          "guard-paths-sync-risk"
+        ]
+      },
+      {
+        "id": "change-validation",
+        "label": "改动验证",
+        "score": 65,
+        "summary": "Vitest 测试基础设施完整（30 个测试文件），CI 包含 lint+build+typecheck+test 流程。但会话证据显示变更后验证缺失：E3 完全跳过检查，E2 以 6 个测试失败收尾未修复。affected-test.mjs 未接入 CI。",
+        "findingRefs": [
+          "test-validation-gap",
+          "eslint-excludes-tests",
+          "no-coverage-gate"
+        ]
+      },
+      {
+        "id": "reliable-delivery",
+        "label": "可靠交付",
+        "score": 60,
+        "summary": "CI/CD 流水线和 changeset 发布流程存在，release.yml 支持 dry_run 和 provenance。但无覆盖率门控（v8 coverage 已配置但 CI 不执行），release workflow 无预发布验证阶段。",
+        "findingRefs": [
+          "no-coverage-gate"
+        ]
+      },
+      {
+        "id": "learning-capture",
+        "label": "经验沉淀",
+        "score": 55,
+        "summary": "会话证据现已可用（14 个会话，37 个 task episodes），但无 Skills、Hooks 或学习循环配置。guard-paths.mjs 与 AGENTS.md Do Not Touch 的同步依赖人工维护，无自动化机制。",
+        "findingRefs": [
+          "guard-paths-sync-risk"
+        ]
+      }
+    ],
+    "aiAgentPractice": {
+      "inspectedSurfaces": [
+        "Rules",
+        "Workflows",
+        "Hooks"
+      ],
+      "coverageRows": [
+        {
+          "surface": "Rules",
+          "scopes": [
+            "Project"
+          ],
+          "count": 3,
+          "paths": [
+            "AGENTS.md",
+            "packages/renderer-three/AGENTS.md",
+            "packages/convert/AGENTS.md"
+          ]
+        },
+        {
+          "surface": "Workflows",
+          "scopes": [
+            "Project"
+          ],
+          "count": 2,
+          "paths": [
+            ".github/workflows/ci.yml",
+            ".github/workflows/release.yml"
+          ]
+        },
+        {
+          "surface": "Hooks",
+          "scopes": [
+            "Project"
+          ],
+          "count": 1,
+          "paths": [
+            ".husky/pre-commit"
+          ]
+        }
+      ]
+    },
+    "assignmentSummaries": []
+  },
+  "findings": [
+    {
+      "id": "test-validation-gap",
+      "title": "变更后验证缺失是系统性风险",
+      "severity": "Medium",
+      "reason": "会话证据显示 14 个候选中有 2 个存在明确的验证缺口：E3 变更后完全跳过检查（changed-without-check），E2 以 6 个测试失败收尾未修复（failure-without-confirmed-repair）。affected-test.mjs 脚本存在但未接入 CI，PR 反馈时间随包数量线性增长。证据来自 session-evidence 的 5 个 emitted candidates 的结构化元数据。",
+      "dimensionRefs": [
+        "change-validation",
+        "controlled-execution"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\n在 CI 中接入 affected-test.mjs 进行增量测试，或在 pre-commit hook 中添加受影响测试的自动执行。\n\n## Validation\n\n- 修改 packages/convert/src/ply-parser.ts\n- 运行 pre-commit hook，确认仅执行 convert 包的测试\n- 检查 CI 日志确认增量测试生效",
+      "expectedArtifact": "Hook",
+      "expectedOutput": [
+        "pre-commit hook 或 CI 自动执行受影响测试，变更后验证缺口被填补。"
+      ]
+    },
+    {
+      "id": "eslint-excludes-tests",
+      "title": "测试文件被 ESLint 全局排除",
+      "severity": "Low",
+      "reason": "eslint.config.js 的 ignores 包含 `**/*.test.ts`，测试代码质量不受 lint 约束。这可能导致 mock 滥用、未捕获的类型错误、以及 react-hooks/exhaustive-deps 被显式关闭而非修复。证据来自 Popper 代理对 eslint.config.js 的检查。",
+      "dimensionRefs": [
+        "change-validation"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\n为测试文件创建独立的 ESLint 配置（如 eslint.test.config.js），启用针对测试代码的 lint 规则，移除全局 ignores 中的 `**/*.test.ts`。\n\n## Validation\n\n- 运行 pnpm lint，确认测试文件被检查\n- 检查是否有测试文件违反新规则",
+      "expectedArtifact": "Config",
+      "expectedOutput": [
+        "测试文件受独立的 ESLint 配置约束，全局 ignores 不再排除测试文件。"
+      ]
+    },
+    {
+      "id": "no-coverage-gate",
+      "title": "无覆盖率门控",
+      "severity": "Low",
+      "reason": "vitest.config.ts 配置了 v8 coverage，test:coverage 脚本存在，但 CI 不执行覆盖率检查，无最低覆盖率阈值。覆盖率退化无告警，无法防止测试覆盖退化。证据来自 Popper 代理对 vitest.config.ts 和 ci.yml 的检查。",
+      "dimensionRefs": [
+        "reliable-delivery",
+        "change-validation"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\n在 CI 中添加覆盖率检查步骤，设置最低覆盖率阈值（如 80%），失败时阻止合并。\n\n## Validation\n\n- 运行 pnpm test:coverage，确认覆盖率报告生成\n- 检查 CI 配置确认覆盖率步骤存在\n- 故意降低覆盖率，确认 CI 失败",
+      "expectedArtifact": "Config",
+      "expectedOutput": [
+        "CI 执行覆盖率检查并设置最低阈值，覆盖率退化被阻止。"
+      ]
+    },
+    {
+      "id": "guard-paths-sync-risk",
+      "title": "guard-paths.mjs 与 AGENTS.md Do Not Touch 的同步风险",
+      "severity": "Low",
+      "reason": "两套规则独立维护：AGENTS.md 是自然语言声明，guard-paths.mjs 是代码实现。目前 9 条规则与 AGENTS.md 一致，但无自动化机制保证两者同步。若有人修改 AGENTS.md 的 Do Not Touch 但未更新 guard-paths.mjs（或反之），会产生静默漂移。证据来自 Leibniz 代理对两个文件的对比。",
+      "dimensionRefs": [
+        "learning-capture",
+        "controlled-execution"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\n创建自动化测试或 CI 检查，验证 guard-paths.mjs 的 FORBIDDEN 数组与 AGENTS.md 的 Do Not Touch 声明一致。\n\n## Validation\n\n- 修改 AGENTS.md 的 Do Not Touch，添加新路径\n- 运行同步检查，确认检测到不一致\n- 恢复 AGENTS.md，确认检查通过",
+      "expectedArtifact": "Test",
+      "expectedOutput": [
+        "自动化检查确保 guard-paths.mjs 与 AGENTS.md 的 Do Not Touch 声明同步。"
+      ]
+    },
+    {
+      "id": "cross-dep-unidirectional",
+      "title": "嵌套 AGENTS.md 跨包依赖声明为单向",
+      "severity": "Low",
+      "reason": "convert/AGENTS.md 声明了对 renderer-three/src/sog-streamer.ts 的依赖，但 renderer-three/AGENTS.md 未反向声明对 convert 的依赖。修改 sog-streamer.ts 时，agent 不会被告知需检查 convert 包的测试。证据来自 Leibniz 代理对两个嵌套 AGENTS.md 的对比。",
+      "dimensionRefs": [
+        "task-understanding"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\n在 renderer-three/AGENTS.md 的 Cross-File Dependencies 表中添加对 convert 包的反向依赖声明。\n\n## Validation\n\n- 检查 renderer-three/AGENTS.md 是否包含 convert 包的依赖\n- 修改 sog-streamer.ts，确认 agent 被告知需检查 convert 测试",
+      "expectedArtifact": "Rule",
+      "expectedOutput": [
+        "renderer-three/AGENTS.md 声明了对 convert 包的反向依赖，跨包依赖为双向。"
+      ]
+    }
+  ]
+}

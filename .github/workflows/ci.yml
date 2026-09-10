@@ -8,8 +8,11 @@ on:
 
 jobs:
   build-and-test:
-    name: Lint + Build + TypeCheck + Test
+    name: Lint + Build + TypeCheck + Test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
 
     steps:
       - name: Checkout
@@ -23,7 +26,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: pnpm
 
       - name: Install dependencies
@@ -32,13 +35,21 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Format check
+        run: pnpm format:check
+
       - name: Build
         run: pnpm build
 
       - name: Type Check
         run: pnpm typecheck
 
-      - name: Unit Tests
+      - name: Affected Tests (PR)
+        if: github.event_name == 'pull_request'
+        run: node scripts/affected-test.mjs --base origin/${{ github.base_ref }}
+
+      - name: Unit Tests (Push)
+        if: github.event_name == 'push'
         run: pnpm test
 
       - name: Build Demo
@@ -80,8 +91,17 @@ jobs:
       - name: Start Demo server
         run: |
           pnpm --filter @3dgs/demo dev &
-          sleep 5
-          curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5173 > /dev/null 2>&1; then
+              echo "Demo server is ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Demo server failed to start within 30s"
+              exit 1
+            fi
+            sleep 1
+          done
 
       - name: Run benchmark
         run: npx tsx benchmarks/benchmark.ts

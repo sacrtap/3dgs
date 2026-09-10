@@ -220,7 +220,6 @@ async function convertCloud(
   inputSize: number,
   startTime: number,
 ): Promise<void> {
-
   // 冗余剔除
   if (opts.prune) {
     const minOpacity = parseFloat(String(opts.minOpacity || '0.01'));
@@ -235,7 +234,9 @@ async function convertCloud(
     }
     cloud = pruneGaussians(cloud, pruneOpts);
     const removed = before - cloud.splats.length;
-    console.log(`🗑️  冗余剔除: 移除 ${removed.toLocaleString()} 个 (${(removed / before * 100).toFixed(1)}%)`);
+    console.log(
+      `🗑️  冗余剔除: 移除 ${removed.toLocaleString()} 个 (${((removed / before) * 100).toFixed(1)}%)`,
+    );
   }
 
   // Morton 排序
@@ -280,9 +281,8 @@ async function convertCloud(
 
   // 写入文件
   await mkdir(dirname(outputPath), { recursive: true });
-  const dataToWrite = outputData instanceof Uint8Array
-    ? Buffer.from(outputData)
-    : Buffer.from(outputData);
+  const dataToWrite =
+    outputData instanceof Uint8Array ? Buffer.from(outputData) : Buffer.from(outputData);
   await writeFile(outputPath, dataToWrite);
 
   const outputSize = dataToWrite.byteLength;
@@ -299,18 +299,13 @@ async function convertCloud(
 /**
  * 批量转换
  */
-async function batchConvert(
-  dir: string,
-  opts: Record<string, string | boolean>,
-): Promise<void> {
+async function batchConvert(dir: string, opts: Record<string, string | boolean>): Promise<void> {
   const format = String(opts.format) as 'splat' | 'spz' | 'sog';
   const outputDir = String(opts.output || join(dir, 'output'));
 
   console.log(`\n📂 扫描目录: ${dir}`);
   const entries = await readdir(dir);
-  const plyFiles = entries.filter(
-    (f) => extname(f).toLowerCase() === '.ply',
-  );
+  const plyFiles = entries.filter((f) => extname(f).toLowerCase() === '.ply');
 
   if (plyFiles.length === 0) {
     console.log('   未找到 .ply 文件');
@@ -350,10 +345,7 @@ async function batchConvert(
  *   - 场景间导航热点 (自动链接相邻场景)
  *   - 热点扩展配置
  */
-async function generateTour(
-  dir: string,
-  opts: Record<string, string>,
-): Promise<void> {
+async function generateTour(dir: string, opts: Record<string, string>): Promise<void> {
   const baseUrl = opts.baseUrl || './';
   const outputPath = opts.output || 'tour.json';
   const title = opts.title || '3DGS 漫游';
@@ -514,8 +506,8 @@ function defaultOutputPath(input: string, format: string): string {
 
 // ── 启动 CLI ──
 // 仅在直接执行时运行 (非 import)
-const isMain = import.meta.url === `file://${process.argv[1]}` ||
-  process.argv[1]?.endsWith('cli.js');
+const isMain =
+  import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('cli.js');
 
 if (isMain) {
   program.parse();

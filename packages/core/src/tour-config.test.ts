@@ -51,7 +51,13 @@ describe('validateTourConfig', () => {
       defaults: {
         camera: { fov: 75, minFov: 30, maxFov: 90, limitPitch: [-90, 90] },
         transition: { type: 'fade' as const, duration: 500 },
-        quality: { maxSplats: 1000000, shDegree: 1, resolution: 1.0, antialias: false, pixelRatio: 1.0 },
+        quality: {
+          maxSplats: 1000000,
+          shDegree: 1,
+          resolution: 1.0,
+          antialias: false,
+          pixelRatio: 1.0,
+        },
       },
       scenes: {
         s1: { source: 's1.splat', initialView: { yaw: 0, pitch: 0, fov: 75 } },

@@ -31,19 +31,22 @@ export const TourViewer = defineComponent({
       if (!player) return;
       errorMessage.value = null;
 
-      player.load(cfg).then(() => {
-        if (props.initialScene) {
-          player!.switchScene(props.initialScene).catch((err: unknown) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            errorMessage.value = msg;
-            emit('error', msg);
-          });
-        }
-      }).catch((err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        errorMessage.value = msg;
-        emit('error', msg);
-      });
+      player
+        .load(cfg)
+        .then(() => {
+          if (props.initialScene) {
+            player!.switchScene(props.initialScene).catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              errorMessage.value = msg;
+              emit('error', msg);
+            });
+          }
+        })
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          errorMessage.value = msg;
+          emit('error', msg);
+        });
     }
 
     onMounted(() => {
@@ -87,31 +90,53 @@ export const TourViewer = defineComponent({
       player = null;
     });
 
-    watch(() => props.config, (cfg) => loadConfig(cfg));
+    watch(
+      () => props.config,
+      (cfg) => loadConfig(cfg),
+    );
 
     expose({ getPlayer: () => player });
 
     return () => {
       const children = [];
 
-      children.push(h('div', {
-        ref: containerRef,
-        style: { width: '100%', height: '100%', position: 'relative', overflow: 'hidden' },
-      }));
+      children.push(
+        h('div', {
+          ref: containerRef,
+          style: { width: '100%', height: '100%', position: 'relative', overflow: 'hidden' },
+        }),
+      );
 
       if (errorMessage.value) {
-        children.push(h('div', {
-          style: {
-            position: 'absolute', bottom: '16px', left: '16px', right: '16px',
-            padding: '8px 16px', background: 'rgba(220,38,38,0.9)', color: '#fff',
-            borderRadius: '6px', fontSize: '14px', zIndex: 10,
-          },
-        }, errorMessage.value));
+        children.push(
+          h(
+            'div',
+            {
+              style: {
+                position: 'absolute',
+                bottom: '16px',
+                left: '16px',
+                right: '16px',
+                padding: '8px 16px',
+                background: 'rgba(220,38,38,0.9)',
+                color: '#fff',
+                borderRadius: '6px',
+                fontSize: '14px',
+                zIndex: 10,
+              },
+            },
+            errorMessage.value,
+          ),
+        );
       }
 
-      return h('div', {
-        style: { position: 'relative', width: '100%', height: '100%' },
-      }, children);
+      return h(
+        'div',
+        {
+          style: { position: 'relative', width: '100%', height: '100%' },
+        },
+        children,
+      );
     };
   },
 });

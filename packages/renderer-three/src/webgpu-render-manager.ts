@@ -77,10 +77,10 @@ export interface WebGPURenderManagerOptions {
 
 /** Splat 数据格式 (32 bytes/splat, .splat 格式) */
 interface SplatData {
-  positions: Float32Array;  // 3N
-  scales: Float32Array;     // 3N
-  colors: Uint8Array;       // 4N (RGBA)
-  rotations: Uint8Array;    // 4N (IJKL)
+  positions: Float32Array; // 3N
+  scales: Float32Array; // 3N
+  colors: Uint8Array; // 4N (RGBA)
+  rotations: Uint8Array; // 4N (IJKL)
   count: number;
 }
 
@@ -258,14 +258,14 @@ export class WebGPURenderManager implements RendererAdapter {
   // 格式配置
   private format: GPUTextureFormat;
 
-constructor(options: WebGPURenderManagerOptions = {}) {
-// ★ M3: 标记 experimental — 提醒开发者此渲染器未经验证
-console.warn(
-  '[WebGPURenderManager] ⚠️ experimental — 此渲染器尚未经过完整验证, 不建议在生产环境使用。' +
-  ' 当前实际渲染走 RenderManager (WebGL2 + Spark) 路径。',
-);
+  constructor(options: WebGPURenderManagerOptions = {}) {
+    // ★ M3: 标记 experimental — 提醒开发者此渲染器未经验证
+    console.warn(
+      '[WebGPURenderManager] ⚠️ experimental — 此渲染器尚未经过完整验证, 不建议在生产环境使用。' +
+        ' 当前实际渲染走 RenderManager (WebGL2 + Spark) 路径。',
+    );
 
-this.deviceProfile = detectDeviceTier();
+    this.deviceProfile = detectDeviceTier();
     const tier = options.deviceTier ?? this.deviceProfile.tier;
     this.tierSettings = getTierSettings(tier);
 
@@ -284,9 +284,8 @@ this.deviceProfile = detectDeviceTier();
     this.format = 'bgra8unorm'; // 默认值, init() 会覆盖
 
     if (options.adaptiveResolution !== false) {
-      this.adaptive = new AdaptiveResolution(
-        this.resolutionScale,
-        (scale) => this.onResolutionChanged(scale),
+      this.adaptive = new AdaptiveResolution(this.resolutionScale, (scale) =>
+        this.onResolutionChanged(scale),
       );
     }
   }
@@ -323,12 +322,19 @@ this.deviceProfile = detectDeviceTier();
         adapterVendor = (info.vendor || '').toLowerCase();
         adapterArch = (info.architecture || '').toLowerCase();
       }
-    } catch { /* 旧版浏览器可能不支持 adapter.info */ }
-    const isSoftwareRenderer = isFallback ||
-      adapterVendor.includes('swiftshader') || adapterArch.includes('swiftshader') ||
-      adapterVendor.includes('llvmpipe') || adapterArch.includes('llvmpipe');
+    } catch {
+      /* 旧版浏览器可能不支持 adapter.info */
+    }
+    const isSoftwareRenderer =
+      isFallback ||
+      adapterVendor.includes('swiftshader') ||
+      adapterArch.includes('swiftshader') ||
+      adapterVendor.includes('llvmpipe') ||
+      adapterArch.includes('llvmpipe');
     if (isSoftwareRenderer) {
-      throw new Error('WebGPU 使用软件渲染 (SwiftShader/LLVMpipe), 性能不足以进行 3DGS 渲染, 请使用 WebGL2 后端');
+      throw new Error(
+        'WebGPU 使用软件渲染 (SwiftShader/LLVMpipe), 性能不足以进行 3DGS 渲染, 请使用 WebGL2 后端',
+      );
     }
 
     // ★ 请求设备, 声明所需最低限制
@@ -337,7 +343,7 @@ this.deviceProfile = detectDeviceTier();
     // maxStorageBuffersPerShaderStage >= 6 (position, scale, color, rotation, index + uniform)
     this.device = await adapter.requestDevice({
       requiredLimits: {
-        maxBufferSize: 128 * 1024 * 1024,  // 128 MB
+        maxBufferSize: 128 * 1024 * 1024, // 128 MB
         maxBindGroups: 2,
         maxStorageBuffersPerShaderStage: 6,
         maxComputeWorkgroupsPerDimension: 65535,
@@ -364,8 +370,8 @@ this.deviceProfile = detectDeviceTier();
 
     console.info(
       `[WebGPURenderManager] WebGPU 设备初始化完成 | format: ${this.format} | ` +
-      `maxBufferSize: ${(this.device.limits.maxBufferSize / 1024 / 1024).toFixed(0)}MB | ` +
-      `maxSplats: ${this.tierSettings.maxSplats.toLocaleString()}`,
+        `maxBufferSize: ${(this.device.limits.maxBufferSize / 1024 / 1024).toFixed(0)}MB | ` +
+        `maxSplats: ${this.tierSettings.maxSplats.toLocaleString()}`,
     );
   }
 
@@ -415,7 +421,10 @@ this.deviceProfile = detectDeviceTier();
     if (!capability.supported || !capability.gpuType) return;
 
     // 根据 GPU 类型调整参数
-    if (capability.recommendedMaxSplats && capability.recommendedMaxSplats < this.tierSettings.maxSplats) {
+    if (
+      capability.recommendedMaxSplats &&
+      capability.recommendedMaxSplats < this.tierSettings.maxSplats
+    ) {
       const oldMax = this.tierSettings.maxSplats;
       this.tierSettings = { ...this.tierSettings, maxSplats: capability.recommendedMaxSplats };
       console.info(
@@ -423,7 +432,10 @@ this.deviceProfile = detectDeviceTier();
       );
     }
 
-    if (capability.recommendedResolutionScale && capability.recommendedResolutionScale < this.resolutionScale) {
+    if (
+      capability.recommendedResolutionScale &&
+      capability.recommendedResolutionScale < this.resolutionScale
+    ) {
       this.resolutionScale = capability.recommendedResolutionScale;
       this.adaptive?.setScale(this.resolutionScale);
       console.info(
@@ -431,7 +443,10 @@ this.deviceProfile = detectDeviceTier();
       );
     }
 
-    if (capability.recommendedSortIntervalMs && capability.recommendedSortIntervalMs > this._sortIntervalMs) {
+    if (
+      capability.recommendedSortIntervalMs &&
+      capability.recommendedSortIntervalMs > this._sortIntervalMs
+    ) {
       this._sortIntervalMs = capability.recommendedSortIntervalMs;
       console.info(
         `[WebGPURenderManager] GPU 类型 ${capability.gpuType}: sortIntervalMs → ${this._sortIntervalMs}`,
@@ -442,7 +457,9 @@ this.deviceProfile = detectDeviceTier();
     if (capability.adapterInfo) {
       const gpuInfo = `${capability.adapterInfo.vendor} ${capability.adapterInfo.architecture}`;
       const tc = capability.textureCompression;
-      const tcStr = tc ? `BC:${tc.bc ? '✓' : '✗'} ETC2:${tc.etc2 ? '✓' : '✗'} ASTC:${tc.astc ? '✓' : '✗'}` : 'N/A';
+      const tcStr = tc
+        ? `BC:${tc.bc ? '✓' : '✗'} ETC2:${tc.etc2 ? '✓' : '✗'} ASTC:${tc.astc ? '✓' : '✗'}`
+        : 'N/A';
       console.info(
         `[WebGPURenderManager] GPU: ${gpuInfo} | 类型: ${capability.gpuType} | 纹理压缩: ${tcStr}`,
       );
@@ -559,42 +576,41 @@ this.deviceProfile = detectDeviceTier();
     //   finally 确保任何分支 (含提前 return 与异常) 都恢复采样
     this.adaptive?.suspend();
     try {
-
-    // ★ M4-P2.2: 若提供 lodSource (SOG 流式 LOD URL), 优先使用
-    if (options?.lodSource) {
-      try {
-        await this.loadSceneWithSog(options.lodSource, options);
-        return;
-      } catch (err) {
-        console.warn(
-          '[WebGPURenderManager] SOG 流式加载失败, 回退到 source 直接加载:',
-          err instanceof Error ? err.message : err,
-        );
+      // ★ M4-P2.2: 若提供 lodSource (SOG 流式 LOD URL), 优先使用
+      if (options?.lodSource) {
+        try {
+          await this.loadSceneWithSog(options.lodSource, options);
+          return;
+        } catch (err) {
+          console.warn(
+            '[WebGPURenderManager] SOG 流式加载失败, 回退到 source 直接加载:',
+            err instanceof Error ? err.message : err,
+          );
+        }
       }
-    }
 
-    // ★ M4-P2.2: SPZ 格式 — Worker 解码
-    if (source.endsWith('.spz')) {
-      try {
-        await this.loadSceneWithSpz(source, options);
-        return;
-      } catch (err) {
-        console.warn('[WebGPURenderManager] SPZ 解码失败, 回退到 .splat 直接加载:', err);
+      // ★ M4-P2.2: SPZ 格式 — Worker 解码
+      if (source.endsWith('.spz')) {
+        try {
+          await this.loadSceneWithSpz(source, options);
+          return;
+        } catch (err) {
+          console.warn('[WebGPURenderManager] SPZ 解码失败, 回退到 .splat 直接加载:', err);
+        }
       }
-    }
 
-    // ★ M4-P2.2: SOG 格式 — 流式分块加载
-    if (source.endsWith('.sog')) {
-      try {
-        await this.loadSceneWithSog(source, options);
-        return;
-      } catch (err) {
-        console.warn('[WebGPURenderManager] SOG 加载失败, 回退到 .splat 直接加载:', err);
+      // ★ M4-P2.2: SOG 格式 — 流式分块加载
+      if (source.endsWith('.sog')) {
+        try {
+          await this.loadSceneWithSog(source, options);
+          return;
+        } catch (err) {
+          console.warn('[WebGPURenderManager] SOG 加载失败, 回退到 .splat 直接加载:', err);
+        }
       }
-    }
 
-    // 默认: .splat 格式 (fetch + parseSplatData)
-    await this.loadSceneWithSplat(source, options);
+      // 默认: .splat 格式 (fetch + parseSplatData)
+      await this.loadSceneWithSplat(source, options);
     } finally {
       // ★ §2.5/N-06: 加载结束恢复自适应分辨率采样
       this.adaptive?.resume();
@@ -683,9 +699,7 @@ this.deviceProfile = detectDeviceTier();
     const splatData = this.parseSplatData(splatBytes);
     await this.processSplatData(splatData, options);
 
-    console.info(
-      `[WebGPURenderManager] SPZ 加载完成: ${splatData.count.toLocaleString()} splats`,
-    );
+    console.info(`[WebGPURenderManager] SPZ 加载完成: ${splatData.count.toLocaleString()} splats`);
   }
 
   /**
@@ -745,7 +759,7 @@ this.deviceProfile = detectDeviceTier();
     const compressionStr = metadata.compression === 1 ? 'gzip' : 'none';
     console.info(
       `[WebGPURenderManager] SOG 加载完成: ${metadata.numSplats.toLocaleString()} splats, ` +
-      `${metadata.numChunks} chunks, compression=${compressionStr}, v${metadata.version}`,
+        `${metadata.numChunks} chunks, compression=${compressionStr}, v${metadata.version}`,
     );
   }
 
@@ -804,7 +818,7 @@ this.deviceProfile = detectDeviceTier();
 
     console.info(
       `[WebGPURenderManager] 场景加载完成: ${this.splatData.count.toLocaleString()} splats` +
-      (this._frustumCullEnabled ? `, 可见: ${this._visibleCount.toLocaleString()}` : ''),
+        (this._frustumCullEnabled ? `, 可见: ${this._visibleCount.toLocaleString()}` : ''),
     );
   }
 
@@ -987,24 +1001,34 @@ this.deviceProfile = detectDeviceTier();
     }
 
     // GPU 排序 (节流 + ★ 并发保护 + ★ 设备丢失守卫)
-    if (this.splatData && this.sortManager && this.enableGpuSort && !this._sorting && !this._deviceLost && !this._destroyed) {
+    if (
+      this.splatData &&
+      this.sortManager &&
+      this.enableGpuSort &&
+      !this._sorting &&
+      !this._deviceLost &&
+      !this._destroyed
+    ) {
       if (now - this._lastSortTime > this._sortIntervalMs) {
         this._lastSortTime = now;
         this._sorting = true;
-        this.sortManager.sort(this._cameraCache.camPos.x, this._cameraCache.camPos.y, this._cameraCache.camPos.z).then((result) => {
-          this._sorting = false;
-          // ★ 设备已销毁或丢失时, 不再写入 buffer
-          if (this._destroyed || this._deviceLost) return;
-          this._lastSortResult = result;
-          // ★ D-01: 不直接写 index buffer, 而是与可见位图合并后统一写入,
-          //   避免排序结果被裁剪结果覆盖 (或反之) 导致排序/裁剪双双失效
-          this.mergeAndUploadIndices();
-        }).catch((err) => {
-          this._sorting = false;
-          // ★ 设备已销毁或丢失时, 静默处理 (不打印警告)
-          if (this._destroyed || this._deviceLost) return;
-          console.warn('[WebGPURenderManager] GPU 排序失败:', err);
-        });
+        this.sortManager
+          .sort(this._cameraCache.camPos.x, this._cameraCache.camPos.y, this._cameraCache.camPos.z)
+          .then((result) => {
+            this._sorting = false;
+            // ★ 设备已销毁或丢失时, 不再写入 buffer
+            if (this._destroyed || this._deviceLost) return;
+            this._lastSortResult = result;
+            // ★ D-01: 不直接写 index buffer, 而是与可见位图合并后统一写入,
+            //   避免排序结果被裁剪结果覆盖 (或反之) 导致排序/裁剪双双失效
+            this.mergeAndUploadIndices();
+          })
+          .catch((err) => {
+            this._sorting = false;
+            // ★ 设备已销毁或丢失时, 静默处理 (不打印警告)
+            if (this._destroyed || this._deviceLost) return;
+            console.warn('[WebGPURenderManager] GPU 排序失败:', err);
+          });
       }
     }
 
@@ -1022,7 +1046,14 @@ this.deviceProfile = detectDeviceTier();
   };
 
   private render(): void {
-    if (!this.device || !this.context || !this.renderPipeline || !this.splatData || this._deviceLost) return;
+    if (
+      !this.device ||
+      !this.context ||
+      !this.renderPipeline ||
+      !this.splatData ||
+      this._deviceLost
+    )
+      return;
 
     const encoder = this.device.createCommandEncoder();
 
@@ -1030,12 +1061,14 @@ this.deviceProfile = detectDeviceTier();
     this.ensureDepthTexture();
 
     const pass = encoder.beginRenderPass({
-      colorAttachments: [{
-        view: this.context.getCurrentTexture().createView(),
-        clearValue: { r: 0.067, g: 0.067, b: 0.067, a: 1.0 },
-        loadOp: 'clear',
-        storeOp: 'store',
-      }],
+      colorAttachments: [
+        {
+          view: this.context.getCurrentTexture().createView(),
+          clearValue: { r: 0.067, g: 0.067, b: 0.067, a: 1.0 },
+          loadOp: 'clear',
+          storeOp: 'store',
+        },
+      ],
       depthStencilAttachment: {
         view: this.depthTexture!.createView(),
         depthClearValue: 1.0,
@@ -1106,7 +1139,11 @@ this.deviceProfile = detectDeviceTier();
     const width = this.renderWidth;
     const height = this.renderHeight;
 
-    if (this.depthTexture && this.depthTexture.width === width && this.depthTexture.height === height) {
+    if (
+      this.depthTexture &&
+      this.depthTexture.width === width &&
+      this.depthTexture.height === height
+    ) {
       return;
     }
 
@@ -1124,7 +1161,10 @@ this.deviceProfile = detectDeviceTier();
   private updateFrustum(): void {
     if (!this.camera) return;
 
-    this._tmpProjScreen.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    this._tmpProjScreen.multiplyMatrices(
+      this.camera.projectionMatrix,
+      this.camera.matrixWorldInverse,
+    );
     this._frustum.setFromProjectionMatrix(this._tmpProjScreen);
   }
 
@@ -1187,7 +1227,13 @@ this.deviceProfile = detectDeviceTier();
     );
     this._visibleCount = n;
 
-    this.device.queue.writeBuffer(this.splatBuffers.index, 0, this._drawIndices.buffer as ArrayBuffer, 0, n * 4);
+    this.device.queue.writeBuffer(
+      this.splatBuffers.index,
+      0,
+      this._drawIndices.buffer as ArrayBuffer,
+      0,
+      n * 4,
+    );
   }
 
   /** ★ M4-P2.3: 将 Shader 注入应用到 WGSL 源码 */
@@ -1263,7 +1309,11 @@ this.deviceProfile = detectDeviceTier();
 
     const bindGroupLayout = this.device.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform' },
+        },
         { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
         { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
         { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
@@ -1286,15 +1336,17 @@ this.deviceProfile = detectDeviceTier();
       fragment: {
         module: shaderModule,
         entryPoint: 'fs_main',
-        targets: [{
-          format: this.format,
-          blend: {
-            // ★ 修复: 使用标准 alpha blending 而非 additive blending
-            // 参考: 3DGS 论文中的 alpha compositing: C = src * alpha + dst * (1 - alpha)
-            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+        targets: [
+          {
+            format: this.format,
+            blend: {
+              // ★ 修复: 使用标准 alpha blending 而非 additive blending
+              // 参考: 3DGS 论文中的 alpha compositing: C = src * alpha + dst * (1 - alpha)
+              color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+              alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            },
           },
-        }],
+        ],
       },
       primitive: {
         topology: 'triangle-list',
@@ -1430,16 +1482,23 @@ this.deviceProfile = detectDeviceTier();
   private positionCameraToBounds(): void {
     if (!this.camera || !this.splatData || !this.controls) return;
 
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      minZ = Infinity;
+    let maxX = -Infinity,
+      maxY = -Infinity,
+      maxZ = -Infinity;
 
     for (let i = 0; i < this.splatData.count; i++) {
       const x = this.splatData.positions[i * 3];
       const y = this.splatData.positions[i * 3 + 1];
       const z = this.splatData.positions[i * 3 + 2];
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y; if (y > maxY) maxY = y;
-      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
     }
 
     const cx = (minX + maxX) / 2;
@@ -1464,7 +1523,7 @@ this.deviceProfile = detectDeviceTier();
 
     console.info(
       `[WebGPURenderManager] 摄像机已定位: pos=(${cx.toFixed(2)}, ${cy.toFixed(2)}, ${cz.toFixed(2)}), ` +
-      `sceneSize=${maxDim.toFixed(2)}, moveSpeed=${this._keyboard.moveSpeed.toFixed(1)}`,
+        `sceneSize=${maxDim.toFixed(2)}, moveSpeed=${this._keyboard.moveSpeed.toFixed(1)}`,
     );
   }
 

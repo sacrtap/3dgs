@@ -1,0 +1,8 @@
+# 1. Path guard — blocks forbidden paths (AGENTS.md Do Not Touch)
+node scripts/guard-paths.mjs
+
+# 2. Affected tests — only run tests for packages with staged changes
+node scripts/affected-test.mjs --staged
+
+# 3. Lint & format staged files
+pnpm exec lint-staged

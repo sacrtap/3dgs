@@ -35,9 +35,7 @@ export interface FullscreenOptions {
  * });
  * ```
  */
-export function createFullscreenPlugin(
-  options: FullscreenOptions = {},
-): TourPlugin {
+export function createFullscreenPlugin(options: FullscreenOptions = {}): TourPlugin {
   const { enableDoubleClick = true, target } = options;
 
   let ctx: TourPluginContext;

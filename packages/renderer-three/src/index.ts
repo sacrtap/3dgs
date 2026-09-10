@@ -33,7 +33,12 @@ import { SplatBufferPool } from './buffer-pool.js';
 import { DragLookControls } from './drag-look-controls.js';
 import { concatChunksInWorker } from './sog-concat-worker.js';
 import { readSpzHeader } from './spz-decoder-worker.js';
-import { injectAfterMainBegin as injectAfterMainBeginFn, injectBeforePattern as injectBeforePatternFn, injectBeforeMainEnd as injectBeforeMainEndFn, inferGLSLType as inferGLSLTypeFn } from './shader-utils.js';
+import {
+  injectAfterMainBegin as injectAfterMainBeginFn,
+  injectBeforePattern as injectBeforePatternFn,
+  injectBeforeMainEnd as injectBeforeMainEndFn,
+  inferGLSLType as inferGLSLTypeFn,
+} from './shader-utils.js';
 // ★ M4: 共享模块
 import { KeyboardControls } from './keyboard-controls.js';
 import { FrameCallbackManager } from './frame-callback-manager.js';
@@ -152,9 +157,8 @@ export class RenderManager implements RendererAdapter {
     this._enableLod = options.enableLod ?? true;
 
     if (options.adaptiveResolution !== false) {
-      this.adaptive = new AdaptiveResolution(
-        this.resolutionScale,
-        (scale) => this.onResolutionChanged(scale),
+      this.adaptive = new AdaptiveResolution(this.resolutionScale, (scale) =>
+        this.onResolutionChanged(scale),
       );
     }
   }
@@ -593,7 +597,7 @@ export class RenderManager implements RendererAdapter {
 
     console.info(
       `[RenderManager] 降采样加载: ${sampledSplats.toLocaleString()} / ${totalSplats.toLocaleString()} splats ` +
-      `(step=${step.toFixed(2)}, 保留 ${(sampledSplats / totalSplats * 100).toFixed(1)}%)`,
+        `(step=${step.toFixed(2)}, 保留 ${((sampledSplats / totalSplats) * 100).toFixed(1)}%)`,
     );
 
     if (options?.onProgress) {
@@ -706,7 +710,7 @@ export class RenderManager implements RendererAdapter {
     const header = await readSpzHeader(spzData);
     console.info(
       `[RenderManager] SPZ 文件已下载: ${header.numSplats.toLocaleString()} splats, ` +
-      `${(spzData.byteLength / 1024 / 1024).toFixed(2)} MB (压缩), shDegree=${header.shDegree}`,
+        `${(spzData.byteLength / 1024 / 1024).toFixed(2)} MB (压缩), shDegree=${header.shDegree}`,
     );
 
     // ★ H1: maxSplats 截断替代方案 — 日志提示
@@ -717,8 +721,8 @@ export class RenderManager implements RendererAdapter {
     if (header.numSplats > maxSplats) {
       console.warn(
         `[RenderManager] SPZ splat 数 (${header.numSplats.toLocaleString()}) 超过设备上限 (${maxSplats.toLocaleString()})。\n` +
-        `  ★ H1 替代方案: 请在转换阶段使用 --contribution-cutoff 裁剪 splat 数量:\n` +
-        `    3dgs-convert ply-to-spz input.ply --prune --contribution-cutoff ${maxSplats}`,
+          `  ★ H1 替代方案: 请在转换阶段使用 --contribution-cutoff 裁剪 splat 数量:\n` +
+          `    3dgs-convert ply-to-spz input.ply --prune --contribution-cutoff ${maxSplats}`,
       );
     }
 
@@ -780,10 +784,7 @@ export class RenderManager implements RendererAdapter {
    * [来源: Spark 类型 — defines.d.ts:63 PackedExtra.lodTree?: Uint32Array]
    * [来源: SogStreamer — packages/renderer-three/src/sog-streamer.ts]
    */
-  private async loadSceneWithSog(
-    lodSource: string,
-    options?: LoadOptions,
-  ): Promise<void> {
+  private async loadSceneWithSog(lodSource: string, options?: LoadOptions): Promise<void> {
     await this.loadSceneWithSogFallback(lodSource, options);
   }
 
@@ -799,10 +800,7 @@ export class RenderManager implements RendererAdapter {
    *
    * 此方法是 SOG 加载的唯一路径。
    */
-  private async loadSceneWithSogFallback(
-    lodSource: string,
-    options?: LoadOptions,
-  ): Promise<void> {
+  private async loadSceneWithSogFallback(lodSource: string, options?: LoadOptions): Promise<void> {
     const chunkDataList: ArrayBuffer[] = [];
     let metadata: SogMetadata | null = null;
     let firstMeshReady = false;
@@ -882,7 +880,7 @@ export class RenderManager implements RendererAdapter {
 
       console.info(
         `[RenderManager] SOG 降采样: ${sampledSplats.toLocaleString()} / ${loadedSplats.toLocaleString()} splats ` +
-        `(step=${step.toFixed(2)}, 保留 ${(sampledSplats / loadedSplats * 100).toFixed(1)}%)`,
+          `(step=${step.toFixed(2)}, 保留 ${((sampledSplats / loadedSplats) * 100).toFixed(1)}%)`,
       );
       meshData = sampledData;
     }
@@ -916,7 +914,7 @@ export class RenderManager implements RendererAdapter {
     const quantStr = metadata.positionQuantization === 1 ? '24bit' : 'off';
     console.info(
       `[RenderManager] SOG 回退加载完成: ${metadata.numSplats.toLocaleString()} splats, ` +
-      `${metadata.numChunks} chunks, compression=${compressionStr}, posQuant=${quantStr}, v${metadata.version}`,
+        `${metadata.numChunks} chunks, compression=${compressionStr}, posQuant=${quantStr}, v${metadata.version}`,
     );
   }
 
@@ -1000,12 +998,15 @@ export class RenderManager implements RendererAdapter {
 
     // 保存原始 shader (仅在第一次调用时保存, 后续始终从原始源码重建)
     if (!(material as unknown as { _originalVertexShader?: string })._originalVertexShader) {
-      (material as unknown as { _originalVertexShader?: string })._originalVertexShader = material.vertexShader;
-      (material as unknown as { _originalFragmentShader?: string })._originalFragmentShader = material.fragmentShader;
+      (material as unknown as { _originalVertexShader?: string })._originalVertexShader =
+        material.vertexShader;
+      (material as unknown as { _originalFragmentShader?: string })._originalFragmentShader =
+        material.fragmentShader;
     }
 
     const origVS = (material as unknown as { _originalVertexShader: string })._originalVertexShader;
-    const origFS = (material as unknown as { _originalFragmentShader: string })._originalFragmentShader;
+    const origFS = (material as unknown as { _originalFragmentShader: string })
+      ._originalFragmentShader;
 
     const injections = Array.from(this._shaderInjections.values());
 
@@ -1181,7 +1182,10 @@ export class RenderManager implements RendererAdapter {
       this._contextLostHandler = undefined;
     }
     if (this._contextRestoredHandler && this.renderer) {
-      this.renderer.domElement?.removeEventListener('webglcontextrestored', this._contextRestoredHandler);
+      this.renderer.domElement?.removeEventListener(
+        'webglcontextrestored',
+        this._contextRestoredHandler,
+      );
       this._contextRestoredHandler = undefined;
     }
 
@@ -1311,7 +1315,7 @@ export class RenderManager implements RendererAdapter {
 
       console.info(
         `[RenderManager] 摄像机已定位: pos=(${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)}), ` +
-        `sceneSize=${maxDim.toFixed(2)}, moveSpeed=${this._keyboard.moveSpeed.toFixed(1)}`,
+          `sceneSize=${maxDim.toFixed(2)}, moveSpeed=${this._keyboard.moveSpeed.toFixed(1)}`,
       );
     } catch (err) {
       console.warn('[RenderManager] 摄像机自动定位失败:', err);
@@ -1390,31 +1394,28 @@ export class RenderManager implements RendererAdapter {
 
     // 始终调用 createLodSplats() 以确保 LOD 消隐生效
     const useSogQuality = metadata && metadata.lodQuality !== undefined;
-    const quality = useSogQuality
-      ? metadata!.lodQuality === 1
-      : this.tierSettings.lodQuality;
+    const quality = useSogQuality ? metadata!.lodQuality === 1 : this.tierSettings.lodQuality;
 
     // 若存在预建 LOD 数据, 缓存并日志提示
     if (metadata?.lodLevels && metadata.lodLevels.length > 0) {
       this._sogLodLevels = metadata.lodLevels;
       this._sogLodBase = metadata.lodBase;
-      const levelsStr = metadata.lodLevels
-        .map(n => n.toLocaleString())
-        .join(' → ');
+      const levelsStr = metadata.lodLevels.map((n) => n.toLocaleString()).join(' → ');
       console.info(
         `[RenderManager] 预构建 LOD 就绪: ` +
-        `${metadata.lodLevels.length} 层, base=${metadata.lodBase?.toFixed(2) ?? '?'}, ` +
-        `层级=[${levelsStr}] (仍调用 WASM 以保消隐)`,
+          `${metadata.lodLevels.length} 层, base=${metadata.lodBase?.toFixed(2) ?? '?'}, ` +
+          `层级=[${levelsStr}] (仍调用 WASM 以保消隐)`,
       );
     }
 
     // 非阻塞: 不 await, 立即返回
-    mesh.createLodSplats({ quality })
+    mesh
+      .createLodSplats({ quality })
       .then(() => {
         this._lodReady = true;
         console.info(
           `[RenderManager] LOD 树非阻塞构建完成 (quality=${quality}, ` +
-          `source=${useSogQuality ? 'SOG' : 'tier'})`,
+            `source=${useSogQuality ? 'SOG' : 'tier'})`,
         );
       })
       .catch((err) => {
@@ -1451,7 +1452,12 @@ export const ThreeRenderer = RenderManager;
 
 // ─── WebGPU 检测 + 渲染器工厂 ──────────────────────────────
 export { detectWebGPU, isWebGPUMaybeAvailable } from './webgpu-detector.js';
-export type { WebGPUCapability, GpuType, WebGPULimits, TextureCompressionSupport } from './webgpu-detector.js';
+export type {
+  WebGPUCapability,
+  GpuType,
+  WebGPULimits,
+  TextureCompressionSupport,
+} from './webgpu-detector.js';
 
 export { createRenderer, createRendererSync } from './renderer-factory.js';
 export type {
@@ -1462,14 +1468,18 @@ export type {
 
 // ─── SOG 流式 LOD ──────────────────────────────────────────
 export { SogStreamer } from './sog-streamer.js';
-export type {
-  SogStreamerOptions,
-  SogMetadata,
-  SogChunkEntry,
-} from './sog-streamer.js';
+export type { SogStreamerOptions, SogMetadata, SogChunkEntry } from './sog-streamer.js';
 
 // ─── SPZ 解码 (★ C1: decodeSpzInWorker 已不再用于加载路径, 保留导出供向后兼容) ──
-export { decodeSpzInWorker, decodeSpz, parseSpzHeader, readSpzHeader, validateSpzHeader, SPZ_MAGIC, SPZ_VERSION } from './spz-decoder-worker.js';
+export {
+  decodeSpzInWorker,
+  decodeSpz,
+  parseSpzHeader,
+  readSpzHeader,
+  validateSpzHeader,
+  SPZ_MAGIC,
+  SPZ_VERSION,
+} from './spz-decoder-worker.js';
 export type { SpzHeader } from './spz-decoder-worker.js';
 
 // ─── P2-1: 视锥剔除预处理 ─────────────────────────────────

@@ -23,8 +23,7 @@ import { ShaderHookPoint, type ShaderInjection } from '@3dgs/core';
 
 /** 预设名称 */
 export type ShaderPresetName =
-  | 'cool' | 'warm' | 'grayscale' | 'sepia' | 'invert'
-  | 'vignette' | 'pulse' | 'scanline';
+  'cool' | 'warm' | 'grayscale' | 'sepia' | 'invert' | 'vignette' | 'pulse' | 'scanline';
 
 /** 预设可调参数 */
 export interface ShaderPresetOptions {
@@ -41,7 +40,14 @@ export function presetId(name: ShaderPresetName): string {
 
 /** 全部预设名称 (供 UI 枚举) */
 export const SHADER_PRESET_NAMES: ShaderPresetName[] = [
-  'cool', 'warm', 'grayscale', 'sepia', 'invert', 'vignette', 'pulse', 'scanline',
+  'cool',
+  'warm',
+  'grayscale',
+  'sepia',
+  'invert',
+  'vignette',
+  'pulse',
+  'scanline',
 ];
 
 /**
@@ -50,7 +56,10 @@ export const SHADER_PRESET_NAMES: ShaderPresetName[] = [
  * @param name 预设名
  * @param options 强度/速度等参数
  */
-export function createPreset(name: ShaderPresetName, options: ShaderPresetOptions = {}): ShaderInjection {
+export function createPreset(
+  name: ShaderPresetName,
+  options: ShaderPresetOptions = {},
+): ShaderInjection {
   const id = presetId(name);
   const intensity = options.intensity ?? 0.5;
   const speed = options.speed ?? 2.0;

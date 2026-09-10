@@ -9,10 +9,7 @@ import * as THREE from 'three';
 
 /** 在 main() 的开头插入代码 */
 export function injectAfterMainBegin(shader: string, code: string): string {
-  return shader.replace(
-    /(void\s+main\s*\(\s*(?:void)?\s*\)\s*\{)/,
-    `$1\n  ${code}`,
-  );
+  return shader.replace(/(void\s+main\s*\(\s*(?:void)?\s*\)\s*\{)/, `$1\n  ${code}`);
 }
 
 /** 在指定正则模式之前插入代码 */

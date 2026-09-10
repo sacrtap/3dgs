@@ -23,10 +23,7 @@ describe('concatChunksInWorker — D-02 空洞防御', () => {
 
   it('完整 chunk 列表正确拼接 (主线程回退路径)', async () => {
     // Node 测试环境无浏览器 Worker 全局, 走主线程拼接回退 — 行为一致
-    const chunks = [
-      new Uint8Array([1, 2]).buffer,
-      new Uint8Array([3, 4, 5]).buffer,
-    ];
+    const chunks = [new Uint8Array([1, 2]).buffer, new Uint8Array([3, 4, 5]).buffer];
 
     const result = await concatChunksInWorker(chunks);
 

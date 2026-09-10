@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="zh-CN" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="generator" content="better-harness codex-html">
+  <title>Harness 洞察 · 3dgs</title>
+  <style>
+    :root { color-scheme: dark; --bg:#111315; --panel:#1a1d20; --panel-2:#21252a; --line:#31363d; --text:#f5f7fa; --muted:#9aa3ad; --blue:#6cb8ff; --blue-2:#1b6ca8; --orange:#ff9a5a; --green:#53d69b; --red:#ff6b6b; }
+    * { box-sizing:border-box; }
+    html { background:var(--bg); scroll-behavior:smooth; }
+    .cjk-phrase { white-space:nowrap; }
+    body { margin:0; min-width:320px; font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--text); background:radial-gradient(circle at 12% -10%,#22364a 0,transparent 34rem),var(--bg); line-height:1.55; }
+    .sr-only { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
+    body::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.22; background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px); background-size:28px 28px; }
+    main { position:relative; width:min(1180px,calc(100% - 40px)); margin:0 auto; padding:52px 0 88px; }
+    h1,h2,h3,p { margin-top:0; }
+    .eyebrow,.label { color:var(--blue); font-size:12px; font-weight:700; letter-spacing:.11em; text-transform:uppercase; }
+    .hero { display:grid; grid-template-columns:minmax(0,1fr) 190px; gap:36px; align-items:end; min-height:270px; padding:42px; border:1px solid var(--line); border-radius:28px; background:linear-gradient(135deg,rgba(36,43,51,.96),rgba(21,24,27,.94)); box-shadow:0 28px 70px rgba(0,0,0,.28); }
+    .hero h1 { margin:12px 0 10px; font-size:clamp(42px,7vw,82px); line-height:.96; letter-spacing:-.055em; }
+    .hero p { max-width:760px; margin-bottom:22px; color:#c9d0d8; font-size:18px; }
+    .hero-tags { display:flex; flex-wrap:wrap; gap:8px; }
+    .score-orbit { width:174px; aspect-ratio:1; display:grid; place-content:center; text-align:center; border:14px solid #343a41; border-top-color:var(--blue); border-right-color:var(--blue-2); border-radius:50%; background:#1a2026; box-shadow:inset 0 0 0 1px var(--line); }
+    .score-orbit strong { font-size:44px; line-height:1; }
+    .score-orbit > span { width:110px; margin-top:7px; color:var(--muted); font-size:12px; }
+    .pill { display:inline-flex; align-items:center; min-height:26px; padding:3px 10px; border-radius:999px; color:#d4dae0; background:#30353b; font-size:12px; font-weight:700; }
+    .pill.accent { color:#c9e8ff; background:#164e75; }.pill.good { color:#c9f9e5; background:#165c43; }.pill.warning { color:#ffe1c8; background:#754322; }.pill.danger { color:#ffd4d4; background:#762e31; }.pill.muted,.pill.neutral { color:#c8cdd3; background:#34383d; }
+    .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:18px 0 54px; }
+    .metric { min-height:126px; padding:22px 24px; border:1px solid var(--line); border-radius:20px; background:rgba(30,34,38,.9); }
+    .metric > span,.metric > small { display:block; color:var(--muted); }.metric > strong { display:block; margin:5px 0 2px; font-size:34px; line-height:1.1; }.metric > small { font-size:12px; }
+    .section { margin-top:64px; scroll-margin-top:24px; }.section-heading { display:flex; justify-content:space-between; gap:30px; align-items:end; margin-bottom:20px; }.section-heading h2 { margin:5px 0 0; font-size:30px; letter-spacing:-.025em; }.section-heading > p { max-width:420px; margin:0; color:var(--muted); text-align:right; font-size:14px; }
+    .dimension-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }.dimension-card { min-height:230px; padding:19px; border:1px solid var(--line); border-radius:19px; background:linear-gradient(180deg,var(--panel-2),var(--panel)); }.dimension-top { display:flex; min-height:52px; justify-content:space-between; gap:8px; align-items:flex-start; font-weight:700; }.score-line { display:flex; align-items:baseline; gap:4px; margin-top:14px; }.score-line strong { font-size:34px; }.score-line span { color:var(--muted); font-size:12px; }.track { height:8px; margin:8px 0 16px; overflow:hidden; border-radius:999px; background:#30353a; }.track i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--blue-2),var(--blue)); }.dimension-card p { margin:0; color:var(--muted); font-size:13px; }
+    .activity-layout { display:grid; grid-template-columns:minmax(0,1.8fr) minmax(230px,.7fr); gap:14px; }.activity-panel,.subpanel,.finding,.custom-grid article,.evidence-grid,.evidence-note { border:1px solid var(--line); border-radius:19px; background:var(--panel); }.activity-panel { display:flex; min-width:0; flex-direction:column; justify-content:center; padding:22px; overflow:hidden; }.heat-scroll { width:100%; min-width:0; overflow-x:auto; padding-bottom:8px; }.heatmap,.heat-axis { display:grid; grid-template-columns:repeat(var(--heat-days),minmax(13px,1fr)); column-gap:4px; min-width:var(--heat-min-width); }.heatmap { align-items:center; }.heat-cell { width:13px; height:13px; justify-self:center; border-radius:3px; background:#2b3035; }.heat-cell.l1{background:#174d70}.heat-cell.l2{background:#206f9e}.heat-cell.l3{background:#319bd1}.heat-cell.l4{background:#70c9ff}.heat-axis { margin-top:10px; color:var(--muted); font-size:10px; }.heat-tick { justify-self:center; white-space:nowrap; }.heat-tick.first { justify-self:start; }.heat-tick.last { justify-self:end; }.heatmap-empty { color:var(--muted); }.stacked-metrics { display:grid; gap:14px; }.stacked-metrics .metric { min-height:0; }
+    .long-session-review { margin-top:14px; padding:22px; border:1px solid var(--line); border-radius:19px; background:linear-gradient(180deg,#201f1d,var(--panel)); }.long-session-heading { display:flex; justify-content:space-between; gap:24px; align-items:end; }.long-session-heading h3 { margin:4px 0 0; font-size:20px; }.long-session-heading > p { max-width:520px; margin:0; color:var(--muted); text-align:right; font-size:12px; }.long-session-list { display:grid; gap:12px; margin-top:18px; }.long-session-card { min-width:0; padding:17px; overflow:hidden; border:1px solid var(--line); border-radius:16px; background:#181b1e; }.long-session-meta { display:flex; justify-content:space-between; gap:16px; align-items:center; color:var(--muted); font-size:12px; }.long-session-tags { min-width:0; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }.long-session-tags strong { color:var(--text); font-size:15px; }.long-session-request,.long-session-locator { display:grid; grid-template-columns:72px minmax(0,1fr); gap:10px; margin:12px 0 0; color:#d2d8df; overflow-wrap:anywhere; font-size:13px; }.long-session-request > span,.long-session-locator > span { color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }.long-session-locator code { min-width:0; overflow:hidden; color:#bfe3ff; text-overflow:ellipsis; white-space:nowrap; }.tool-trace-details { margin-top:14px; border-top:1px solid var(--line); }.tool-trace-details summary { display:flex; justify-content:space-between; gap:16px; align-items:center; padding:13px 2px 0; color:#dce5ed; cursor:pointer; font-size:13px; font-weight:700; }.tool-trace-details summary small { color:var(--muted); font-weight:400; text-align:right; }.tool-trace-details summary:focus-visible,.tool-trace-scroll:focus-visible { outline:2px solid var(--blue); outline-offset:3px; }.tool-trace-body { padding-top:12px; }.tool-trace-scroll { width:100%; max-width:100%; overflow-x:auto; padding-bottom:8px; overscroll-behavior-inline:contain; }.tool-trace-svg { display:block; max-width:none; color:#d6dde5; overflow:visible; }.tool-trace-row-alt { fill:currentColor; opacity:.035; }.tool-trace-lane-line { stroke:currentColor; stroke-dasharray:3 5; opacity:.22; }.tool-trace-grid-line { stroke:currentColor; opacity:.12; }.tool-trace-axis-line { stroke:currentColor; opacity:.25; }.tool-trace-lane-label,.tool-trace-tick,.tool-trace-axis-label { fill:currentColor; font-size:11px; opacity:.68; }.tool-trace-axis-label { font-weight:700; }.tool-trace-point { fill:#64748b; stroke:currentColor; stroke-width:1; }.tool-trace-point.failed { fill:var(--orange); }.tool-trace-point:focus { outline:none; stroke:var(--blue); stroke-width:3; }.tool-trace-body > p,.long-session-boundary { margin:4px 0 0; color:var(--muted); font-size:12px; }.tool-trace-empty { min-width:680px; margin:0; padding:24px; border:1px dashed var(--line); border-radius:12px; }.long-session-boundary { margin-top:14px; }
+    .two-column { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }.subpanel { padding:22px; }.subpanel h3 { font-size:15px; }.usage-list { display:grid; gap:12px; }.usage-row { display:grid; grid-template-columns:minmax(100px,.75fr) 1fr 52px; gap:12px; align-items:center; font-size:12px; }.usage-row > span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }.usage-row i { height:7px; overflow:hidden; border-radius:999px; background:#30353a; }.usage-row b { display:block; height:100%; background:linear-gradient(90deg,var(--blue-2),var(--blue)); }.usage-row strong { text-align:right; }
+    .finding-list { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }.finding-card { min-width:0; min-height:220px; display:flex; flex-direction:column; padding:18px; border:1px solid var(--line); border-radius:19px; background:linear-gradient(180deg,#1c2329,var(--panel)); }.finding-card-main { display:grid; gap:10px; }.finding-meta { display:flex; flex-wrap:wrap; gap:7px; }.finding-card h3 { min-height:2.8em; margin:0; display:-webkit-box; overflow:hidden; font-size:17px; line-height:1.4; -webkit-box-orient:vertical; -webkit-line-clamp:2; }.finding-preview { margin:0; color:#c7ced6; display:-webkit-box; overflow:hidden; font-size:13px; line-height:1.55; -webkit-box-orient:vertical; -webkit-line-clamp:2; }.finding-actions,.dialog-actions { display:flex; flex-wrap:wrap; justify-content:space-between; gap:10px; margin-top:auto; padding-top:16px; }.action-button { min-height:38px; padding:8px 13px; border:1px solid transparent; border-radius:10px; color:var(--text); background:#30363d; font:inherit; font-size:13px; font-weight:700; cursor:pointer; }.action-button:hover { filter:brightness(1.12); }.action-button:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }.action-button.secondary { color:#cceaff; border-color:#286d9b; background:#164e75; }.action-button.ghost { color:#d4dae0; border-color:var(--line); background:transparent; }.finding-dialog,.manual-copy-dialog { width:min(880px,calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow:auto; padding:24px; border:1px solid var(--line); border-radius:20px; color:var(--text); background:var(--panel); box-shadow:0 30px 90px rgba(0,0,0,.55); }.finding-dialog::backdrop,.manual-copy-dialog::backdrop { background:rgba(4,8,12,.72); }.dialog-heading { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; }.dialog-heading h3 { margin:6px 0 0; font-size:24px; }.dialog-section { margin-top:18px; }.dialog-section p { margin:7px 0 0; color:#d1d7de; }.dialog-section ol,.dialog-section ul { margin:8px 0 0; padding-left:22px; color:#d1d7de; }.manual-copy-dialog textarea { width:100%; min-height:260px; margin-top:14px; padding:14px; resize:vertical; border:1px solid var(--line); border-radius:12px; color:var(--text); background:#11161b; font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; }.no-js .finding-actions,.no-js .manual-copy-dialog { display:none!important; }.no-js .finding-dialog:not([open]) { display:block; position:static; width:auto; max-height:none; margin-top:16px; box-shadow:none; }
+    .suggestion-block { margin-top:28px; padding-top:24px; border-top:1px solid var(--line); }.suggestion-heading { display:flex; justify-content:space-between; gap:20px; align-items:end; margin-bottom:14px; }.suggestion-heading h3 { margin:4px 0 0; font-size:20px; }.suggestion-heading p { margin:0; color:var(--muted); font-size:12px; }.suggestion-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; }.suggestion { padding:18px; border:1px solid var(--line); border-radius:17px; background:linear-gradient(180deg,#1b252d,var(--panel)); }.suggestion-top { display:flex; justify-content:space-between; gap:8px; }.suggestion h3 { margin:13px 0 7px; font-size:16px; }.suggestion > p { color:#c7ced6; font-size:13px; }.suggestion dl { display:grid; gap:9px; margin:14px 0 0; }.suggestion dl div { display:grid; gap:2px; }.suggestion dt { color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }.suggestion dd { margin:0; color:#d7dde4; font-size:12px; }
+    .custom-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }.custom-grid article { display:flex; gap:14px; align-items:center; padding:18px; }.custom-grid h3 { margin:0; font-size:15px; }.custom-grid p { margin:3px 0 0; color:var(--muted); font-size:12px; }.custom-mark { display:grid; flex:0 0 38px; aspect-ratio:1; place-content:center; border-radius:12px; color:#d9efff; background:#164e75; font-weight:800; }
+    .evidence-grid { display:grid; grid-template-columns:repeat(3,1fr); overflow:hidden; }.evidence-grid div { padding:20px; border-right:1px solid var(--line); border-bottom:1px solid var(--line); }.evidence-grid > div > span,.evidence-grid > div > strong { display:block; }.evidence-grid > div > span { color:var(--muted); font-size:12px; }.evidence-grid > div > strong { margin-top:4px; }.evidence-note { margin-top:14px; padding:20px; }.method-note,.empty { color:var(--muted); }.method-note { max-width:800px; margin:18px 0 0; font-size:13px; }
+    footer { margin-top:64px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:12px; }
+    @media (max-width:1000px) { .finding-list{grid-template-columns:repeat(2,minmax(0,1fr))} }
+    @media (max-width:900px) { .metrics,.dimension-grid{grid-template-columns:repeat(2,1fr)}.activity-layout,.two-column{grid-template-columns:1fr}.evidence-grid{grid-template-columns:repeat(2,1fr)} }
+    @media (max-width:680px) { .finding-list{grid-template-columns:1fr}.finding-card{min-height:0} }
+    @media (max-width:620px) { main{width:min(100% - 24px,1180px);padding-top:18px}.hero{grid-template-columns:1fr;min-height:0;padding:25px;border-radius:22px}.hero h1{font-size:44px}.hero p{font-size:15px}.score-orbit{width:126px}.score-orbit strong{font-size:34px}.metrics{grid-template-columns:1fr;margin-bottom:42px}.metric{min-height:0}.section{margin-top:46px}.section-heading,.suggestion-heading,.long-session-heading{display:block}.section-heading > p,.suggestion-heading > p,.long-session-heading > p{text-align:left;margin-top:8px}.dimension-grid{grid-template-columns:1fr}.dimension-card{min-height:0}.evidence-grid{grid-template-columns:1fr}.usage-row{grid-template-columns:minmax(92px,.7fr) 1fr 44px}.long-session-review{padding:15px}.long-session-meta,.tool-trace-details summary{align-items:flex-start;flex-direction:column}.long-session-request,.long-session-locator{grid-template-columns:1fr;gap:3px}.finding-dialog{padding:18px}.dialog-heading{display:grid} }
+    @media print { :root{color-scheme:light;--bg:#fff;--panel:#fff;--panel-2:#f6f8fa;--line:#d8dee4;--text:#111;--muted:#59636e}body{background:#fff}body::before{display:none}.hero{box-shadow:none}.section{break-inside:avoid}.finding-list{display:block}.finding-card,.long-session-card{margin-bottom:16px;break-inside:avoid}.finding-actions,.dialog-actions,.manual-copy-dialog{display:none!important}.finding-dialog:not([open]),details.tool-trace-details:not([open]) > :not(summary){display:block!important;position:static;width:auto;max-height:none;margin-top:16px;box-shadow:none}.tool-trace-scroll{overflow:visible}.tool-trace-svg{width:100%;height:auto} }
+  </style>
+</head>
+<body>
+<div id="copy-status" class="sr-only" role="status" aria-live="polite"></div>
+<main id="harness-report" data-report-mode="codex-html">
+<header class="hero" data-section="overview">
+    <div class="hero-copy">
+      <span class="eyebrow">Harness <span class="cjk-phrase">洞察</span> · 便携式 HTML</span>
+      <h1>@3dgs/monorepo</h1>
+      <p><span class="cjk-phrase">项目</span><span class="cjk-phrase">具备</span><span class="cjk-phrase">完整</span>的 CI/CD <span class="cjk-phrase">流水</span>线、<span class="cjk-phrase">测试</span><span class="cjk-phrase">基础</span><span class="cjk-phrase">设施</span>和 AGENTS.md <span class="cjk-phrase">指令</span>文档，但多项<span class="cjk-phrase">机制</span><span class="cjk-phrase">尚未</span>接入<span class="cjk-phrase">日常</span><span class="cjk-phrase">工作</span>流：CI 未<span class="cjk-phrase">验证</span><span class="cjk-phrase">声明</span>的<span class="cjk-phrase">最低</span> Node <span class="cjk-phrase">版本</span>、<span class="cjk-phrase">约束</span><span class="cjk-phrase">声明</span><span class="cjk-phrase">缺少</span><span class="cjk-phrase">自动</span>化<span class="cjk-phrase">守卫</span>、高<span class="cjk-phrase">风险</span>包<span class="cjk-phrase">缺少</span>嵌套<span class="cjk-phrase">指令</span>、<span class="cjk-phrase">会话</span><span class="cjk-phrase">证据</span><span class="cjk-phrase">完全</span><span class="cjk-phrase">缺失</span><span class="cjk-phrase">导致</span><span class="cjk-phrase">学习</span><span class="cjk-phrase">循环</span><span class="cjk-phrase">无法</span><span class="cjk-phrase">运行</span>。</p>
+      <div class="hero-tags"><span class="pill accent">agent-work-loop-v4</span><span class="pill muted"><span class="cjk-phrase">证据</span>有界</span></div>
+    </div>
+    <div class="score-orbit"><strong>5</strong><span><span class="cjk-phrase">独立</span><span class="cjk-phrase">复核</span>维度</span></div>
+  </header>
+  <div class="metrics">
+    <div class="metric">
+    <span><span class="cjk-phrase">循环</span><span class="cjk-phrase">有效性</span></span>
+    <strong>58 / 100</strong>
+    <small><span class="cjk-phrase">等待</span>后续<span class="cjk-phrase">任务</span><span class="cjk-phrase">结果</span>后<span class="cjk-phrase">更新</span></small>
+  </div>
+    <div class="metric">
+    <span><span class="cjk-phrase">资产</span><span class="cjk-phrase">健康</span> / <span class="cjk-phrase">修复</span><span class="cjk-phrase">进度</span></span>
+    <strong>0 / 100</strong>
+    <small>0 项已<span class="cjk-phrase">验证</span> · 0 项<span class="cjk-phrase">部分</span><span class="cjk-phrase">完成</span> · 4 项待<span class="cjk-phrase">处理</span></small>
+  </div>
+    <div class="metric">
+    <span><span class="cjk-phrase">会话</span><span class="cjk-phrase">样本</span></span>
+    <strong>N/A</strong>
+    
+  </div>
+    <div class="metric">
+    <span>待<span class="cjk-phrase">处理</span> Finding</span>
+    <strong>4</strong>
+    <small>0 High · 2 Medium</small>
+  </div>
+  </div>
+  <section class="section" data-section="fluency" aria-labelledby="section-fluency">
+    <div class="section-heading">
+      <div><span class="eyebrow">01 · <span class="cjk-phrase">就绪</span>度</span><h2 id="section-fluency">五维<span class="cjk-phrase">流畅</span>度</h2></div>
+      <p><span class="cjk-phrase">分数</span>与<span class="cjk-phrase">状态</span><span class="cjk-phrase">来自</span>已<span class="cjk-phrase">复核</span> source。</p>
+    </div>
+    <div class="dimension-grid">
+    <article class="dimension-card" data-dimension-id="task-understanding">
+        <div class="dimension-top"><span><span class="cjk-phrase">任务</span><span class="cjk-phrase">理解</span></span><span class="pill muted">已<span class="cjk-phrase">复核</span></span></div>
+        <div class="score-line"><strong>68</strong><span>/ 100</span></div>
+        <div class="track" role="progressbar" aria-label="任务理解 68 of 100" aria-valuemin="0" aria-valuemax="100" aria-valuenow="68"><i style="width:68%"></i></div>
+        <p>AGENTS.md <span class="cjk-phrase">提供</span>了<span class="cjk-phrase">项目</span><span class="cjk-phrase">描述</span>、<span class="cjk-phrase">命令</span><span class="cjk-phrase">清单</span>、反<span class="cjk-phrase">直觉</span><span class="cjk-phrase">模式</span>和<span class="cjk-phrase">风险</span><span class="cjk-phrase">控制</span><span class="cjk-phrase">声明</span>，但<span class="cjk-phrase">缺少</span><span class="cjk-phrase">架构</span>文档和嵌套 scoped instructions 为高<span class="cjk-phrase">风险</span>包<span class="cjk-phrase">提供</span><span class="cjk-phrase">边界</span><span class="cjk-phrase">指引</span>。</p>
+      </article>
+<article class="dimension-card" data-dimension-id="controlled-execution">
+        <div class="dimension-top"><span>可控<span class="cjk-phrase">执行</span></span><span class="pill muted">已<span class="cjk-phrase">复核</span></span></div>
+        <div class="score-line"><strong>62</strong><span>/ 100</span></div>
+        <div class="track" role="progressbar" aria-label="可控执行 62 of 100" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62"><i style="width:62%"></i></div>
+        <p><span class="cjk-phrase">工作</span>区<span class="cjk-phrase">命令</span>已文档化且 pnpm-workspace.yaml <span class="cjk-phrase">配置</span><span class="cjk-phrase">正确</span>，但 CI 仅<span class="cjk-phrase">测试</span> Node 20 而未<span class="cjk-phrase">覆盖</span><span class="cjk-phrase">声明</span>的<span class="cjk-phrase">最低</span><span class="cjk-phrase">版本</span> Node &gt;= 18，<span class="cjk-phrase">缺少</span> doctor/health <span class="cjk-phrase">命令</span><span class="cjk-phrase">验证</span><span class="cjk-phrase">环境</span><span class="cjk-phrase">就绪</span>。</p>
+      </article>
+<article class="dimension-card" data-dimension-id="change-validation">
+        <div class="dimension-top"><span>改动<span class="cjk-phrase">验证</span></span><span class="pill muted">已<span class="cjk-phrase">复核</span></span></div>
+        <div class="score-line"><strong>65</strong><span>/ 100</span></div>
+        <div class="track" role="progressbar" aria-label="改动验证 65 of 100" aria-valuemin="0" aria-valuemax="100" aria-valuenow="65"><i style="width:65%"></i></div>
+        <p>Vitest <span class="cjk-phrase">测试</span><span class="cjk-phrase">基础</span><span class="cjk-phrase">设施</span><span class="cjk-phrase">完整</span>（27 个<span class="cjk-phrase">测试</span><span class="cjk-phrase">文件</span>），CI <span class="cjk-phrase">包含</span> lint+build+typecheck+test <span class="cjk-phrase">流程</span>，但<span class="cjk-phrase">缺少</span> e2e/<span class="cjk-phrase">视觉</span><span class="cjk-phrase">回归</span><span class="cjk-phrase">测试</span>层，且 CI 未<span class="cjk-phrase">验证</span><span class="cjk-phrase">最低</span> Node <span class="cjk-phrase">版本</span><span class="cjk-phrase">兼容</span>性。</p>
+      </article>
+<article class="dimension-card" data-dimension-id="reliable-delivery">
+        <div class="dimension-top"><span><span class="cjk-phrase">可靠</span><span class="cjk-phrase">交付</span></span><span class="pill muted">已<span class="cjk-phrase">复核</span></span></div>
+        <div class="score-line"><strong>55</strong><span>/ 100</span></div>
+        <div class="track" role="progressbar" aria-label="可靠交付 55 of 100" aria-valuemin="0" aria-valuemax="100" aria-valuenow="55"><i style="width:55%"></i></div>
+        <p>CI/CD <span class="cjk-phrase">流水</span>线和 changeset <span class="cjk-phrase">发布</span><span class="cjk-phrase">流程</span><span class="cjk-phrase">存在</span>，但<span class="cjk-phrase">交付</span><span class="cjk-phrase">验收</span><span class="cjk-phrase">边界</span>未显式<span class="cjk-phrase">定义</span>，回滚/<span class="cjk-phrase">恢复</span>路由未与<span class="cjk-phrase">具体</span><span class="cjk-phrase">资源</span>绑定，benchmark job 的 30s <span class="cjk-phrase">等待</span><span class="cjk-phrase">循环</span>无超时<span class="cjk-phrase">恢复</span><span class="cjk-phrase">策略</span>。</p>
+      </article>
+<article class="dimension-card" data-dimension-id="learning-capture">
+        <div class="dimension-top"><span><span class="cjk-phrase">经验</span><span class="cjk-phrase">沉淀</span></span><span class="pill muted">已<span class="cjk-phrase">复核</span></span></div>
+        <div class="score-line"><strong>38</strong><span>/ 100</span></div>
+        <div class="track" role="progressbar" aria-label="经验沉淀 38 of 100" aria-valuemin="0" aria-valuemax="100" aria-valuenow="38"><i style="width:38%"></i></div>
+        <p>无 Skills、Hooks 或<span class="cjk-phrase">学习</span><span class="cjk-phrase">循环</span><span class="cjk-phrase">配置</span>；<span class="cjk-phrase">会话</span><span class="cjk-phrase">证据</span><span class="cjk-phrase">完全</span><span class="cjk-phrase">缺失</span>（0 个<span class="cjk-phrase">符合</span><span class="cjk-phrase">条件</span><span class="cjk-phrase">会话</span>），<span class="cjk-phrase">无法</span><span class="cjk-phrase">检测</span><span class="cjk-phrase">重复</span><span class="cjk-phrase">工作</span>流或<span class="cjk-phrase">验证</span><span class="cjk-phrase">改进</span><span class="cjk-phrase">效果</span>。</p>
+      </article>
+  </div>
+  </section>
+  
+  <section class="section" data-section="findings" aria-labelledby="section-findings">
+    <div class="section-heading">
+      <div><span class="eyebrow">03 · <span class="cjk-phrase">行动</span></span><h2 id="section-findings">Finding 与<span class="cjk-phrase">建议</span></h2></div>
+      <p>4 条 finding · 0 条<span class="cjk-phrase">建议</span></p>
+    </div>
+    <div class="finding-list"><article class="finding-card" data-finding-id="ci-node-version-gap">
+      <div class="finding-card-main">
+        <div class="finding-meta">
+          <span class="pill warning">Medium</span>
+          <span class="pill neutral">可控<span class="cjk-phrase">执行</span></span>
+        </div>
+        <h3>CI 未<span class="cjk-phrase">验证</span> AGENTS.md <span class="cjk-phrase">声明</span>的<span class="cjk-phrase">最低</span> Node <span class="cjk-phrase">版本</span></h3>
+        <p class="finding-preview">AGENTS.md <span class="cjk-phrase">声明</span> Runtime: Node &gt;= 18，但 ci.yml 中两个 job 均硬<span class="cjk-phrase">编码</span> node-version: 20，无 matrix <span class="cjk-phrase">策略</span><span class="cjk-phrase">覆盖</span> Node 18/20/22。当<span class="cjk-phrase">代理</span><span class="cjk-phrase">依赖</span> AGENTS.md <span class="cjk-phrase">声明</span>的<span class="cjk-phrase">版本</span><span class="cjk-phrase">约束</span><span class="cjk-phrase">编写</span><span class="cjk-phrase">代码</span>时，CI <span class="cjk-phrase">无法</span><span class="cjk-phrase">捕获</span>在 Node 18 上的<span class="cjk-phrase">兼容</span>性<span class="cjk-phrase">回归</span>。<span class="cjk-phrase">证据</span><span class="cjk-phrase">来自</span> .github/workflows/ci.yml 第 22 行和第 55 行的 node-version: 20 硬<span class="cjk-phrase">编码</span>，与 AGENTS.md 的 Runtime <span class="cjk-phrase">声明</span><span class="cjk-phrase">冲突</span>。</p>
+      </div>
+      <div class="finding-actions">
+        <button type="button" class="action-button secondary" data-copy-finding="ci-node-version-gap" aria-label="复制 AI 修复: CI 未验证 AGENTS.md 声明的最低 Node 版本"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span></button>
+        <button type="button" class="action-button ghost" data-view-finding-dialog="finding-dialog-1" aria-label="查看详情: CI 未验证 AGENTS.md 声明的最低 Node 版本"><span class="cjk-phrase">查看</span><span class="cjk-phrase">详情</span></button>
+      </div>
+      <dialog class="finding-dialog" id="finding-dialog-1" data-finding-dialog-id="ci-node-version-gap" aria-labelledby="finding-dialog-1-title">
+        <div class="dialog-heading">
+          <div><span class="label">Finding <span class="cjk-phrase">详情</span></span><h3 id="finding-dialog-1-title">CI 未<span class="cjk-phrase">验证</span> AGENTS.md <span class="cjk-phrase">声明</span>的<span class="cjk-phrase">最低</span> Node <span class="cjk-phrase">版本</span></h3></div>
+          <span class="pill warning">Medium</span>
+        </div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">原因</span></span><p>AGENTS.md <span class="cjk-phrase">声明</span> Runtime: Node &gt;= 18，但 ci.yml 中两个 job 均硬<span class="cjk-phrase">编码</span> node-version: 20，无 matrix <span class="cjk-phrase">策略</span><span class="cjk-phrase">覆盖</span> Node 18/20/22。当<span class="cjk-phrase">代理</span><span class="cjk-phrase">依赖</span> AGENTS.md <span class="cjk-phrase">声明</span>的<span class="cjk-phrase">版本</span><span class="cjk-phrase">约束</span><span class="cjk-phrase">编写</span><span class="cjk-phrase">代码</span>时，CI <span class="cjk-phrase">无法</span><span class="cjk-phrase">捕获</span>在 Node 18 上的<span class="cjk-phrase">兼容</span>性<span class="cjk-phrase">回归</span>。<span class="cjk-phrase">证据</span><span class="cjk-phrase">来自</span> .github/workflows/ci.yml 第 22 行和第 55 行的 node-version: 20 硬<span class="cjk-phrase">编码</span>，与 AGENTS.md 的 Runtime <span class="cjk-phrase">声明</span><span class="cjk-phrase">冲突</span>。</p></div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">预期</span><span class="cjk-phrase">结果</span></span><ol><li>CI build-and-test job <span class="cjk-phrase">使用</span> matrix <span class="cjk-phrase">策略</span><span class="cjk-phrase">测试</span> Node 18 和 20，<span class="cjk-phrase">确保</span><span class="cjk-phrase">声明</span><span class="cjk-phrase">支持</span>的<span class="cjk-phrase">最低</span><span class="cjk-phrase">版本</span>被<span class="cjk-phrase">持续</span><span class="cjk-phrase">验证</span>。</li></ol></div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">验收</span><span class="cjk-phrase">检查</span></span><ul><li><span class="cjk-phrase">运行</span> pnpm typecheck <span class="cjk-phrase">确认</span><span class="cjk-phrase">类型</span><span class="cjk-phrase">兼容</span></li><li>在<span class="cjk-phrase">本地</span>用 Node 18 <span class="cjk-phrase">运行</span> pnpm test <span class="cjk-phrase">确认</span><span class="cjk-phrase">测试</span><span class="cjk-phrase">通过</span></li><li><span class="cjk-phrase">检查</span> CI matrix <span class="cjk-phrase">是否</span>在两个<span class="cjk-phrase">版本</span>上都<span class="cjk-phrase">成功</span></li></ul></div>
+        <div class="dialog-actions">
+          <button type="button" class="action-button secondary" data-copy-finding="ci-node-version-gap" aria-label="复制 AI 修复: CI 未验证 AGENTS.md 声明的最低 Node 版本"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span></button>
+          <button type="button" class="action-button ghost" data-close-finding-dialog="finding-dialog-1"><span class="cjk-phrase">关闭</span></button>
+        </div>
+      </dialog>
+    </article>
+<article class="finding-card" data-finding-id="constraints-without-hooks">
+      <div class="finding-card-main">
+        <div class="finding-meta">
+          <span class="pill warning">Medium</span>
+          <span class="pill neutral">可控<span class="cjk-phrase">执行</span></span>
+        </div>
+        <h3><span class="cjk-phrase">声明</span>的<span class="cjk-phrase">约束</span><span class="cjk-phrase">缺少</span><span class="cjk-phrase">自动</span>化<span class="cjk-phrase">守卫</span></h3>
+        <p class="finding-preview">AGENTS.md <span class="cjk-phrase">声明</span>了 Do Not Touch（dist/、coverage/、.changeset/、benchmarks/reports/、*.ply 等）和 Risk Controls（renderer-three/src/index.ts 和 webgpu-render-manager.ts 的窄<span class="cjk-phrase">范围</span><span class="cjk-phrase">编辑</span><span class="cjk-phrase">要求</span>），但<span class="cjk-phrase">项目</span>中无<span class="cjk-phrase">任何</span> hook 或 pre-commit <span class="cjk-phrase">守卫</span>将<span class="cjk-phrase">这些</span><span class="cjk-phrase">约束</span><span class="cjk-phrase">转化</span>为<span class="cjk-phrase">自动</span>化<span class="cjk-phrase">拦截</span>。husky 和 lint-staged 已<span class="cjk-phrase">安装</span>但仅<span class="cjk-phrase">配置</span>了 eslint --fix 和 prettier --write，未<span class="cjk-phrase">覆盖</span> Do Not Touch <span class="cjk-phrase">约束</span>。<span class="cjk-phrase">证据</span><span class="cjk-phrase">来自</span> package.json 的 lint-staged <span class="cjk-phrase">配置</span>和 AGENTS.md 的 Do Not Touch <span class="cjk-phrase">段落</span>。</p>
+      </div>
+      <div class="finding-actions">
+        <button type="button" class="action-button secondary" data-copy-finding="constraints-without-hooks" aria-label="复制 AI 修复: 声明的约束缺少自动化守卫"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span></button>
+        <button type="button" class="action-button ghost" data-view-finding-dialog="finding-dialog-2" aria-label="查看详情: 声明的约束缺少自动化守卫"><span class="cjk-phrase">查看</span><span class="cjk-phrase">详情</span></button>
+      </div>
+      <dialog class="finding-dialog" id="finding-dialog-2" data-finding-dialog-id="constraints-without-hooks" aria-labelledby="finding-dialog-2-title">
+        <div class="dialog-heading">
+          <div><span class="label">Finding <span class="cjk-phrase">详情</span></span><h3 id="finding-dialog-2-title"><span class="cjk-phrase">声明</span>的<span class="cjk-phrase">约束</span><span class="cjk-phrase">缺少</span><span class="cjk-phrase">自动</span>化<span class="cjk-phrase">守卫</span></h3></div>
+          <span class="pill warning">Medium</span>
+        </div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">原因</span></span><p>AGENTS.md <span class="cjk-phrase">声明</span>了 Do Not Touch（dist/、coverage/、.changeset/、benchmarks/reports/、*.ply 等）和 Risk Controls（renderer-three/src/index.ts 和 webgpu-render-manager.ts 的窄<span class="cjk-phrase">范围</span><span class="cjk-phrase">编辑</span><span class="cjk-phrase">要求</span>），但<span class="cjk-phrase">项目</span>中无<span class="cjk-phrase">任何</span> hook 或 pre-commit <span class="cjk-phrase">守卫</span>将<span class="cjk-phrase">这些</span><span class="cjk-phrase">约束</span><span class="cjk-phrase">转化</span>为<span class="cjk-phrase">自动</span>化<span class="cjk-phrase">拦截</span>。husky 和 lint-staged 已<span class="cjk-phrase">安装</span>但仅<span class="cjk-phrase">配置</span>了 eslint --fix 和 prettier --write，未<span class="cjk-phrase">覆盖</span> Do Not Touch <span class="cjk-phrase">约束</span>。<span class="cjk-phrase">证据</span><span class="cjk-phrase">来自</span> package.json 的 lint-staged <span class="cjk-phrase">配置</span>和 AGENTS.md 的 Do Not Touch <span class="cjk-phrase">段落</span>。</p></div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">预期</span><span class="cjk-phrase">结果</span></span><ol><li>pre-commit hook 或 lint-staged <span class="cjk-phrase">规则</span>能<span class="cjk-phrase">拦截</span>对 Do Not Touch <span class="cjk-phrase">声明</span><span class="cjk-phrase">路径</span>的<span class="cjk-phrase">直接</span><span class="cjk-phrase">提交</span>，将 AGENTS.md 的<span class="cjk-phrase">约束</span><span class="cjk-phrase">声明</span><span class="cjk-phrase">转化</span>为可<span class="cjk-phrase">执行</span>的<span class="cjk-phrase">自动</span>化<span class="cjk-phrase">守卫</span>。</li></ol></div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">验收</span><span class="cjk-phrase">检查</span></span><ul><li><span class="cjk-phrase">尝试</span> touch dist/test.txt 并 git add，<span class="cjk-phrase">确认</span>被<span class="cjk-phrase">拦截</span></li><li><span class="cjk-phrase">运行</span> pnpm lint <span class="cjk-phrase">确认</span><span class="cjk-phrase">正常</span><span class="cjk-phrase">代码</span><span class="cjk-phrase">提交</span><span class="cjk-phrase">不受</span><span class="cjk-phrase">影响</span></li></ul></div>
+        <div class="dialog-actions">
+          <button type="button" class="action-button secondary" data-copy-finding="constraints-without-hooks" aria-label="复制 AI 修复: 声明的约束缺少自动化守卫"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span></button>
+          <button type="button" class="action-button ghost" data-close-finding-dialog="finding-dialog-2"><span class="cjk-phrase">关闭</span></button>
+        </div>
+      </dialog>
+    </article>
+<article class="finding-card" data-finding-id="missing-nested-instructions">
+      <div class="finding-card-main">
+        <div class="finding-meta">
+          <span class="pill neutral">Low</span>
+          <span class="pill neutral"><span class="cjk-phrase">任务</span><span class="cjk-phrase">理解</span></span>
+        </div>
+        <h3>高<span class="cjk-phrase">风险</span>包<span class="cjk-phrase">缺少</span>嵌套 AGENTS.md <span class="cjk-phrase">指令</span></h3>
+        <p class="finding-preview"><span class="cjk-phrase">证据</span>包的 agentInstructions <span class="cjk-phrase">状态</span>为 missing（count: 0, nestedCount: 0），<span class="cjk-phrase">建议</span>的 scoped instructions <span class="cjk-phrase">包括</span> packages/renderer-three（18 个源<span class="cjk-phrase">文件</span>）、packages/plugins（15 个源<span class="cjk-phrase">文件</span>）、packages/convert（9 个源<span class="cjk-phrase">文件</span>）。AGENTS.md 已<span class="cjk-phrase">声明</span> renderer-three/src/index.ts（~1489 行）和 webgpu-render-manager.ts（~1740 行）为<span class="cjk-phrase">决策</span><span class="cjk-phrase">密集</span><span class="cjk-phrase">文件</span>，但<span class="cjk-phrase">代理</span>在<span class="cjk-phrase">编辑</span><span class="cjk-phrase">这些</span><span class="cjk-phrase">文件</span>时<span class="cjk-phrase">缺少</span>包级 scoped guidance 将<span class="cjk-phrase">风险</span><span class="cjk-phrase">声明</span>路由到<span class="cjk-phrase">具体</span><span class="cjk-phrase">操作</span><span class="cjk-phrase">边界</span>。</p>
+      </div>
+      <div class="finding-actions">
+        <button type="button" class="action-button secondary" data-copy-finding="missing-nested-instructions" aria-label="复制 AI 修复: 高风险包缺少嵌套 AGENTS.md 指令"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span></button>
+        <button type="button" class="action-button ghost" data-view-finding-dialog="finding-dialog-3" aria-label="查看详情: 高风险包缺少嵌套 AGENTS.md 指令"><span class="cjk-phrase">查看</span><span class="cjk-phrase">详情</span></button>
+      </div>
+      <dialog class="finding-dialog" id="finding-dialog-3" data-finding-dialog-id="missing-nested-instructions" aria-labelledby="finding-dialog-3-title">
+        <div class="dialog-heading">
+          <div><span class="label">Finding <span class="cjk-phrase">详情</span></span><h3 id="finding-dialog-3-title">高<span class="cjk-phrase">风险</span>包<span class="cjk-phrase">缺少</span>嵌套 AGENTS.md <span class="cjk-phrase">指令</span></h3></div>
+          <span class="pill neutral">Low</span>
+        </div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">原因</span></span><p><span class="cjk-phrase">证据</span>包的 agentInstructions <span class="cjk-phrase">状态</span>为 missing（count: 0, nestedCount: 0），<span class="cjk-phrase">建议</span>的 scoped instructions <span class="cjk-phrase">包括</span> packages/renderer-three（18 个源<span class="cjk-phrase">文件</span>）、packages/plugins（15 个源<span class="cjk-phrase">文件</span>）、packages/convert（9 个源<span class="cjk-phrase">文件</span>）。AGENTS.md 已<span class="cjk-phrase">声明</span> renderer-three/src/index.ts（~1489 行）和 webgpu-render-manager.ts（~1740 行）为<span class="cjk-phrase">决策</span><span class="cjk-phrase">密集</span><span class="cjk-phrase">文件</span>，但<span class="cjk-phrase">代理</span>在<span class="cjk-phrase">编辑</span><span class="cjk-phrase">这些</span><span class="cjk-phrase">文件</span>时<span class="cjk-phrase">缺少</span>包级 scoped guidance 将<span class="cjk-phrase">风险</span><span class="cjk-phrase">声明</span>路由到<span class="cjk-phrase">具体</span><span class="cjk-phrase">操作</span><span class="cjk-phrase">边界</span>。</p></div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">预期</span><span class="cjk-phrase">结果</span></span><ol><li>packages/renderer-three/AGENTS.md 和 packages/convert/AGENTS.md <span class="cjk-phrase">提供</span>包级<span class="cjk-phrase">风险</span><span class="cjk-phrase">边界</span>和<span class="cjk-phrase">编辑</span><span class="cjk-phrase">约束</span>，将根级<span class="cjk-phrase">声明</span>的<span class="cjk-phrase">决策</span><span class="cjk-phrase">密集</span><span class="cjk-phrase">文件</span><span class="cjk-phrase">指引</span>路由到<span class="cjk-phrase">具体</span><span class="cjk-phrase">操作</span>。</li></ol></div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">验收</span><span class="cjk-phrase">检查</span></span><ul><li><span class="cjk-phrase">确认</span>嵌套 AGENTS.md <span class="cjk-phrase">引用</span>了根级<span class="cjk-phrase">声明</span>的<span class="cjk-phrase">风险</span><span class="cjk-phrase">文件</span></li><li><span class="cjk-phrase">运行</span> pnpm typecheck <span class="cjk-phrase">确认</span>无<span class="cjk-phrase">副作用</span></li></ul></div>
+        <div class="dialog-actions">
+          <button type="button" class="action-button secondary" data-copy-finding="missing-nested-instructions" aria-label="复制 AI 修复: 高风险包缺少嵌套 AGENTS.md 指令"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span></button>
+          <button type="button" class="action-button ghost" data-close-finding-dialog="finding-dialog-3"><span class="cjk-phrase">关闭</span></button>
+        </div>
+      </dialog>
+    </article>
+<article class="finding-card" data-finding-id="session-evidence-missing">
+      <div class="finding-card-main">
+        <div class="finding-meta">
+          <span class="pill neutral">Low</span>
+          <span class="pill neutral"><span class="cjk-phrase">经验</span><span class="cjk-phrase">沉淀</span></span>
+        </div>
+        <h3><span class="cjk-phrase">会话</span><span class="cjk-phrase">证据</span><span class="cjk-phrase">完全</span><span class="cjk-phrase">缺失</span><span class="cjk-phrase">导致</span><span class="cjk-phrase">学习</span><span class="cjk-phrase">循环</span><span class="cjk-phrase">无法</span><span class="cjk-phrase">运行</span></h3>
+        <p class="finding-preview">30 天<span class="cjk-phrase">窗口</span>期内 0 个<span class="cjk-phrase">符合</span><span class="cjk-phrase">条件</span>的 Codex <span class="cjk-phrase">会话</span>，<span class="cjk-phrase">所有</span><span class="cjk-phrase">覆盖</span>率维度为 0（withChanges、withChecks、withResultSignal 等）。<span class="cjk-phrase">诊断</span><span class="cjk-phrase">标志</span><span class="cjk-phrase">包括</span> no-change-evidence、no-reviewed-relevant-check-evidence、no-result-evidence。<span class="cjk-phrase">警告</span><span class="cjk-phrase">代码</span> disabled-source-root 和 missing-optional-root <span class="cjk-phrase">表明</span><span class="cjk-phrase">会话</span><span class="cjk-phrase">数据</span>源<span class="cjk-phrase">配置</span><span class="cjk-phrase">存在</span><span class="cjk-phrase">问题</span>。<span class="cjk-phrase">由于</span>无<span class="cjk-phrase">会话</span><span class="cjk-phrase">证据</span>，<span class="cjk-phrase">无法</span><span class="cjk-phrase">检测</span><span class="cjk-phrase">重复</span><span class="cjk-phrase">工作</span>流、<span class="cjk-phrase">验证</span><span class="cjk-phrase">循环</span>或<span class="cjk-phrase">改进</span><span class="cjk-phrase">效果</span>，Learning Capture 维度<span class="cjk-phrase">受限</span>在 59 <span class="cjk-phrase">以下</span>。</p>
+      </div>
+      <div class="finding-actions">
+        <button type="button" class="action-button secondary" data-copy-finding="session-evidence-missing" aria-label="复制 AI 修复: 会话证据完全缺失导致学习循环无法运行"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span></button>
+        <button type="button" class="action-button ghost" data-view-finding-dialog="finding-dialog-4" aria-label="查看详情: 会话证据完全缺失导致学习循环无法运行"><span class="cjk-phrase">查看</span><span class="cjk-phrase">详情</span></button>
+      </div>
+      <dialog class="finding-dialog" id="finding-dialog-4" data-finding-dialog-id="session-evidence-missing" aria-labelledby="finding-dialog-4-title">
+        <div class="dialog-heading">
+          <div><span class="label">Finding <span class="cjk-phrase">详情</span></span><h3 id="finding-dialog-4-title"><span class="cjk-phrase">会话</span><span class="cjk-phrase">证据</span><span class="cjk-phrase">完全</span><span class="cjk-phrase">缺失</span><span class="cjk-phrase">导致</span><span class="cjk-phrase">学习</span><span class="cjk-phrase">循环</span><span class="cjk-phrase">无法</span><span class="cjk-phrase">运行</span></h3></div>
+          <span class="pill neutral">Low</span>
+        </div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">原因</span></span><p>30 天<span class="cjk-phrase">窗口</span>期内 0 个<span class="cjk-phrase">符合</span><span class="cjk-phrase">条件</span>的 Codex <span class="cjk-phrase">会话</span>，<span class="cjk-phrase">所有</span><span class="cjk-phrase">覆盖</span>率维度为 0（withChanges、withChecks、withResultSignal 等）。<span class="cjk-phrase">诊断</span><span class="cjk-phrase">标志</span><span class="cjk-phrase">包括</span> no-change-evidence、no-reviewed-relevant-check-evidence、no-result-evidence。<span class="cjk-phrase">警告</span><span class="cjk-phrase">代码</span> disabled-source-root 和 missing-optional-root <span class="cjk-phrase">表明</span><span class="cjk-phrase">会话</span><span class="cjk-phrase">数据</span>源<span class="cjk-phrase">配置</span><span class="cjk-phrase">存在</span><span class="cjk-phrase">问题</span>。<span class="cjk-phrase">由于</span>无<span class="cjk-phrase">会话</span><span class="cjk-phrase">证据</span>，<span class="cjk-phrase">无法</span><span class="cjk-phrase">检测</span><span class="cjk-phrase">重复</span><span class="cjk-phrase">工作</span>流、<span class="cjk-phrase">验证</span><span class="cjk-phrase">循环</span>或<span class="cjk-phrase">改进</span><span class="cjk-phrase">效果</span>，Learning Capture 维度<span class="cjk-phrase">受限</span>在 59 <span class="cjk-phrase">以下</span>。</p></div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">预期</span><span class="cjk-phrase">结果</span></span><ol><li>Codex <span class="cjk-phrase">会话</span><span class="cjk-phrase">捕获</span>源已<span class="cjk-phrase">启用</span>，evidence-bundle 能在后续<span class="cjk-phrase">运行</span>中<span class="cjk-phrase">收集</span>到<span class="cjk-phrase">符合</span><span class="cjk-phrase">条件</span>的<span class="cjk-phrase">会话</span><span class="cjk-phrase">数据</span>，使<span class="cjk-phrase">学习</span><span class="cjk-phrase">循环</span>和<span class="cjk-phrase">重复</span><span class="cjk-phrase">工作</span>流<span class="cjk-phrase">检测</span>可<span class="cjk-phrase">运行</span>。</li></ol></div>
+        <div class="dialog-section"><span class="label"><span class="cjk-phrase">验收</span><span class="cjk-phrase">检查</span></span><ul><li><span class="cjk-phrase">重新</span><span class="cjk-phrase">运行</span> evidence-bundle <span class="cjk-phrase">确认</span> eligibleSessions &gt; 0</li><li><span class="cjk-phrase">检查</span> disabled-source-root 的<span class="cjk-phrase">配置</span><span class="cjk-phrase">来源</span></li></ul></div>
+        <div class="dialog-actions">
+          <button type="button" class="action-button secondary" data-copy-finding="session-evidence-missing" aria-label="复制 AI 修复: 会话证据完全缺失导致学习循环无法运行"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span></button>
+          <button type="button" class="action-button ghost" data-close-finding-dialog="finding-dialog-4"><span class="cjk-phrase">关闭</span></button>
+        </div>
+      </dialog>
+    </article></div>
+  </section>
+  <section class="section" data-section="customize" aria-labelledby="section-customize">
+    <div class="section-heading">
+      <div><span class="eyebrow">04 · <span class="cjk-phrase">能力</span></span><h2 id="section-customize">Agent 自<span class="cjk-phrase">定义</span></h2></div>
+      <p>已<span class="cjk-phrase">检查</span>的<span class="cjk-phrase">项目</span>与<span class="cjk-phrase">授权</span><span class="cjk-phrase">宿主</span><span class="cjk-phrase">能力</span>面。</p>
+    </div>
+    <div class="custom-grid"><article><span class="custom-mark">R</span><div><h3>Rules</h3><p>Project · 1</p></div></article><article><span class="custom-mark">W</span><div><h3>Workflows</h3><p>Project · 2</p></div></article><article><span class="custom-mark">C</span><div><h3>Custom Agents</h3><p>Project · 0</p></div></article></div>
+  </section>
+  <section class="section" data-section="methodology" aria-labelledby="section-methodology">
+    <div class="section-heading">
+      <div><span class="eyebrow">05 · <span class="cjk-phrase">边界</span></span><h2 id="section-methodology"><span class="cjk-phrase">证据</span>与<span class="cjk-phrase">方法</span></h2></div>
+      <p>仅<span class="cjk-phrase">使用</span><span class="cjk-phrase">读者</span><span class="cjk-phrase">安全</span><span class="cjk-phrase">证据</span>。</p>
+    </div>
+    <div class="evidence-grid"><div><span><span class="cjk-phrase">证据</span><span class="cjk-phrase">模式</span></span><strong>—</strong></div><div><span><span class="cjk-phrase">任务</span> Episode</span><strong>0</strong></div><div><span>含<span class="cjk-phrase">编辑</span> Episode</span><strong>0</strong></div><div><span><span class="cjk-phrase">抽样</span></span><strong>N/A</strong></div><div><span><span class="cjk-phrase">可信度</span></span><strong>—</strong></div><div><span><span class="cjk-phrase">学习</span><span class="cjk-phrase">状态</span></span><strong>—</strong></div></div>
+    
+    <p class="method-note"><span class="cjk-phrase">活动</span><span class="cjk-phrase">总量</span>只<span class="cjk-phrase">描述</span><span class="cjk-phrase">用量</span>，不<span class="cjk-phrase">直接</span><span class="cjk-phrase">代表</span><span class="cjk-phrase">质量</span>、<span class="cjk-phrase">效率</span>或<span class="cjk-phrase">节省</span>。<span class="cjk-phrase">流畅</span>度<span class="cjk-phrase">结论</span><span class="cjk-phrase">来自</span>已<span class="cjk-phrase">复核</span><span class="cjk-phrase">任务</span><span class="cjk-phrase">样本</span>，并受已<span class="cjk-phrase">保留</span><span class="cjk-phrase">证据</span><span class="cjk-phrase">边界</span><span class="cjk-phrase">约束</span>。</p>
+  </section>
+<footer>由同<span class="cjk-phrase">一份</span>已<span class="cjk-phrase">复核</span> Harness source <span class="cjk-phrase">生成</span> · 自<span class="cjk-phrase">包含</span>便携式 HTML</footer>
+</main>
+<dialog id="manual-copy-dialog" class="manual-copy-dialog" aria-labelledby="manual-copy-title" aria-describedby="manual-copy-description">
+  <div class="dialog-heading">
+    <div>
+      <span class="label">手动<span class="cjk-phrase">复制</span></span>
+      <h3 id="manual-copy-title"><span class="cjk-phrase">复制</span> AI <span class="cjk-phrase">修复</span><span class="cjk-phrase">提示</span>词</h3>
+    </div>
+  </div>
+  <p id="manual-copy-description"><span class="cjk-phrase">自动</span><span class="cjk-phrase">复制</span>被<span class="cjk-phrase">阻止</span>，<span class="cjk-phrase">下面</span>已选中<span class="cjk-phrase">完整</span><span class="cjk-phrase">提示</span>词。</p>
+  <textarea id="manual-copy-text" readonly aria-label="AI 修复提示词"></textarea>
+  <div class="dialog-actions">
+    <button type="button" class="action-button ghost" data-close-finding-dialog="manual-copy-dialog"><span class="cjk-phrase">关闭</span></button>
+  </div>
+</dialog>
+<script id="harness-report-data" type="application/json">{"findings":[{"id":"ci-node-version-gap","aiFixPrompt":"/better-harness fix this issue\n\n为 CI 的 build-and-test job 添加 Node 版本 matrix 策略，至少覆盖 18 和 20 两个版本。\n\n## Validation\n\n- 运行 pnpm typecheck 确认类型兼容\n- 在本地用 Node 18 运行 pnpm test 确认测试通过\n- 检查 CI matrix 是否在两个版本上都成功"},{"id":"constraints-without-hooks","aiFixPrompt":"/better-harness fix this issue\n\n在 .husky/pre-commit 或 lint-staged 配置中添加路径检查守卫，阻止对 dist/、coverage/、.changeset/、benchmarks/reports/ 和大型数据文件的直接提交。\n\n## Validation\n\n- 尝试 touch dist/test.txt 并 git add，确认被拦截\n- 运行 pnpm lint 确认正常代码提交不受影响"},{"id":"missing-nested-instructions","aiFixPrompt":"/better-harness fix this issue\n\n为 packages/renderer-three/ 和 packages/convert/ 创建嵌套 AGENTS.md，将根级 AGENTS.md 中的 Risk Controls 声明细化为包级操作边界和检查路由。\n\n## Validation\n\n- 确认嵌套 AGENTS.md 引用了根级声明的风险文件\n- 运行 pnpm typecheck 确认无副作用"},{"id":"session-evidence-missing","aiFixPrompt":"/better-harness fix this issue\n\n调查 Codex 会话捕获配置：确认 disabled-source-root 是否为预期配置，检查 missing-optional-root 指向的根目录是否需要创建或启用。在配置正确后重新运行证据收集验证会话数据可用。\n\n## Validation\n\n- 重新运行 evidence-bundle 确认 eligibleSessions \u003e 0\n- 检查 disabled-source-root 的配置来源"}]}</script>
+<script id="harness-report-actions" type="application/json">{"reportRoute":null,"findings":[]}</script>
+<script id="harness-report-interactions">(function installHtmlReportInteractions({
+  document,
+  navigator,
+  location,
+  labels,
+  schedule = (callback, delay) => globalThis.setTimeout(callback, delay),
+}) {
+  document.documentElement.classList.remove("no-js");
+
+  function readJson(id) {
+    const element = document.getElementById(id);
+    if (!element) return { ok: false, value: null };
+    try {
+      return { ok: true, value: JSON.parse(element.textContent || "{}") };
+    } catch {
+      return { ok: false, value: null };
+    }
+  }
+
+  function hasOnlyKeys(value, keys) {
+    return value && typeof value === "object" && !Array.isArray(value)
+      && Object.keys(value).every((key) => keys.includes(key));
+  }
+
+  function safeReportRoute(value) {
+    if (typeof value !== "string" || value.length === 0 || value.includes("\\")) return false;
+    if (value.startsWith("/") || /^[A-Za-z]:/u.test(value)) return false;
+    const segments = value.split("/");
+    return segments.at(-1) === "report.html"
+      && segments.every((segment) => segment && segment !== "." && segment !== "..");
+  }
+
+  const reportDataState = readJson("harness-report-data");
+  const reportActionsState = readJson("harness-report-actions");
+  const prompts = new Map();
+  const actions = new Map();
+  let bindingMode = "invalid";
+  let reportRoute = null;
+
+  if (reportDataState.ok
+    && hasOnlyKeys(reportDataState.value, ["findings"])
+    && Array.isArray(reportDataState.value.findings)) {
+    let validPrompts = true;
+    for (const finding of reportDataState.value.findings) {
+      const id = String(finding?.id ?? "");
+      if (!hasOnlyKeys(finding, ["id", "aiFixPrompt"])
+        || !id
+        || typeof finding.aiFixPrompt !== "string"
+        || finding.aiFixPrompt.trim().length === 0
+        || prompts.has(id)) {
+        validPrompts = false;
+        break;
+      }
+      prompts.set(id, finding.aiFixPrompt);
+    }
+
+    const payload = reportActionsState.value;
+    if (validPrompts
+      && reportActionsState.ok
+      && hasOnlyKeys(payload, ["reportRoute", "findings"])
+      && Array.isArray(payload.findings)) {
+      let validActions = true;
+      for (const finding of payload.findings) {
+        const id = String(finding?.id ?? "");
+        if (!hasOnlyKeys(finding, ["id", "expectedRevision"])
+          || !id
+          || !Number.isInteger(finding.expectedRevision)
+          || finding.expectedRevision < 0
+          || actions.has(id)) {
+          validActions = false;
+          break;
+        }
+        actions.set(id, finding);
+      }
+      const sameIds = actions.size === prompts.size
+        && [...prompts.keys()].every((id) => actions.has(id));
+      if (validActions && payload.reportRoute === null && actions.size === 0) {
+        bindingMode = "empty";
+      } else if (validActions && safeReportRoute(payload.reportRoute) && sameIds) {
+        bindingMode = "bound";
+        reportRoute = payload.reportRoute;
+      }
+    }
+  }
+
+  function resolveBindingPaths() {
+    try {
+      const url = new URL(String(location?.href ?? ""));
+      if (url.protocol !== "file:") return null;
+      const pathname = decodeURIComponent(url.pathname);
+      const windowsDrive = /^\/[A-Za-z]:\//u.test(pathname);
+      const windowsUnc = Boolean(url.hostname);
+      const suffix = `/${reportRoute}`;
+      const comparablePath = windowsDrive || windowsUnc ? pathname.toLowerCase() : pathname;
+      const comparableSuffix = windowsDrive || windowsUnc ? suffix.toLowerCase() : suffix;
+      if (!comparablePath.endsWith(comparableSuffix)) return null;
+
+      const workspaceUrlPath = pathname.slice(0, pathname.length - suffix.length);
+      const reportDirectory = pathname.slice(0, pathname.lastIndexOf("/"));
+      const findingsUrlPath = `${reportDirectory}/findings.json`;
+      const toNativePath = (value) => {
+        if (windowsDrive) return value.slice(1).replace(/\//gu, "\\");
+        if (windowsUnc) {
+          const host = decodeURIComponent(url.hostname);
+          return `\\\\${host}${value.replace(/\//gu, "\\")}`;
+        }
+        return value || "/";
+      };
+      return {
+        workspacePath: toNativePath(workspaceUrlPath),
+        findingsPath: toNativePath(findingsUrlPath),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function promptForFinding(findingId) {
+    if (bindingMode === "invalid") return null;
+    const id = String(findingId);
+    const prompt = prompts.get(id);
+    if (typeof prompt !== "string" || prompt.trim().length === 0) return null;
+    if (bindingMode === "empty") return prompt;
+    const paths = resolveBindingPaths();
+    if (!paths) return prompt;
+    const action = actions.get(id);
+    if (!action) return null;
+    const callback = {
+      contract: "better-harness-fix-output/v1",
+      workspacePath: paths.workspacePath,
+      findingsPath: paths.findingsPath,
+      findingId: id,
+      expectedRevision: action.expectedRevision,
+    };
+    return `${prompt}\n\n<better-harness-fix-output>\n${JSON.stringify(callback)}\n</better-harness-fix-output>`;
+  }
+
+  const status = document.getElementById("copy-status");
+  const manualDialog = document.getElementById("manual-copy-dialog");
+  const manualText = document.getElementById("manual-copy-text");
+  const dialogTriggers = new Map();
+
+  function report(message, state) {
+    if (!status) return;
+    status.textContent = message;
+    status.dataset.state = state;
+  }
+
+  function legacyCopy(prompt) {
+    const textarea = document.createElement("textarea");
+    textarea.value = prompt;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.append(textarea);
+    try {
+      textarea.select();
+      return document.execCommand("copy") === true;
+    } catch {
+      return false;
+    } finally {
+      textarea.remove();
+    }
+  }
+
+  function copied(trigger) {
+    report(labels.copySuccess, "success");
+    if (trigger) {
+      const originalLabel = trigger.textContent;
+      trigger.textContent = labels.copied;
+      schedule(() => {
+        trigger.textContent = originalLabel || labels.copy;
+      }, 1800);
+    }
+    return true;
+  }
+
+  async function copyFinding(findingId, trigger) {
+    const prompt = promptForFinding(findingId);
+    if (typeof prompt !== "string" || prompt.length === 0) {
+      report(labels.missingPrompt, "error");
+      return false;
+    }
+
+    try {
+      if (!navigator?.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+      await navigator.clipboard.writeText(prompt);
+      return copied(trigger);
+    } catch {
+      if (legacyCopy(prompt)) return copied(trigger);
+    }
+
+    if (manualDialog && typeof manualDialog.showModal === "function") {
+      dialogTriggers.set(manualDialog.id, trigger);
+      if (!manualDialog.open) manualDialog.showModal();
+    }
+    if (manualText) {
+      manualText.value = prompt;
+      manualText.focus();
+      manualText.select();
+    }
+    report(labels.manualCopy, "error");
+    return false;
+  }
+
+  function openDialog(dialogId, trigger) {
+    const dialog = document.getElementById(dialogId);
+    if (!dialog || typeof dialog.showModal !== "function") return false;
+    dialogTriggers.set(dialogId, trigger);
+    dialog.showModal();
+    return true;
+  }
+
+  function closeDialog(dialogId) {
+    const dialog = document.getElementById(dialogId);
+    if (!dialog || !dialog.open || typeof dialog.close !== "function") return false;
+    dialog.close();
+    return true;
+  }
+
+  for (const trigger of document.querySelectorAll("[data-copy-finding]")) {
+    trigger.addEventListener("click", () => copyFinding(trigger.dataset.copyFinding, trigger));
+  }
+  for (const trigger of document.querySelectorAll("[data-view-finding-dialog]")) {
+    trigger.addEventListener("click", () => openDialog(trigger.dataset.viewFindingDialog, trigger));
+  }
+  for (const trigger of document.querySelectorAll("[data-close-finding-dialog]")) {
+    trigger.addEventListener("click", () => closeDialog(trigger.dataset.closeFindingDialog));
+  }
+  const interactiveDialogs = [
+    ...document.querySelectorAll("dialog[data-finding-dialog-id]"),
+    manualDialog,
+  ].filter(Boolean);
+  for (const dialog of interactiveDialogs) {
+    dialog.addEventListener("close", () => {
+      const trigger = dialogTriggers.get(dialog.id);
+      dialogTriggers.delete(dialog.id);
+      trigger?.focus();
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target !== dialog) return;
+      const rect = dialog.getBoundingClientRect();
+      const outside = event.clientX < rect.left
+        || event.clientX > rect.right
+        || event.clientY < rect.top
+        || event.clientY > rect.bottom;
+      if (outside) closeDialog(dialog.id);
+    });
+  }
+
+  return { copyFinding, openDialog, closeDialog };
+})({document,navigator,location:globalThis.location,labels:{"copy":"复制 AI 修复","copied":"已复制","copySuccess":"已复制，请粘贴到当前 Coding Agent 输入框。","manualCopy":"自动复制被阻止，请手动复制已选中的提示词。","missingPrompt":"这个问题没有可用的 AI 修复提示词。"}});</script>
+</body>
+</html>

@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { pruneGaussians, mortonSortGaussians } from './processing.js';
 import type { GaussianCloud } from './gaussian-loader.js';
 
-function makeCloud(splats: Array<Partial<import('./gaussian-loader.js').GaussianSplat>>): GaussianCloud {
+function makeCloud(
+  splats: Array<Partial<import('./gaussian-loader.js').GaussianSplat>>,
+): GaussianCloud {
   return {
     splats: splats.map((s) => ({
       x: s.x ?? 0,
@@ -29,11 +31,7 @@ function makeCloud(splats: Array<Partial<import('./gaussian-loader.js').Gaussian
 
 describe('pruneGaussians', () => {
   it('剔除低不透明度高斯核', () => {
-    const cloud = makeCloud([
-      { opacity: 0.5 },
-      { opacity: 0.001 },
-      { opacity: 0.8 },
-    ]);
+    const cloud = makeCloud([{ opacity: 0.5 }, { opacity: 0.001 }, { opacity: 0.8 }]);
 
     const result = pruneGaussians(cloud, { minOpacity: 0.01 });
     expect(result.splats).toHaveLength(2);
@@ -70,19 +68,19 @@ describe('pruneGaussians', () => {
 
   it('★ M3: 贡献度裁剪按比例保留 (0.5 = 保留前 50%)', () => {
     const cloud = makeCloud([
-      { opacity: 1.0, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1 },  // 贡献度 0.1
+      { opacity: 1.0, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1 }, // 贡献度 0.1
       { opacity: 0.5, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01 }, // 贡献度 0.005
       { opacity: 0.8, scaleX: 0.05, scaleY: 0.05, scaleZ: 0.05 }, // 贡献度 0.04
-      { opacity: 0.3, scaleX: 0.2, scaleY: 0.2, scaleZ: 0.2 },    // 贡献度 0.06
+      { opacity: 0.3, scaleX: 0.2, scaleY: 0.2, scaleZ: 0.2 }, // 贡献度 0.06
     ]);
 
     const result = pruneGaussians(cloud, { contributionCutoff: 0.5 });
     // 保留前 50% = 2 个, 贡献度最高的两个是 0.1 和 0.06
     expect(result.splats).toHaveLength(2);
     // 贡献度最高的 (opacity=1.0, scale=0.1) 应该被保留
-    expect(result.splats.some(s => s.opacity === 1.0)).toBe(true);
+    expect(result.splats.some((s) => s.opacity === 1.0)).toBe(true);
     // 贡献度最低的 (opacity=0.5, scale=0.01) 应该被裁掉
-    expect(result.splats.some(s => s.opacity === 0.5 && s.scaleX === 0.01)).toBe(false);
+    expect(result.splats.some((s) => s.opacity === 0.5 && s.scaleX === 0.01)).toBe(false);
   });
 
   it('★ M3: 贡献度裁剪按确切数量保留 (>1 = 保留 N 个)', () => {
@@ -97,8 +95,8 @@ describe('pruneGaussians', () => {
     const result = pruneGaussians(cloud, { contributionCutoff: 2 });
     expect(result.splats).toHaveLength(2);
     // 贡献度最高的: 1.0*0.2=0.2 和 0.9*0.1=0.09
-    expect(result.splats.some(s => s.opacity === 1.0 && s.scaleX === 0.2)).toBe(true);
-    expect(result.splats.some(s => s.opacity === 0.9 && s.scaleX === 0.1)).toBe(true);
+    expect(result.splats.some((s) => s.opacity === 1.0 && s.scaleX === 0.2)).toBe(true);
+    expect(result.splats.some((s) => s.opacity === 0.9 && s.scaleX === 0.1)).toBe(true);
   });
 
   it('★ M3: 贡献度裁剪数量超过总数时保留全部', () => {
@@ -114,9 +112,9 @@ describe('pruneGaussians', () => {
   it('★ M3: 贡献度裁剪与基础过滤组合使用', () => {
     const cloud = makeCloud([
       { opacity: 0.001, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01 }, // 被基础过滤剔除
-      { opacity: 1.0, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1 },      // 贡献度 0.1
-      { opacity: 0.5, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01 },   // 贡献度 0.005
-      { opacity: NaN, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1 },      // 被 NaN 过滤剔除
+      { opacity: 1.0, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1 }, // 贡献度 0.1
+      { opacity: 0.5, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01 }, // 贡献度 0.005
+      { opacity: NaN, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1 }, // 被 NaN 过滤剔除
     ]);
 
     // 基础过滤后剩 2 个, 贡献度裁剪保留 50% = 1 个
@@ -168,9 +166,7 @@ describe('mortonSortGaussians', () => {
   // ── P0-5: Morton Number 版本测试 ──────────────────────────
 
   it('Morton Code 返回 Number 类型 (非 BigInt)', () => {
-    const cloud = makeCloud([
-      { x: 1, y: 2, z: 3 },
-    ]);
+    const cloud = makeCloud([{ x: 1, y: 2, z: 3 }]);
 
     const result = mortonSortGaussians(cloud);
     // 排序应正常完成, 且不使用 BigInt 比较
@@ -228,13 +224,13 @@ describe('mortonSortGaussians', () => {
   it('8 个象限的排序正确性', () => {
     // 8 个象限各放一个点, 原点附近
     const points = [
-      { x: 1, y: 1, z: 1 },    // +++ 
-      { x: -1, y: 1, z: 1 },   // -++
-      { x: 1, y: -1, z: 1 },   // +-+
-      { x: 1, y: 1, z: -1 },   // ++-
-      { x: -1, y: -1, z: 1 },  // --+
-      { x: 1, y: -1, z: -1 },  // +--
-      { x: -1, y: 1, z: -1 },  // -+-
+      { x: 1, y: 1, z: 1 }, // +++
+      { x: -1, y: 1, z: 1 }, // -++
+      { x: 1, y: -1, z: 1 }, // +-+
+      { x: 1, y: 1, z: -1 }, // ++-
+      { x: -1, y: -1, z: 1 }, // --+
+      { x: 1, y: -1, z: -1 }, // +--
+      { x: -1, y: 1, z: -1 }, // -+-
       { x: -1, y: -1, z: -1 }, // ---
     ];
     const cloud = makeCloud(points);

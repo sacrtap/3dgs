@@ -65,12 +65,14 @@ export function extractCameraPose(vp: ArrayLike<number>): CameraPose | null {
   const zAxis: [number, number, number] = [-vp[3], -vp[7], -vp[11]];
   const zLen = Math.hypot(zAxis[0], zAxis[1], zAxis[2]);
   if (zLen < EPS) return null;
-  zAxis[0] /= zLen; zAxis[1] /= zLen; zAxis[2] /= zLen;
+  zAxis[0] /= zLen;
+  zAxis[1] /= zLen;
+  zAxis[2] /= zLen;
 
   // 相机中心: 三个正交投影分量重构 (见文件头推导)
-  const cx = -vp[12] / p0;   // xAxis · c
-  const cy = -vp[13] / p1;   // yAxis · c
-  const cz = vp[15];         // zAxis · c
+  const cx = -vp[12] / p0; // xAxis · c
+  const cy = -vp[13] / p1; // yAxis · c
+  const cz = vp[15]; // zAxis · c
   const center: [number, number, number] = [
     cx * xAxis[0] + cy * yAxis[0] + cz * zAxis[0],
     cx * xAxis[1] + cy * yAxis[1] + cz * zAxis[1],
@@ -102,11 +104,7 @@ export interface PlaneAxes {
 }
 
 function cross(a: number[], b: number[]): [number, number, number] {
-  return [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ];
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 }
 
 function normalize(v: [number, number, number]): [number, number, number] {

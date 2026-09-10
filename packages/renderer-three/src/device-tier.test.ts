@@ -334,7 +334,10 @@ describe('detectDeviceTier — N-03 iPadOS 移动设备识别', () => {
     vi.unstubAllGlobals();
   });
 
-  function stubNavigator(ua: string, opts?: { maxTouchPoints?: number; cores?: number; memory?: number }) {
+  function stubNavigator(
+    ua: string,
+    opts?: { maxTouchPoints?: number; cores?: number; memory?: number },
+  ) {
     vi.stubGlobal('navigator', {
       userAgent: ua,
       hardwareConcurrency: opts?.cores ?? 8,
@@ -354,37 +357,37 @@ describe('detectDeviceTier — N-03 iPadOS 移动设备识别', () => {
   });
 
   it('真桌面 Mac (无多触点) 不误判为移动设备', () => {
-    stubNavigator(
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
-      { maxTouchPoints: 0 },
-    );
+    stubNavigator('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15', {
+      maxTouchPoints: 0,
+    });
     const profile = detectDeviceTier();
     expect(profile.isMobile).toBe(false);
   });
 
   it('iPhone UA 仍识别为移动设备 (回归)', () => {
-    stubNavigator(
-      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
-      { maxTouchPoints: 5, cores: 6, memory: 4 },
-    );
+    stubNavigator('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15', {
+      maxTouchPoints: 5,
+      cores: 6,
+      memory: 4,
+    });
     const profile = detectDeviceTier();
     expect(profile.isMobile).toBe(true);
   });
 
   it('Android UA 仍识别为移动设备 (回归)', () => {
-    stubNavigator(
-      'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36',
-      { maxTouchPoints: 10 },
-    );
+    stubNavigator('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36', {
+      maxTouchPoints: 10,
+    });
     const profile = detectDeviceTier();
     expect(profile.isMobile).toBe(true);
   });
 
   it('iPad 被分到移动档 (LOW/MEDIUM) 而非桌面高档', () => {
-    stubNavigator(
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
-      { maxTouchPoints: 5, cores: 8, memory: 8 },
-    );
+    stubNavigator('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15', {
+      maxTouchPoints: 5,
+      cores: 8,
+      memory: 8,
+    });
     const profile = detectDeviceTier();
     // 移动设备最高只到 MEDIUM — 避免桌面 HIGH/ULTRA 参数压垮平板
     expect([DeviceTier.LOW, DeviceTier.MEDIUM]).toContain(profile.tier);

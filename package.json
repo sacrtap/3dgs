@@ -25,7 +25,7 @@
     "webgpu"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "build": "pnpm -r run build",
@@ -38,10 +38,18 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:affected": "node scripts/affected-test.mjs",
     "clean": "node scripts/clean.mjs",
     "changeset": "changeset",
     "version": "changeset version",
-    "publish": "changeset publish"
+    "publish": "changeset publish",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "packages/*/src/**/*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ]
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.0",
@@ -49,6 +57,9 @@
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "jsdom": "^30.0.1",
+    "lint-staged": "^17.5.0",
     "playwright": "^1.62.1",
     "prettier": "^3.9.6",
     "tsx": "^4.23.5",

@@ -1,0 +1,153 @@
+{
+  "summary": {
+    "projectName": "@3dgs/monorepo",
+    "locale": "zh-CN",
+    "modelId": "agent-work-loop-v4",
+    "reportContractVersion": 25,
+    "overview": "项目具备完整的 CI/CD 流水线、测试基础设施和 AGENTS.md 指令文档，但多项机制尚未接入日常工作流：CI 未验证声明的最低 Node 版本、约束声明缺少自动化守卫、高风险包缺少嵌套指令、会话证据完全缺失导致学习循环无法运行。",
+    "dimensions": [
+      {
+        "id": "task-understanding",
+        "label": "任务理解",
+        "score": 68,
+        "summary": "AGENTS.md 提供了项目描述、命令清单、反直觉模式和风险控制声明，但缺少架构文档和嵌套 scoped instructions 为高风险包提供边界指引。",
+        "findingRefs": [
+          "missing-nested-instructions"
+        ]
+      },
+      {
+        "id": "controlled-execution",
+        "label": "可控执行",
+        "score": 62,
+        "summary": "工作区命令已文档化且 pnpm-workspace.yaml 配置正确，但 CI 仅测试 Node 20 而未覆盖声明的最低版本 Node >= 18，缺少 doctor/health 命令验证环境就绪。",
+        "findingRefs": [
+          "ci-node-version-gap",
+          "constraints-without-hooks"
+        ]
+      },
+      {
+        "id": "change-validation",
+        "label": "改动验证",
+        "score": 65,
+        "summary": "Vitest 测试基础设施完整（27 个测试文件），CI 包含 lint+build+typecheck+test 流程，但缺少 e2e/视觉回归测试层，且 CI 未验证最低 Node 版本兼容性。",
+        "findingRefs": [
+          "ci-node-version-gap"
+        ]
+      },
+      {
+        "id": "reliable-delivery",
+        "label": "可靠交付",
+        "score": 55,
+        "summary": "CI/CD 流水线和 changeset 发布流程存在，但交付验收边界未显式定义，回滚/恢复路由未与具体资源绑定，benchmark job 的 30s 等待循环无超时恢复策略。",
+        "findingRefs": []
+      },
+      {
+        "id": "learning-capture",
+        "label": "经验沉淀",
+        "score": 38,
+        "summary": "无 Skills、Hooks 或学习循环配置；会话证据完全缺失（0 个符合条件会话），无法检测重复工作流或验证改进效果。",
+        "findingRefs": [
+          "constraints-without-hooks",
+          "session-evidence-missing"
+        ]
+      }
+    ],
+    "aiAgentPractice": {
+      "inspectedSurfaces": [
+        "Rules",
+        "Workflows"
+      ],
+      "coverageRows": [
+        {
+          "surface": "Rules",
+          "scopes": [
+            "Project"
+          ],
+          "count": 1,
+          "paths": [
+            "AGENTS.md"
+          ]
+        },
+        {
+          "surface": "Workflows",
+          "scopes": [
+            "Project"
+          ],
+          "count": 2,
+          "paths": [
+            ".github/workflows/ci.yml",
+            ".github/workflows/release.yml"
+          ]
+        },
+        {
+          "surface": "Custom Agents",
+          "scopes": [
+            "Project"
+          ],
+          "count": 0
+        }
+      ]
+    },
+    "assignmentSummaries": []
+  },
+  "findings": [
+    {
+      "id": "ci-node-version-gap",
+      "title": "CI 未验证 AGENTS.md 声明的最低 Node 版本",
+      "severity": "Medium",
+      "reason": "AGENTS.md 声明 Runtime: Node >= 18，但 ci.yml 中两个 job 均硬编码 node-version: 20，无 matrix 策略覆盖 Node 18/20/22。当代理依赖 AGENTS.md 声明的版本约束编写代码时，CI 无法捕获在 Node 18 上的兼容性回归。证据来自 .github/workflows/ci.yml 第 22 行和第 55 行的 node-version: 20 硬编码，与 AGENTS.md 的 Runtime 声明冲突。",
+      "dimensionRefs": [
+        "controlled-execution",
+        "change-validation"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\n为 CI 的 build-and-test job 添加 Node 版本 matrix 策略，至少覆盖 18 和 20 两个版本。\n\n## Validation\n\n- 运行 pnpm typecheck 确认类型兼容\n- 在本地用 Node 18 运行 pnpm test 确认测试通过\n- 检查 CI matrix 是否在两个版本上都成功",
+      "expectedArtifact": "Config",
+      "expectedOutput": [
+        "CI build-and-test job 使用 matrix 策略测试 Node 18 和 20，确保声明支持的最低版本被持续验证。"
+      ]
+    },
+    {
+      "id": "constraints-without-hooks",
+      "title": "声明的约束缺少自动化守卫",
+      "severity": "Medium",
+      "reason": "AGENTS.md 声明了 Do Not Touch（dist/、coverage/、.changeset/、benchmarks/reports/、*.ply 等）和 Risk Controls（renderer-three/src/index.ts 和 webgpu-render-manager.ts 的窄范围编辑要求），但项目中无任何 hook 或 pre-commit 守卫将这些约束转化为自动化拦截。husky 和 lint-staged 已安装但仅配置了 eslint --fix 和 prettier --write，未覆盖 Do Not Touch 约束。证据来自 package.json 的 lint-staged 配置和 AGENTS.md 的 Do Not Touch 段落。",
+      "dimensionRefs": [
+        "controlled-execution",
+        "learning-capture"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\n在 .husky/pre-commit 或 lint-staged 配置中添加路径检查守卫，阻止对 dist/、coverage/、.changeset/、benchmarks/reports/ 和大型数据文件的直接提交。\n\n## Validation\n\n- 尝试 touch dist/test.txt 并 git add，确认被拦截\n- 运行 pnpm lint 确认正常代码提交不受影响",
+      "expectedArtifact": "Hook",
+      "expectedOutput": [
+        "pre-commit hook 或 lint-staged 规则能拦截对 Do Not Touch 声明路径的直接提交，将 AGENTS.md 的约束声明转化为可执行的自动化守卫。"
+      ]
+    },
+    {
+      "id": "missing-nested-instructions",
+      "title": "高风险包缺少嵌套 AGENTS.md 指令",
+      "severity": "Low",
+      "reason": "证据包的 agentInstructions 状态为 missing（count: 0, nestedCount: 0），建议的 scoped instructions 包括 packages/renderer-three（18 个源文件）、packages/plugins（15 个源文件）、packages/convert（9 个源文件）。AGENTS.md 已声明 renderer-three/src/index.ts（~1489 行）和 webgpu-render-manager.ts（~1740 行）为决策密集文件，但代理在编辑这些文件时缺少包级 scoped guidance 将风险声明路由到具体操作边界。",
+      "dimensionRefs": [
+        "task-understanding"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\n为 packages/renderer-three/ 和 packages/convert/ 创建嵌套 AGENTS.md，将根级 AGENTS.md 中的 Risk Controls 声明细化为包级操作边界和检查路由。\n\n## Validation\n\n- 确认嵌套 AGENTS.md 引用了根级声明的风险文件\n- 运行 pnpm typecheck 确认无副作用",
+      "expectedArtifact": "Rule",
+      "expectedOutput": [
+        "packages/renderer-three/AGENTS.md 和 packages/convert/AGENTS.md 提供包级风险边界和编辑约束，将根级声明的决策密集文件指引路由到具体操作。"
+      ]
+    },
+    {
+      "id": "session-evidence-missing",
+      "title": "会话证据完全缺失导致学习循环无法运行",
+      "severity": "Low",
+      "reason": "30 天窗口期内 0 个符合条件的 Codex 会话，所有覆盖率维度为 0（withChanges、withChecks、withResultSignal 等）。诊断标志包括 no-change-evidence、no-reviewed-relevant-check-evidence、no-result-evidence。警告代码 disabled-source-root 和 missing-optional-root 表明会话数据源配置存在问题。由于无会话证据，无法检测重复工作流、验证循环或改进效果，Learning Capture 维度受限在 59 以下。",
+      "dimensionRefs": [
+        "learning-capture"
+      ],
+      "aiFixPrompt": "/better-harness fix this issue\n\n调查 Codex 会话捕获配置：确认 disabled-source-root 是否为预期配置，检查 missing-optional-root 指向的根目录是否需要创建或启用。在配置正确后重新运行证据收集验证会话数据可用。\n\n## Validation\n\n- 重新运行 evidence-bundle 确认 eligibleSessions > 0\n- 检查 disabled-source-root 的配置来源",
+      "expectedArtifact": "Config",
+      "expectedOutput": [
+        "Codex 会话捕获源已启用，evidence-bundle 能在后续运行中收集到符合条件的会话数据，使学习循环和重复工作流检测可运行。"
+      ]
+    }
+  ]
+}

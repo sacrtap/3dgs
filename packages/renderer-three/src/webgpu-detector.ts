@@ -104,9 +104,14 @@ function classifyGpuType(
   // ★ 某些浏览器 (如 Chrome headless) 不设 isFallbackAdapter=true,
   //   但 vendor/architecture 中包含 'swiftshader' 或 'llvmpipe'
   if (isFallback) return 'software';
-  if (v.includes('swiftshader') || a.includes('swiftshader') ||
-      v.includes('llvmpipe') || a.includes('llvmpipe') ||
-      v.includes('software') || a.includes('software')) {
+  if (
+    v.includes('swiftshader') ||
+    a.includes('swiftshader') ||
+    v.includes('llvmpipe') ||
+    a.includes('llvmpipe') ||
+    v.includes('software') ||
+    a.includes('software')
+  ) {
     return 'software';
   }
 
@@ -117,7 +122,8 @@ function classifyGpuType(
   // Intel: iris, uhd, hd graphics, arc a380 (入门级)
   // AMD: radeon graphics (APU 集成), vega mobile
   if (v === 'intel') return 'integrated';
-  if (/radeon.*graphics|vega.*mobile|radeon.*vega.*[38]|radeon.*vega.*10/.test(a)) return 'integrated';
+  if (/radeon.*graphics|vega.*mobile|radeon.*vega.*[38]|radeon.*vega.*10/.test(a))
+    return 'integrated';
 
   // 离散显卡
   // NVIDIA: 所有桌面 GPU
@@ -271,7 +277,11 @@ export async function detectWebGPU(): Promise<WebGPUCapability> {
     // 4. 收集适配器信息
     let adapterInfo: WebGPUCapability['adapterInfo'];
     try {
-      const info = (adapter as unknown as { info?: { vendor: string; architecture: string; description: string } }).info;
+      const info = (
+        adapter as unknown as {
+          info?: { vendor: string; architecture: string; description: string };
+        }
+      ).info;
       if (info) {
         adapterInfo = {
           vendor: info.vendor || 'unknown',
@@ -304,8 +314,8 @@ export async function detectWebGPU(): Promise<WebGPUCapability> {
     const preferredCanvasFormat = gpu.getPreferredCanvasFormat();
 
     // 9. 分类 GPU 类型
-    const isMobile = typeof navigator !== 'undefined' &&
-      /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const isMobile =
+      typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const gpuType = classifyGpuType(
       adapterInfo?.vendor ?? 'unknown',
       adapterInfo?.architecture ?? 'unknown',

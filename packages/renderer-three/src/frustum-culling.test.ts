@@ -104,7 +104,9 @@ function makeBackwardFrustum(): THREE.Frustum {
 describe('SpatialGrid', () => {
   it('★ 正确计算总 splat 数', () => {
     const data = makeSplatData([
-      [0, 0, 0], [1, 1, 1], [2, 2, 2],
+      [0, 0, 0],
+      [1, 1, 1],
+      [2, 2, 2],
     ]);
     const grid = new SpatialGrid(data, undefined, 4);
     expect(grid.getTotalSplats()).toBe(3);
@@ -112,7 +114,8 @@ describe('SpatialGrid', () => {
 
   it('★ 从数据中自动计算包围盒', () => {
     const data = makeSplatData([
-      [0, 0, 0], [10, 10, 10],
+      [0, 0, 0],
+      [10, 10, 10],
     ]);
     const grid = new SpatialGrid(data, undefined, 4);
     const bbox = grid.getBoundingBox();
@@ -126,10 +129,7 @@ describe('SpatialGrid', () => {
 
   it('★ 使用提供的包围盒', () => {
     const data = makeSplatData([[1, 1, 1]]);
-    const bbox = new THREE.Box3(
-      new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(100, 100, 100),
-    );
+    const bbox = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(100, 100, 100));
     const grid = new SpatialGrid(data, bbox, 4);
     expect(grid.getBoundingBox().min.x).toBe(0);
     expect(grid.getBoundingBox().max.x).toBe(100);
@@ -137,7 +137,9 @@ describe('SpatialGrid', () => {
 
   it('★ 分块数 ≤ 网格总单元数', () => {
     const data = makeSplatData([
-      [0, 0, 0], [5, 5, 5], [10, 10, 10],
+      [0, 0, 0],
+      [5, 5, 5],
+      [10, 10, 10],
     ]);
     const grid = new SpatialGrid(data, undefined, 4);
     // 4×4×4 = 64 单元, 3 个 splat 最多占 3 个单元
@@ -148,11 +150,7 @@ describe('SpatialGrid', () => {
   it('★ 所有分块的 splat 总数 = 总 splat 数', () => {
     const positions: number[][] = [];
     for (let i = 0; i < 100; i++) {
-      positions.push([
-        Math.random() * 100,
-        Math.random() * 100,
-        Math.random() * 100,
-      ]);
+      positions.push([Math.random() * 100, Math.random() * 100, Math.random() * 100]);
     }
     const data = makeSplatData(positions);
     const grid = new SpatialGrid(data, undefined, 4);
@@ -206,11 +204,7 @@ describe('SpatialGrid', () => {
   it('★ 全可见视锥返回所有 splat', () => {
     const positions: number[][] = [];
     for (let i = 0; i < 100; i++) {
-      positions.push([
-        (i % 10) * 10,
-        Math.floor(i / 10) * 10,
-        0,
-      ]);
+      positions.push([(i % 10) * 10, Math.floor(i / 10) * 10, 0]);
     }
     const data = makeSplatData(positions);
     const grid = new SpatialGrid(data, undefined, 4);
@@ -259,11 +253,7 @@ describe('SpatialGrid', () => {
     // 因此 rangeCount 总和 >= actualCount 总和
     const positions: number[][] = [];
     for (let i = 0; i < 100; i++) {
-      positions.push([
-        Math.random() * 100,
-        Math.random() * 100,
-        Math.random() * 100,
-      ]);
+      positions.push([Math.random() * 100, Math.random() * 100, Math.random() * 100]);
     }
     const data = makeSplatData(positions);
     const grid = new SpatialGrid(data, undefined, 4);
@@ -281,7 +271,9 @@ describe('SpatialGrid', () => {
 
   it('★ getVisibleRatio 返回 0-1 范围', () => {
     const data = makeSplatData([
-      [0, 0, 0], [50, 50, 50], [100, 100, 100],
+      [0, 0, 0],
+      [50, 50, 50],
+      [100, 100, 100],
     ]);
     const grid = new SpatialGrid(data, undefined, 4);
     const frustum = makeFullFrustum();
@@ -293,11 +285,7 @@ describe('SpatialGrid', () => {
   it('★ 可见范围已排序且相邻段已合并', () => {
     const positions: number[][] = [];
     for (let i = 0; i < 200; i++) {
-      positions.push([
-        (i % 20) * 5,
-        Math.floor(i / 20) * 5,
-        0,
-      ]);
+      positions.push([(i % 20) * 5, Math.floor(i / 20) * 5, 0]);
     }
     const data = makeSplatData(positions);
     const grid = new SpatialGrid(data, undefined, 4);
@@ -357,8 +345,8 @@ describe('FrustumCulling', () => {
     positions = [];
     for (let i = 0; i < 200; i++) {
       positions.push([
-        (i % 20) * 10 - 100,  // -100 ~ 90
-        Math.floor(i / 20) * 10 - 50,  // -50 ~ 49
+        (i % 20) * 10 - 100, // -100 ~ 90
+        Math.floor(i / 20) * 10 - 50, // -50 ~ 49
         0,
       ]);
     }

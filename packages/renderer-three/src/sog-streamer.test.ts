@@ -3,18 +3,22 @@ import { SogStreamer } from './sog-streamer.js';
 
 // ── SOG 文件构造工具 ──────────────────────────────────────
 
-const SOG_MAGIC_V1 = 0x31474F53; // "SOG1"
-const SOG_MAGIC_V2 = 0x32474F53; // "SOG2"
+const SOG_MAGIC_V1 = 0x31474f53; // "SOG1"
+const SOG_MAGIC_V2 = 0x32474f53; // "SOG2"
 const HEADER_SIZE = 64;
 const SPLAT_BYTES = 32;
 
 /**
  * 构造一个 SOG v2 文件 (无压缩)
  */
-function createMockSogV2File(numChunks: number, chunkSize: number, opts?: {
-  compression?: number;
-  lodQuality?: number;
-}): ArrayBuffer {
+function createMockSogV2File(
+  numChunks: number,
+  chunkSize: number,
+  opts?: {
+    compression?: number;
+    lodQuality?: number;
+  },
+): ArrayBuffer {
   const compression = opts?.compression ?? 0;
   const lodQuality = opts?.lodQuality ?? 1;
   const numSplats = numChunks * chunkSize;
@@ -27,21 +31,21 @@ function createMockSogV2File(numChunks: number, chunkSize: number, opts?: {
 
   // Header (v2)
   view.setUint32(0, SOG_MAGIC_V2, true);
-  view.setUint16(4, 2, true);          // version 2
-  view.setUint8(6, 0);                 // shDegree
-  view.setUint8(7, compression);       // compression
+  view.setUint16(4, 2, true); // version 2
+  view.setUint8(6, 0); // shDegree
+  view.setUint8(7, compression); // compression
   view.setUint32(8, numSplats, true);
   view.setUint32(12, numChunks, true);
   view.setUint32(16, chunkSize, true);
-  view.setFloat32(20, 0, true);        // bboxMin
+  view.setFloat32(20, 0, true); // bboxMin
   view.setFloat32(24, 0, true);
   view.setFloat32(28, 0, true);
-  view.setFloat32(32, 100, true);      // bboxMax
+  view.setFloat32(32, 100, true); // bboxMax
   view.setFloat32(36, 100, true);
   view.setFloat32(40, 100, true);
-  view.setUint32(44, 0, true);         // lodTreeOffset
-  view.setUint32(48, 0, true);         // lodTreeSize
-  view.setUint8(52, lodQuality);       // lodQuality
+  view.setUint32(44, 0, true); // lodTreeOffset
+  view.setUint32(48, 0, true); // lodTreeSize
+  view.setUint8(52, lodQuality); // lodQuality
 
   // Chunk index + data
   let dataOffset = HEADER_SIZE + indexSize;
@@ -173,7 +177,9 @@ describe('SogStreamer — P0 并行加载 + P1 v2 格式', () => {
   it('显式 parallel: true 正常工作', async () => {
     const loadedChunks: number[] = [];
     const streamer = new SogStreamer({
-      url: 'mock://test.sog', parallel: true, parallelCount: 4,
+      url: 'mock://test.sog',
+      parallel: true,
+      parallelCount: 4,
       onChunkLoaded: (idx) => loadedChunks.push(idx),
     });
     await streamer.start();
@@ -183,7 +189,8 @@ describe('SogStreamer — P0 并行加载 + P1 v2 格式', () => {
   it('parallel: false 使用顺序加载', async () => {
     const loadedChunks: number[] = [];
     const streamer = new SogStreamer({
-      url: 'mock://test.sog', parallel: false,
+      url: 'mock://test.sog',
+      parallel: false,
       onChunkLoaded: (idx) => loadedChunks.push(idx),
     });
     await streamer.start();
@@ -193,7 +200,9 @@ describe('SogStreamer — P0 并行加载 + P1 v2 格式', () => {
   it('并行加载: chunks 可能乱序到达但全部加载', async () => {
     const loadedChunks: number[] = [];
     const streamer = new SogStreamer({
-      url: 'mock://test.sog', parallel: true, parallelCount: 4,
+      url: 'mock://test.sog',
+      parallel: true,
+      parallelCount: 4,
       onChunkLoaded: (idx) => loadedChunks.push(idx),
     });
     await streamer.start();
@@ -205,7 +214,9 @@ describe('SogStreamer — P0 并行加载 + P1 v2 格式', () => {
   it('onProgress 回调被正确调用', async () => {
     const progressCalls: Array<{ loaded: number; total: number }> = [];
     const streamer = new SogStreamer({
-      url: 'mock://test.sog', parallel: true, parallelCount: 4,
+      url: 'mock://test.sog',
+      parallel: true,
+      parallelCount: 4,
       onProgress: (loadedChunks, totalChunks) => {
         progressCalls.push({ loaded: loadedChunks, total: totalChunks });
       },
@@ -221,7 +232,9 @@ describe('SogStreamer — P0 并行加载 + P1 v2 格式', () => {
     let completed = false;
     const streamer = new SogStreamer({
       url: 'mock://test.sog',
-      onComplete: () => { completed = true; },
+      onComplete: () => {
+        completed = true;
+      },
     });
     await streamer.start();
     expect(completed).toBe(true);
@@ -247,7 +260,9 @@ describe('SogStreamer — P0 并行加载 + P1 v2 格式', () => {
     const chunkData: Map<number, ArrayBuffer> = new Map();
     const streamer = new SogStreamer({
       url: 'mock://test.sog',
-      onChunkLoaded: (idx, data) => { chunkData.set(idx, data); },
+      onChunkLoaded: (idx, data) => {
+        chunkData.set(idx, data);
+      },
     });
     await streamer.start();
     for (let c = 0; c < numChunks; c++) {
@@ -260,7 +275,9 @@ describe('SogStreamer — P0 并行加载 + P1 v2 格式', () => {
   it('abort 中止加载', async () => {
     const loadedChunks: number[] = [];
     const streamer = new SogStreamer({
-      url: 'mock://test.sog', parallel: true, parallelCount: 2,
+      url: 'mock://test.sog',
+      parallel: true,
+      parallelCount: 2,
       onChunkLoaded: (idx) => loadedChunks.push(idx),
     });
     const promise = streamer.start();
@@ -279,7 +296,7 @@ describe('SogStreamer — P0 并行加载 + P1 v2 格式', () => {
   it('错误处理: 无效的 SOG magic', async () => {
     const badBuffer = new ArrayBuffer(64);
     const view = new DataView(badBuffer);
-    view.setUint32(0, 0xDEADBEEF, true);
+    view.setUint32(0, 0xdeadbeef, true);
     globalThis.fetch = createMockFetch(badBuffer) as unknown as typeof globalThis.fetch;
     const streamer = new SogStreamer({ url: 'mock://bad.sog' });
     await expect(streamer.start()).rejects.toThrow(/magic 不匹配/);
@@ -317,7 +334,7 @@ describe('SogStreamer — P1 v1 向后兼容', () => {
     expect(metadata.version).toBe(1);
     expect(metadata.numChunks).toBe(numChunks);
     expect(metadata.compression).toBe(0); // v1 无压缩
-    expect(metadata.lodQuality).toBe(0);  // v1 无 LOD 字段, 默认 0
+    expect(metadata.lodQuality).toBe(0); // v1 无 LOD 字段, 默认 0
     expect(loadedChunks).toHaveLength(numChunks);
   });
 
@@ -330,7 +347,9 @@ describe('SogStreamer — P1 v1 向后兼容', () => {
     const chunkData: Map<number, ArrayBuffer> = new Map();
     const streamer = new SogStreamer({
       url: 'mock://v1.sog',
-      onChunkLoaded: (idx, data) => { chunkData.set(idx, data); },
+      onChunkLoaded: (idx, data) => {
+        chunkData.set(idx, data);
+      },
     });
 
     await streamer.start();
@@ -431,7 +450,7 @@ describe('SogStreamer — P1-2 gzip 解压', () => {
 // ── P2-3: 位置量化反量化测试 ─────────────────────────────
 
 const COMPACT_BYTES = 29; // 紧凑格式每 splat 字节数
-const QUANT_MAX = 0xFFFFFF;
+const QUANT_MAX = 0xffffff;
 
 /**
  * ★ P2-3: 构造一个带位置量化的 SOG v2 文件 (compact 29B/splat, 无压缩)
@@ -458,9 +477,9 @@ function createMockSogV2QuantizedFile(
 
   // Header (v2) with positionQuantization=1
   view.setUint32(0, SOG_MAGIC_V2, true);
-  view.setUint16(4, 2, true);          // version 2
-  view.setUint8(6, 0);                 // shDegree
-  view.setUint8(7, 0);                 // compression = none
+  view.setUint16(4, 2, true); // version 2
+  view.setUint8(6, 0); // shDegree
+  view.setUint8(7, 0); // compression = none
   view.setUint32(8, numSplats, true);
   view.setUint32(12, numChunks, true);
   view.setUint32(16, chunkSize, true);
@@ -470,10 +489,10 @@ function createMockSogV2QuantizedFile(
   view.setFloat32(32, bboxMax[0], true);
   view.setFloat32(36, bboxMax[1], true);
   view.setFloat32(40, bboxMax[2], true);
-  view.setUint32(44, 0, true);         // lodTreeOffset
-  view.setUint32(48, 0, true);         // lodTreeSize
-  view.setUint8(52, 1);                // lodQuality
-  view.setUint8(53, 1);                // ★ positionQuantization = 1 (24-bit)
+  view.setUint32(44, 0, true); // lodTreeOffset
+  view.setUint32(48, 0, true); // lodTreeSize
+  view.setUint8(52, 1); // lodQuality
+  view.setUint8(53, 1); // ★ positionQuantization = 1 (24-bit)
 
   // Chunk index
   const dataOffset = HEADER_SIZE + indexSize;
@@ -481,18 +500,27 @@ function createMockSogV2QuantizedFile(
   view.setUint32(HEADER_SIZE + 4, dataSize, true);
 
   // Chunk data: compact 29-byte format
-  const rangeX = (bboxMax[0] - bboxMin[0]) || 1;
-  const rangeY = (bboxMax[1] - bboxMin[1]) || 1;
-  const rangeZ = (bboxMax[2] - bboxMin[2]) || 1;
+  const rangeX = bboxMax[0] - bboxMin[0] || 1;
+  const rangeY = bboxMax[1] - bboxMin[1] || 1;
+  const rangeZ = bboxMax[2] - bboxMin[2] || 1;
 
   for (let i = 0; i < numSplats; i++) {
     const base = dataOffset + i * COMPACT_BYTES;
     const [x, y, z] = positions[i];
 
     // Position XYZ → 3 × Uint24 LE (9 bytes)
-    const qx = Math.max(0, Math.min(QUANT_MAX, Math.round((x - bboxMin[0]) / rangeX * QUANT_MAX)));
-    const qy = Math.max(0, Math.min(QUANT_MAX, Math.round((y - bboxMin[1]) / rangeY * QUANT_MAX)));
-    const qz = Math.max(0, Math.min(QUANT_MAX, Math.round((z - bboxMin[2]) / rangeZ * QUANT_MAX)));
+    const qx = Math.max(
+      0,
+      Math.min(QUANT_MAX, Math.round(((x - bboxMin[0]) / rangeX) * QUANT_MAX)),
+    );
+    const qy = Math.max(
+      0,
+      Math.min(QUANT_MAX, Math.round(((y - bboxMin[1]) / rangeY) * QUANT_MAX)),
+    );
+    const qz = Math.max(
+      0,
+      Math.min(QUANT_MAX, Math.round(((z - bboxMin[2]) / rangeZ) * QUANT_MAX)),
+    );
 
     view.setUint8(base, qx & 0xff);
     view.setUint8(base + 1, (qx >> 8) & 0xff);
@@ -516,10 +544,10 @@ function createMockSogV2QuantizedFile(
     view.setUint8(base + 24, 255);
 
     // Rotation IJKL → 4 × Uint8 (4 bytes at offset 25-28)
-    view.setUint8(base + 25, 128);  // rotW = 0
-    view.setUint8(base + 26, 128);  // rotX = 0
-    view.setUint8(base + 27, 128);  // rotY = 0
-    view.setUint8(base + 28, 128);  // rotZ = 0
+    view.setUint8(base + 25, 128); // rotW = 0
+    view.setUint8(base + 26, 128); // rotX = 0
+    view.setUint8(base + 27, 128); // rotY = 0
+    view.setUint8(base + 28, 128); // rotZ = 0
   }
 
   return buffer;
@@ -538,7 +566,11 @@ describe('SogStreamer — P2-3 位置量化反量化', () => {
   });
 
   it('★ metadata.positionQuantization 正确解析为 1', async () => {
-    const positions = [[0, 0, 0], [50, 50, 50], [100, 100, 100]];
+    const positions = [
+      [0, 0, 0],
+      [50, 50, 50],
+      [100, 100, 100],
+    ];
     const sogBuffer = createMockSogV2QuantizedFile(3, positions);
     globalThis.fetch = createMockFetch(sogBuffer) as unknown as typeof globalThis.fetch;
 
@@ -571,7 +603,9 @@ describe('SogStreamer — P2-3 位置量化反量化', () => {
     const chunkData: Map<number, ArrayBuffer> = new Map();
     const streamer = new SogStreamer({
       url: 'mock://quant.sog',
-      onChunkLoaded: (idx, data) => { chunkData.set(idx, data); },
+      onChunkLoaded: (idx, data) => {
+        chunkData.set(idx, data);
+      },
     });
     await streamer.start();
 
@@ -593,7 +627,9 @@ describe('SogStreamer — P2-3 位置量化反量化', () => {
     const chunkData: Map<number, ArrayBuffer> = new Map();
     const streamer = new SogStreamer({
       url: 'mock://quant.sog',
-      onChunkLoaded: (idx, data) => { chunkData.set(idx, data); },
+      onChunkLoaded: (idx, data) => {
+        chunkData.set(idx, data);
+      },
     });
     await streamer.start();
 
@@ -622,7 +658,9 @@ describe('SogStreamer — P2-3 位置量化反量化', () => {
     const chunkData: Map<number, ArrayBuffer> = new Map();
     const streamer = new SogStreamer({
       url: 'mock://quant.sog',
-      onChunkLoaded: (idx, data) => { chunkData.set(idx, data); },
+      onChunkLoaded: (idx, data) => {
+        chunkData.set(idx, data);
+      },
     });
     await streamer.start();
 
@@ -650,14 +688,20 @@ describe('SogStreamer — P2-3 位置量化反量化', () => {
   it('★ 反量化使用自定义包围盒', async () => {
     const bboxMin: [number, number, number] = [-50, -50, -50];
     const bboxMax: [number, number, number] = [50, 50, 50];
-    const positions = [[-50, -50, -50], [0, 0, 0], [50, 50, 50]];
+    const positions = [
+      [-50, -50, -50],
+      [0, 0, 0],
+      [50, 50, 50],
+    ];
     const sogBuffer = createMockSogV2QuantizedFile(3, positions, bboxMin, bboxMax);
     globalThis.fetch = createMockFetch(sogBuffer) as unknown as typeof globalThis.fetch;
 
     const chunkData: Map<number, ArrayBuffer> = new Map();
     const streamer = new SogStreamer({
       url: 'mock://quant.sog',
-      onChunkLoaded: (idx, data) => { chunkData.set(idx, data); },
+      onChunkLoaded: (idx, data) => {
+        chunkData.set(idx, data);
+      },
     });
     await streamer.start();
 
@@ -670,9 +714,9 @@ describe('SogStreamer — P2-3 位置量化反量化', () => {
     const y0 = view.getFloat32(4, true);
     const z0 = view.getFloat32(8, true);
     const step = range / QUANT_MAX;
-    expect(Math.abs(x0 - (-50))).toBeLessThan(step * 2);
-    expect(Math.abs(y0 - (-50))).toBeLessThan(step * 2);
-    expect(Math.abs(z0 - (-50))).toBeLessThan(step * 2);
+    expect(Math.abs(x0 - -50)).toBeLessThan(step * 2);
+    expect(Math.abs(y0 - -50)).toBeLessThan(step * 2);
+    expect(Math.abs(z0 - -50)).toBeLessThan(step * 2);
 
     // 第三个 splat: (50, 50, 50) → 边界最大值
     const x2 = view.getFloat32(64, true);
@@ -687,11 +731,7 @@ describe('SogStreamer — P2-3 位置量化反量化', () => {
     const numSplats = 50;
     const positions: number[][] = [];
     for (let i = 0; i < numSplats; i++) {
-      positions.push([
-        Math.random() * 100,
-        Math.random() * 100,
-        Math.random() * 100,
-      ]);
+      positions.push([Math.random() * 100, Math.random() * 100, Math.random() * 100]);
     }
     const sogBuffer = createMockSogV2QuantizedFile(numSplats, positions);
     globalThis.fetch = createMockFetch(sogBuffer) as unknown as typeof globalThis.fetch;
@@ -699,7 +739,9 @@ describe('SogStreamer — P2-3 位置量化反量化', () => {
     const chunkData: Map<number, ArrayBuffer> = new Map();
     const streamer = new SogStreamer({
       url: 'mock://quant.sog',
-      onChunkLoaded: (idx, data) => { chunkData.set(idx, data); },
+      onChunkLoaded: (idx, data) => {
+        chunkData.set(idx, data);
+      },
     });
     await streamer.start();
 
@@ -739,7 +781,9 @@ describe('SogStreamer — P2 早期终止加载', () => {
     const streamer = new SogStreamer({
       url: 'mock://test.sog',
       maxSplats: 5000, // 只需 5 chunks (5 * 1000 = 5000)
-      onChunkLoaded: (idx) => { loadedChunkIndices.push(idx); },
+      onChunkLoaded: (idx) => {
+        loadedChunkIndices.push(idx);
+      },
     });
     await streamer.start();
 
@@ -758,7 +802,9 @@ describe('SogStreamer — P2 早期终止加载', () => {
     const streamer = new SogStreamer({
       url: 'mock://test.sog',
       maxSplats: 10000, // 远超总量 1000
-      onChunkLoaded: (idx) => { loadedChunkIndices.push(idx); },
+      onChunkLoaded: (idx) => {
+        loadedChunkIndices.push(idx);
+      },
     });
     await streamer.start();
 
@@ -774,7 +820,9 @@ describe('SogStreamer — P2 早期终止加载', () => {
     const loadedChunkIndices: number[] = [];
     const streamer = new SogStreamer({
       url: 'mock://test.sog',
-      onChunkLoaded: (idx) => { loadedChunkIndices.push(idx); },
+      onChunkLoaded: (idx) => {
+        loadedChunkIndices.push(idx);
+      },
     });
     await streamer.start();
 
@@ -791,7 +839,9 @@ describe('SogStreamer — P2 早期终止加载', () => {
     const streamer = new SogStreamer({
       url: 'mock://test.sog',
       maxSplats: 2000, // 10 chunks
-      onProgress: (loaded, total) => { progressCalls.push({ loaded, total }); },
+      onProgress: (loaded, total) => {
+        progressCalls.push({ loaded, total });
+      },
     });
     await streamer.start();
 
@@ -821,7 +871,11 @@ describe('SogStreamer — D-02 chunk 失败传播', () => {
       const range = headers?.Range;
       const match = range?.match(/bytes=(\d+)-(\d+)/);
       if (!match) {
-        return Promise.resolve({ ok: false, status: 400, arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) });
+        return Promise.resolve({
+          ok: false,
+          status: 400,
+          arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+        });
       }
       const start = parseInt(match[1], 10);
       const end = parseInt(match[2], 10);
@@ -829,7 +883,11 @@ describe('SogStreamer — D-02 chunk 失败传播', () => {
       // 命中失败 chunk 的数据区间 → 404 (弱网/部分文件丢失场景)
       const chunkStart = dataStart + failChunkIndex * chunkBytes;
       if (start >= chunkStart && start < chunkStart + chunkBytes) {
-        return Promise.resolve({ ok: false, status: 404, arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) });
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+        });
       }
 
       return Promise.resolve({
@@ -871,7 +929,9 @@ describe('SogStreamer — D-02 chunk 失败传播', () => {
     const chunkDataList: ArrayBuffer[] = [];
     const streamer = new SogStreamer({
       url: 'mock://test.sog',
-      onChunkLoaded: (idx, data) => { chunkDataList[idx] = data; },
+      onChunkLoaded: (idx, data) => {
+        chunkDataList[idx] = data;
+      },
     });
 
     await expect(streamer.start()).rejects.toThrow();

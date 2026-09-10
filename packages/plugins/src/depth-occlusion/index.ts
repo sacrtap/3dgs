@@ -51,9 +51,7 @@ export interface DepthOcclusionOptions {
  * player.use(createDepthOcclusionPlugin({ sampleInterval: 2 }));
  * ```
  */
-export function createDepthOcclusionPlugin(
-  options: DepthOcclusionOptions = {},
-): TourPlugin {
+export function createDepthOcclusionPlugin(options: DepthOcclusionOptions = {}): TourPlugin {
   const {
     sampleInterval = 2,
     depthThreshold = 0.001,
@@ -109,11 +107,7 @@ export function createDepthOcclusionPlugin(
         const [wx, wy, wz] = parts;
 
         // 将 3D 位置投影到屏幕空间
-        const screenPos = projectToScreen(
-          wx, wy, wz,
-          context.vpMatrix,
-          width, height,
-        );
+        const screenPos = projectToScreen(wx, wy, wz, context.vpMatrix, width, height);
 
         if (!screenPos) {
           // 热点不在视锥内
@@ -165,9 +159,12 @@ export function createDepthOcclusionPlugin(
  * @returns { x, y, z } 屏幕坐标 (z = 深度值 0-1), 或 null 如果不在视锥内
  */
 function projectToScreen(
-  wx: number, wy: number, wz: number,
+  wx: number,
+  wy: number,
+  wz: number,
   vpMatrix: Float32Array,
-  width: number, height: number,
+  width: number,
+  height: number,
 ): { x: number; y: number; z: number } | null {
   // 应用视图投影矩阵
   const clipX = vpMatrix[0] * wx + vpMatrix[4] * wy + vpMatrix[8] * wz + vpMatrix[12];

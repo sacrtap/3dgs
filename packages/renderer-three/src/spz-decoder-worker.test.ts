@@ -32,10 +32,19 @@ const SH_DIM: Record<number, number> = { 0: 0, 1: 3, 2: 8, 3: 15 };
 
 /** 测试用高斯核数据 */
 interface TestSplat {
-  x: number; y: number; z: number;
-  scaleX: number; scaleY: number; scaleZ: number;
-  rotW: number; rotX: number; rotY: number; rotZ: number;
-  colorR: number; colorG: number; colorB: number;
+  x: number;
+  y: number;
+  z: number;
+  scaleX: number;
+  scaleY: number;
+  scaleZ: number;
+  rotW: number;
+  rotX: number;
+  rotY: number;
+  rotZ: number;
+  colorR: number;
+  colorG: number;
+  colorB: number;
   opacity: number;
 }
 
@@ -93,8 +102,16 @@ async function createMockSpzFile(
   let offset = HEADER_SIZE;
   for (const s of splats) {
     writeInt24LE(view, offset, Math.max(-8388607, Math.min(8388607, Math.round(s.x * fraction))));
-    writeInt24LE(view, offset + 3, Math.max(-8388607, Math.min(8388607, Math.round(s.y * fraction))));
-    writeInt24LE(view, offset + 6, Math.max(-8388607, Math.min(8388607, Math.round(s.z * fraction))));
+    writeInt24LE(
+      view,
+      offset + 3,
+      Math.max(-8388607, Math.min(8388607, Math.round(s.y * fraction))),
+    );
+    writeInt24LE(
+      view,
+      offset + 6,
+      Math.max(-8388607, Math.min(8388607, Math.round(s.z * fraction))),
+    );
     offset += 9;
   }
 
@@ -128,8 +145,16 @@ async function createMockSpzFile(
   for (let i = 0; i < numSplats; i++) {
     const s = splats[i];
     const len = Math.sqrt(s.rotW * s.rotW + s.rotX * s.rotX + s.rotY * s.rotY + s.rotZ * s.rotZ);
-    let nw = s.rotW / len, nx = s.rotX / len, ny = s.rotY / len, nz = s.rotZ / len;
-    if (nw < 0) { nw = -nw; nx = -nx; ny = -ny; nz = -nz; }
+    let nw = s.rotW / len,
+      nx = s.rotX / len,
+      ny = s.rotY / len,
+      nz = s.rotZ / len;
+    if (nw < 0) {
+      nw = -nw;
+      nx = -nx;
+      ny = -ny;
+      nz = -nz;
+    }
     const base = offset + i * 3;
     view.setUint8(base + 0, clampU8(Math.round((nx + 1) * 127.5)));
     view.setUint8(base + 1, clampU8(Math.round((ny + 1) * 127.5)));
@@ -243,14 +268,24 @@ describe('validateSpzHeader — header 验证', () => {
 
   it('无效 magic 抛出异常', () => {
     const header: SpzHeader = {
-      magic: 0xDEADBEEF, version: 2, numSplats: 1, shDegree: 0, fractionalBits: 12, flags: 0,
+      magic: 0xdeadbeef,
+      version: 2,
+      numSplats: 1,
+      shDegree: 0,
+      fractionalBits: 12,
+      flags: 0,
     };
     expect(() => validateSpzHeader(header)).toThrow(/magic 不匹配/);
   });
 
   it('不支持的版本抛出异常', () => {
     const header: SpzHeader = {
-      magic: SPZ_MAGIC, version: 99, numSplats: 1, shDegree: 0, fractionalBits: 12, flags: 0,
+      magic: SPZ_MAGIC,
+      version: 99,
+      numSplats: 1,
+      shDegree: 0,
+      fractionalBits: 12,
+      flags: 0,
     };
     expect(() => validateSpzHeader(header)).toThrow(/版本/);
   });
@@ -268,7 +303,22 @@ describe('decodeSpz — SPZ → .splat 解码 (主线程)', () => {
 
   it('★ Position 反量化正确 (24-bit int → Float32)', async () => {
     const splats: TestSplat[] = [
-      { x: 1.5, y: -2.3, z: 0.0, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01, rotW: 1, rotX: 0, rotY: 0, rotZ: 0, colorR: 0.5, colorG: 0.5, colorB: 0.5, opacity: 1 },
+      {
+        x: 1.5,
+        y: -2.3,
+        z: 0.0,
+        scaleX: 0.01,
+        scaleY: 0.01,
+        scaleZ: 0.01,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        colorR: 0.5,
+        colorG: 0.5,
+        colorB: 0.5,
+        opacity: 1,
+      },
     ];
     const spzData = await createMockSpzFile(splats, { fractionalBits: 12 });
     const splatBytes = await decodeSpz(spzData);
@@ -282,7 +332,22 @@ describe('decodeSpz — SPZ → .splat 解码 (主线程)', () => {
 
   it('★ Scale 反量化正确 (log-scale → Float32)', async () => {
     const splats: TestSplat[] = [
-      { x: 0, y: 0, z: 0, scaleX: 0.05, scaleY: 0.01, scaleZ: 0.1, rotW: 1, rotX: 0, rotY: 0, rotZ: 0, colorR: 0.5, colorG: 0.5, colorB: 0.5, opacity: 1 },
+      {
+        x: 0,
+        y: 0,
+        z: 0,
+        scaleX: 0.05,
+        scaleY: 0.01,
+        scaleZ: 0.1,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        colorR: 0.5,
+        colorG: 0.5,
+        colorB: 0.5,
+        opacity: 1,
+      },
     ];
     const spzData = await createMockSpzFile(splats);
     const splatBytes = await decodeSpz(spzData);
@@ -296,7 +361,22 @@ describe('decodeSpz — SPZ → .splat 解码 (主线程)', () => {
 
   it('★ Color 反量化正确 (DC color encoded → Uint8 RGBA)', async () => {
     const splats: TestSplat[] = [
-      { x: 0, y: 0, z: 0, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01, rotW: 1, rotX: 0, rotY: 0, rotZ: 0, colorR: 0.8, colorG: 0.2, colorB: 0.6, opacity: 0.9 },
+      {
+        x: 0,
+        y: 0,
+        z: 0,
+        scaleX: 0.01,
+        scaleY: 0.01,
+        scaleZ: 0.01,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        colorR: 0.8,
+        colorG: 0.2,
+        colorB: 0.6,
+        opacity: 0.9,
+      },
     ];
     const spzData = await createMockSpzFile(splats);
     const splatBytes = await decodeSpz(spzData);
@@ -311,7 +391,11 @@ describe('decodeSpz — SPZ → .splat 解码 (主线程)', () => {
     expect(a).toBe(clampU8(Math.round(0.9 * 255)));
 
     // Verify color (reverse quantized)
-    const expectedR = clampU8((((clampU8(Math.round(((0.8 - 0.5) / COLOR_SCALE + 0.5) * 255)) / 255 - 0.5) * COLOR_SCALE + 0.5) * 255));
+    const expectedR = clampU8(
+      ((clampU8(Math.round(((0.8 - 0.5) / COLOR_SCALE + 0.5) * 255)) / 255 - 0.5) * COLOR_SCALE +
+        0.5) *
+        255,
+    );
     expect(r).toBe(expectedR);
     expect(r).toBeGreaterThan(0);
     expect(r).toBeLessThanOrEqual(255);
@@ -320,7 +404,22 @@ describe('decodeSpz — SPZ → .splat 解码 (主线程)', () => {
   it('★ Rotation 反量化正确 (xyz + w=sqrt → IJKL)', async () => {
     // Identity quaternion: w=1, x=0, y=0, z=0
     const splats: TestSplat[] = [
-      { x: 0, y: 0, z: 0, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01, rotW: 1, rotX: 0, rotY: 0, rotZ: 0, colorR: 0.5, colorG: 0.5, colorB: 0.5, opacity: 1 },
+      {
+        x: 0,
+        y: 0,
+        z: 0,
+        scaleX: 0.01,
+        scaleY: 0.01,
+        scaleZ: 0.01,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        colorR: 0.5,
+        colorG: 0.5,
+        colorB: 0.5,
+        opacity: 1,
+      },
     ];
     const spzData = await createMockSpzFile(splats);
     const splatBytes = await decodeSpz(spzData);
@@ -378,7 +477,7 @@ describe('decodeSpz — SPZ → .splat 解码 (主线程)', () => {
   it('无效 magic 抛出异常', async () => {
     const badData = new ArrayBuffer(16);
     const view = new DataView(badData);
-    view.setUint32(0, 0xDEADBEEF, true);
+    view.setUint32(0, 0xdeadbeef, true);
     view.setUint32(4, 2, true);
     view.setUint32(8, 0, true);
 
@@ -441,7 +540,7 @@ describe('decodeSpzInWorker — Worker 解码 (Node 环境回退主线程)', () 
   it('错误传播: 无效数据抛出异常', async () => {
     const badData = new ArrayBuffer(16);
     const view = new DataView(badData);
-    view.setUint32(0, 0xDEADBEEF, true);
+    view.setUint32(0, 0xdeadbeef, true);
 
     await expect(decodeSpzInWorker(badData)).rejects.toThrow(/magic 不匹配/);
   });
@@ -452,7 +551,22 @@ describe('decodeSpzInWorker — Worker 解码 (Node 环境回退主线程)', () 
 describe('decodeSpz — 边界条件', () => {
   it('大坐标值正确处理 (接近 24-bit 上限)', async () => {
     const splats: TestSplat[] = [
-      { x: 2000, y: -2000, z: 1000, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01, rotW: 1, rotX: 0, rotY: 0, rotZ: 0, colorR: 0.5, colorG: 0.5, colorB: 0.5, opacity: 1 },
+      {
+        x: 2000,
+        y: -2000,
+        z: 1000,
+        scaleX: 0.01,
+        scaleY: 0.01,
+        scaleZ: 0.01,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        colorR: 0.5,
+        colorG: 0.5,
+        colorB: 0.5,
+        opacity: 1,
+      },
     ];
     const spzData = await createMockSpzFile(splats, { fractionalBits: 12 });
     const splatBytes = await decodeSpz(spzData);
@@ -466,7 +580,22 @@ describe('decodeSpz — 边界条件', () => {
 
   it('极小 scale 值正确处理', async () => {
     const splats: TestSplat[] = [
-      { x: 0, y: 0, z: 0, scaleX: 0.0001, scaleY: 0.001, scaleZ: 0.00001, rotW: 1, rotX: 0, rotY: 0, rotZ: 0, colorR: 0.5, colorG: 0.5, colorB: 0.5, opacity: 1 },
+      {
+        x: 0,
+        y: 0,
+        z: 0,
+        scaleX: 0.0001,
+        scaleY: 0.001,
+        scaleZ: 0.00001,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        colorR: 0.5,
+        colorG: 0.5,
+        colorB: 0.5,
+        opacity: 1,
+      },
     ];
     const spzData = await createMockSpzFile(splats);
     const splatBytes = await decodeSpz(spzData);
@@ -479,7 +608,22 @@ describe('decodeSpz — 边界条件', () => {
 
   it('非归一化四元数正确处理 (SPZ 编码会归一化)', async () => {
     const splats: TestSplat[] = [
-      { x: 0, y: 0, z: 0, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01, rotW: 2, rotX: 0, rotY: 0, rotZ: 0, colorR: 0.5, colorG: 0.5, colorB: 0.5, opacity: 1 },
+      {
+        x: 0,
+        y: 0,
+        z: 0,
+        scaleX: 0.01,
+        scaleY: 0.01,
+        scaleZ: 0.01,
+        rotW: 2,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        colorR: 0.5,
+        colorG: 0.5,
+        colorB: 0.5,
+        opacity: 1,
+      },
     ];
     const spzData = await createMockSpzFile(splats);
     const splatBytes = await decodeSpz(spzData);
@@ -490,7 +634,22 @@ describe('decodeSpz — 边界条件', () => {
 
   it('不同 fractionalBits 产生一致结果', async () => {
     const splats: TestSplat[] = [
-      { x: 1.234, y: -5.678, z: 9.012, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01, rotW: 1, rotX: 0, rotY: 0, rotZ: 0, colorR: 0.5, colorG: 0.5, colorB: 0.5, opacity: 1 },
+      {
+        x: 1.234,
+        y: -5.678,
+        z: 9.012,
+        scaleX: 0.01,
+        scaleY: 0.01,
+        scaleZ: 0.01,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        colorR: 0.5,
+        colorG: 0.5,
+        colorB: 0.5,
+        opacity: 1,
+      },
     ];
 
     const spzData12 = await createMockSpzFile(splats, { fractionalBits: 12 });
@@ -521,12 +680,17 @@ describe('decodeSpz — 边界条件', () => {
 describe('decodeSpz — 权威布局: 整文件 gzip (Spark 兼容)', () => {
   /** Gzip 解压 */
   async function gzipDecompressLocal(data: Uint8Array): Promise<Uint8Array> {
-    const stream = new Blob([data as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const stream = new Blob([data as Uint8Array<ArrayBuffer>])
+      .stream()
+      .pipeThrough(new DecompressionStream('gzip'));
     return new Uint8Array(await new Response(stream).arrayBuffer());
   }
 
   /** 构造权威布局文件: 将旧布局 [未压缩 header][gzip body] 转为 [整文件 gzip] */
-  async function createWholeGzipSpz(splats: TestSplat[], opts?: { shDegree?: number }): Promise<ArrayBuffer> {
+  async function createWholeGzipSpz(
+    splats: TestSplat[],
+    opts?: { shDegree?: number },
+  ): Promise<ArrayBuffer> {
     const legacy = new Uint8Array(await createMockSpzFile(splats, opts));
     const body = await gzipDecompressLocal(legacy.subarray(HEADER_SIZE));
     const full = new Uint8Array(HEADER_SIZE + body.length);

@@ -54,8 +54,10 @@ export function createHotspotSystem(options: HotspotSystemOptions = {}): Hotspot
       overlay.className = '3dgs-hotspot-overlay';
       Object.assign(overlay.style, {
         position: 'absolute',
-        top: '0', left: '0',
-        width: '100%', height: '100%',
+        top: '0',
+        left: '0',
+        width: '100%',
+        height: '100%',
         pointerEvents: 'none',
         overflow: 'hidden',
       } as Partial<CSSStyleDeclaration>);
@@ -118,7 +120,10 @@ export function createHotspotSystem(options: HotspotSystemOptions = {}): Hotspot
 
       // 监听场景切换事件 — 加载新场景的热点
       unsubSceneSwitched = ctx.player.on('scene:switched', (data) => {
-        const d = data as { sceneId: string; scene?: { config?: { extensions?: Record<string, unknown> } } };
+        const d = data as {
+          sceneId: string;
+          scene?: { config?: { extensions?: Record<string, unknown> } };
+        };
         const ext = d.scene?.config?.extensions;
         if (!ext) {
           manager.setHotspots([]);
@@ -163,13 +168,21 @@ export function createHotspotSystem(options: HotspotSystemOptions = {}): Hotspot
     // ── ★ 运行时 API (动态添加/移除热点 + 弹窗控制) ──
     addHotspot(config: HotspotConfig) {
       if (!manager) return;
-      const current = manager.list().map((i) => i.config).filter((c) => c.id !== config.id);
+      const current = manager
+        .list()
+        .map((i) => i.config)
+        .filter((c) => c.id !== config.id);
       manager.setHotspots([...current, config]);
     },
 
     removeHotspot(id: string) {
       if (!manager) return;
-      manager.setHotspots(manager.list().map((i) => i.config).filter((c) => c.id !== id));
+      manager.setHotspots(
+        manager
+          .list()
+          .map((i) => i.config)
+          .filter((c) => c.id !== id),
+      );
     },
 
     openPopup(id: string) {
@@ -193,5 +206,14 @@ export function createHotspotSystem(options: HotspotSystemOptions = {}): Hotspot
 }
 
 export { HotspotManager } from './hotspot-manager.js';
-export type { HotspotConfig, HotspotExtension, HotspotType, HotspotStyle, HotspotVisibility, HotspotAction, HotspotHover, HotspotPopup } from './hotspot-config.js';
+export type {
+  HotspotConfig,
+  HotspotExtension,
+  HotspotType,
+  HotspotStyle,
+  HotspotVisibility,
+  HotspotAction,
+  HotspotHover,
+  HotspotPopup,
+} from './hotspot-config.js';
 export type { HotspotInstance } from './hotspot-manager.js';

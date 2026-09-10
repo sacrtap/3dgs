@@ -15,10 +15,22 @@ function perspective(fovYDeg: number, aspect: number, near: number, far: number)
   const f = 1 / Math.tan((fovYDeg * Math.PI) / 360);
   const nf = 1 / (near - far);
   return [
-    f / aspect, 0, 0, 0,
-    0, f, 0, 0,
-    0, 0, (far + near) * nf, -1,
-    0, 0, 2 * far * near * nf, 0,
+    f / aspect,
+    0,
+    0,
+    0,
+    0,
+    f,
+    0,
+    0,
+    0,
+    0,
+    (far + near) * nf,
+    -1,
+    0,
+    0,
+    2 * far * near * nf,
+    0,
   ];
 }
 
@@ -32,12 +44,7 @@ function viewMatrix(pos: [number, number, number], yawDeg: number): number[] {
   const t0 = -(cos * pos[0] + 0 * pos[1] + sin * pos[2]);
   const t1 = -(0 * pos[0] + 1 * pos[1] + 0 * pos[2]);
   const t2 = -(-sin * pos[0] + 0 * pos[1] + cos * pos[2]);
-  return [
-    cos, 0, sin, 0,
-    0, 1, 0, 0,
-    -sin, 0, cos, 0,
-    t0, t1, t2, 1,
-  ];
+  return [cos, 0, sin, 0, 0, 1, 0, 0, -sin, 0, cos, 0, t0, t1, t2, 1];
 }
 
 /** column-major 4x4 乘法: out = a × b */

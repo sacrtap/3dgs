@@ -49,7 +49,9 @@ function createTestCloud(count: number, shDegree = 0): GaussianCloud {
 
 /** gzip 解压 (使用 DecompressionStream, Node.js 18+ 可用) */
 async function gzipDecompress(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([data as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const stream = new Blob([data as Uint8Array<ArrayBuffer>])
+    .stream()
+    .pipeThrough(new DecompressionStream('gzip'));
   const decompressed = await new Response(stream).arrayBuffer();
   return new Uint8Array(decompressed);
 }
@@ -97,7 +99,11 @@ describe('writeSpz — 权威布局: 整文件 gzip', () => {
     const cloud = createTestCloud(10);
     const result = await writeSpz(cloud);
     const decompressed = await decompressSpz(result);
-    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
+    const view = new DataView(
+      decompressed.buffer,
+      decompressed.byteOffset,
+      decompressed.byteLength,
+    );
 
     expect(view.getUint32(0, true)).toBe(SPZ_MAGIC);
   });
@@ -106,15 +112,19 @@ describe('writeSpz — 权威布局: 整文件 gzip', () => {
     const cloud = createTestCloud(20);
     const result = await writeSpz(cloud, { fractionalBits: 12, flagAntiAlias: true });
     const decompressed = await decompressSpz(result);
-    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
+    const view = new DataView(
+      decompressed.buffer,
+      decompressed.byteOffset,
+      decompressed.byteLength,
+    );
 
     expect(view.getUint32(0, true)).toBe(SPZ_MAGIC);
     expect(view.getUint32(4, true)).toBe(SPZ_VERSION);
     expect(view.getUint32(8, true)).toBe(20);
-    expect(view.getUint8(12)).toBe(0);    // shDegree
-    expect(view.getUint8(13)).toBe(12);   // fractionalBits
+    expect(view.getUint8(12)).toBe(0); // shDegree
+    expect(view.getUint8(13)).toBe(12); // fractionalBits
     expect(view.getUint8(14) & 1).toBe(1); // flags: antialiased
-    expect(view.getUint8(15)).toBe(0);    // reserved
+    expect(view.getUint8(15)).toBe(0); // reserved
   });
 
   it('★ 解压后总长度 = headerSize + bodySize, 压缩后更小', async () => {
@@ -134,7 +144,11 @@ describe('writeSpz — 权威布局: 整文件 gzip', () => {
     const cloud = createTestCloud(3);
     const result = await writeSpz(cloud, { flagAntiAlias: false });
     const decompressed = await decompressSpz(result);
-    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
+    const view = new DataView(
+      decompressed.buffer,
+      decompressed.byteOffset,
+      decompressed.byteLength,
+    );
 
     expect(view.getUint8(14) & 1).toBe(0);
   });
@@ -144,7 +158,11 @@ describe('writeSpz — 权威布局: 整文件 gzip', () => {
       const cloud = createTestCloud(5, shDegree);
       const result = await writeSpz(cloud, { shDegree });
       const decompressed = await decompressSpz(result);
-      const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
+      const view = new DataView(
+        decompressed.buffer,
+        decompressed.byteOffset,
+        decompressed.byteLength,
+      );
 
       expect(view.getUint8(12)).toBe(shDegree);
     }
@@ -263,7 +281,11 @@ describe('writeSpz — 边界条件', () => {
     const cloud = createTestCloud(1);
     const result = await writeSpz(cloud);
     const decompressed = await decompressSpz(result);
-    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
+    const view = new DataView(
+      decompressed.buffer,
+      decompressed.byteOffset,
+      decompressed.byteLength,
+    );
 
     expect(view.getUint32(0, true)).toBe(SPZ_MAGIC);
     expect(view.getUint32(8, true)).toBe(1);
@@ -273,7 +295,11 @@ describe('writeSpz — 边界条件', () => {
     const cloud = createTestCloud(0);
     const result = await writeSpz(cloud);
     const decompressed = await decompressSpz(result);
-    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
+    const view = new DataView(
+      decompressed.buffer,
+      decompressed.byteOffset,
+      decompressed.byteLength,
+    );
 
     expect(view.getUint32(0, true)).toBe(SPZ_MAGIC);
     expect(view.getUint32(8, true)).toBe(0);
@@ -284,7 +310,11 @@ describe('writeSpz — 边界条件', () => {
     const cloud = createTestCloud(5);
     const result = await writeSpz(cloud, { fractionalBits: 10 });
     const decompressed = await decompressSpz(result);
-    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
+    const view = new DataView(
+      decompressed.buffer,
+      decompressed.byteOffset,
+      decompressed.byteLength,
+    );
 
     expect(view.getUint8(13)).toBe(10);
   });

@@ -33,10 +33,22 @@ export interface PlyHeader {
 }
 
 export type PlyDataType =
-  | 'char' | 'uchar' | 'int8' | 'uint8'
-  | 'short' | 'ushort' | 'int16' | 'uint16'
-  | 'int' | 'uint' | 'int32' | 'uint32' | 'float' | 'float32'
-  | 'double' | 'float64';
+  | 'char'
+  | 'uchar'
+  | 'int8'
+  | 'uint8'
+  | 'short'
+  | 'ushort'
+  | 'int16'
+  | 'uint16'
+  | 'int'
+  | 'uint'
+  | 'int32'
+  | 'uint32'
+  | 'float'
+  | 'float32'
+  | 'double'
+  | 'float64';
 
 /** 解析后的 PLY 数据 (每个 element 对应一个二维数组) */
 export interface PlyData {
@@ -46,11 +58,22 @@ export interface PlyData {
 }
 
 export const DATA_TYPE_SIZE: Record<PlyDataType, number> = {
-  char: 1, uchar: 1, int8: 1, uint8: 1,
-  short: 2, ushort: 2, int16: 2, uint16: 2,
-  int: 4, uint: 4, int32: 4, uint32: 4,
-  float: 4, float32: 4,
-  double: 8, float64: 8,
+  char: 1,
+  uchar: 1,
+  int8: 1,
+  uint8: 1,
+  short: 2,
+  ushort: 2,
+  int16: 2,
+  uint16: 2,
+  int: 4,
+  uint: 4,
+  int32: 4,
+  uint32: 4,
+  float: 4,
+  float32: 4,
+  double: 8,
+  float64: 8,
 };
 
 /**
@@ -183,7 +206,10 @@ function parseAsciiBody(
 
     for (let i = 0; i < element.count; i++) {
       const line = lines[lineIdx++].trim();
-      if (!line) { i--; continue; }
+      if (!line) {
+        i--;
+        continue;
+      }
 
       const tokens = line.split(/\s+/);
       const row: Record<string, number | number[]> = {};
@@ -253,21 +279,29 @@ function readBinaryValue(
   littleEndian: boolean,
 ): number {
   switch (type) {
-    case 'char': case 'int8':
+    case 'char':
+    case 'int8':
       return view.getInt8(offset);
-    case 'uchar': case 'uint8':
+    case 'uchar':
+    case 'uint8':
       return view.getUint8(offset);
-    case 'short': case 'int16':
+    case 'short':
+    case 'int16':
       return view.getInt16(offset, littleEndian);
-    case 'ushort': case 'uint16':
+    case 'ushort':
+    case 'uint16':
       return view.getUint16(offset, littleEndian);
-    case 'int': case 'int32':
+    case 'int':
+    case 'int32':
       return view.getInt32(offset, littleEndian);
-    case 'uint': case 'uint32':
+    case 'uint':
+    case 'uint32':
       return view.getUint32(offset, littleEndian);
-    case 'float': case 'float32':
+    case 'float':
+    case 'float32':
       return view.getFloat32(offset, littleEndian);
-    case 'double': case 'float64':
+    case 'double':
+    case 'float64':
       return view.getFloat64(offset, littleEndian);
     default:
       throw new Error(`不支持的数据类型: ${type}`);
@@ -411,17 +445,22 @@ export function tryFastPathParsePly(
     const yProp = propertyMap.get('y');
     const zProp = propertyMap.get('z');
     if (xProp) positions[i3] = readBinaryValue(view, base + xProp.offset, xProp.type, littleEndian);
-    if (yProp) positions[i3 + 1] = readBinaryValue(view, base + yProp.offset, yProp.type, littleEndian);
-    if (zProp) positions[i3 + 2] = readBinaryValue(view, base + zProp.offset, zProp.type, littleEndian);
+    if (yProp)
+      positions[i3 + 1] = readBinaryValue(view, base + yProp.offset, yProp.type, littleEndian);
+    if (zProp)
+      positions[i3 + 2] = readBinaryValue(view, base + zProp.offset, zProp.type, littleEndian);
 
     // 法线
     if (normals) {
       const nxProp = propertyMap.get('nx');
       const nyProp = propertyMap.get('ny');
       const nzProp = propertyMap.get('nz');
-      if (nxProp) normals[i3] = readBinaryValue(view, base + nxProp.offset, nxProp.type, littleEndian);
-      if (nyProp) normals[i3 + 1] = readBinaryValue(view, base + nyProp.offset, nyProp.type, littleEndian);
-      if (nzProp) normals[i3 + 2] = readBinaryValue(view, base + nzProp.offset, nzProp.type, littleEndian);
+      if (nxProp)
+        normals[i3] = readBinaryValue(view, base + nxProp.offset, nxProp.type, littleEndian);
+      if (nyProp)
+        normals[i3 + 1] = readBinaryValue(view, base + nyProp.offset, nyProp.type, littleEndian);
+      if (nzProp)
+        normals[i3 + 2] = readBinaryValue(view, base + nzProp.offset, nzProp.type, littleEndian);
     }
 
     // SH DC
@@ -436,21 +475,29 @@ export function tryFastPathParsePly(
     if (shRest) {
       for (let j = 0; j < shRestCount; j++) {
         const prop = propertyMap.get(`f_rest_${j}`);
-        if (prop) shRest[i * shRestCount + j] = readBinaryValue(view, base + prop.offset, prop.type, littleEndian);
+        if (prop)
+          shRest[i * shRestCount + j] = readBinaryValue(
+            view,
+            base + prop.offset,
+            prop.type,
+            littleEndian,
+          );
       }
     }
 
     // Opacity
     if (opacity) {
       const opProp = propertyMap.get('opacity');
-      if (opProp) opacity[i] = readBinaryValue(view, base + opProp.offset, opProp.type, littleEndian);
+      if (opProp)
+        opacity[i] = readBinaryValue(view, base + opProp.offset, opProp.type, littleEndian);
     }
 
     // Scale
     if (scales) {
       for (let j = 0; j < 3; j++) {
         const prop = propertyMap.get(`scale_${j}`);
-        if (prop) scales[i3 + j] = readBinaryValue(view, base + prop.offset, prop.type, littleEndian);
+        if (prop)
+          scales[i3 + j] = readBinaryValue(view, base + prop.offset, prop.type, littleEndian);
       }
     }
 
@@ -458,7 +505,8 @@ export function tryFastPathParsePly(
     if (rotations) {
       for (let j = 0; j < 4; j++) {
         const prop = propertyMap.get(`rot_${j}`);
-        if (prop) rotations[i4 + j] = readBinaryValue(view, base + prop.offset, prop.type, littleEndian);
+        if (prop)
+          rotations[i4 + j] = readBinaryValue(view, base + prop.offset, prop.type, littleEndian);
       }
     }
 
@@ -468,8 +516,10 @@ export function tryFastPathParsePly(
       const gProp = propertyMap.get('green');
       const bProp = propertyMap.get('blue');
       if (rProp) colors[i3] = readBinaryValue(view, base + rProp.offset, rProp.type, littleEndian);
-      if (gProp) colors[i3 + 1] = readBinaryValue(view, base + gProp.offset, gProp.type, littleEndian);
-      if (bProp) colors[i3 + 2] = readBinaryValue(view, base + bProp.offset, bProp.type, littleEndian);
+      if (gProp)
+        colors[i3 + 1] = readBinaryValue(view, base + gProp.offset, gProp.type, littleEndian);
+      if (bProp)
+        colors[i3 + 2] = readBinaryValue(view, base + bProp.offset, bProp.type, littleEndian);
     }
   }
 
@@ -554,7 +604,10 @@ export function buildCloudFromFastPath(
       rotY = fastData.rotations[i4 + 2];
       rotZ = fastData.rotations[i4 + 3];
     } else {
-      rotW = 1; rotX = 0; rotY = 0; rotZ = 0;
+      rotW = 1;
+      rotX = 0;
+      rotY = 0;
+      rotZ = 0;
     }
 
     // 颜色
@@ -568,7 +621,9 @@ export function buildCloudFromFastPath(
       colorG = fastData.colors[i3 + 1] / 255;
       colorB = fastData.colors[i3 + 2] / 255;
     } else {
-      colorR = 0.8; colorG = 0.8; colorB = 0.8;
+      colorR = 0.8;
+      colorG = 0.8;
+      colorB = 0.8;
     }
 
     // 不透明度
@@ -590,9 +645,16 @@ export function buildCloudFromFastPath(
     }
 
     splats[i] = {
-      x, y, z,
-      scaleX, scaleY, scaleZ,
-      rotW, rotX, rotY, rotZ,
+      x,
+      y,
+      z,
+      scaleX,
+      scaleY,
+      scaleZ,
+      rotW,
+      rotX,
+      rotY,
+      rotZ,
       colorR: Math.max(0, Math.min(1, colorR)),
       colorG: Math.max(0, Math.min(1, colorG)),
       colorB: Math.max(0, Math.min(1, colorB)),

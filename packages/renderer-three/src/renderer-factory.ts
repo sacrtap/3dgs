@@ -83,16 +83,12 @@ export async function createRenderer(
   } else if (preferredBackend === 'webgpu' && !forceBackend) {
     // WebGPU 不可用, 回退到 WebGL2
     backend = 'webgl2';
-    console.warn(
-      `[3dgs] WebGPU 不可用 (${webgpuCapability.reason}), 回退到 WebGL2 后端`,
-    );
+    console.warn(`[3dgs] WebGPU 不可用 (${webgpuCapability.reason}), 回退到 WebGL2 后端`);
   } else if (preferredBackend === 'webgl2') {
     backend = 'webgl2';
   } else {
     // forceBackend=true 但 WebGPU 不可用
-    throw new Error(
-      `WebGPU 后端不可用: ${webgpuCapability.reason}`,
-    );
+    throw new Error(`WebGPU 后端不可用: ${webgpuCapability.reason}`);
   }
 
   // 创建渲染器 — 根据后端选择不同的实现
@@ -123,9 +119,7 @@ export async function createRenderer(
     }
 
     // 打印 GPU 信息
-    const gpuTypeLabel = webgpuCapability.gpuType
-      ? ` | 类型: ${webgpuCapability.gpuType}`
-      : '';
+    const gpuTypeLabel = webgpuCapability.gpuType ? ` | 类型: ${webgpuCapability.gpuType}` : '';
     console.info(
       `[3dgs] 使用 WebGPU 原生渲染后端 (GPU 排序: ${enableGpuSort ? '启用' : '禁用'}${gpuTypeLabel})`,
     );
@@ -137,8 +131,8 @@ export async function createRenderer(
     if (webgpuCapability.limits) {
       console.info(
         `[3dgs] GPU 限制: maxBufferSize=${(webgpuCapability.limits.maxBufferSize / 1024 / 1024).toFixed(0)}MB | ` +
-        `maxBindGroups=${webgpuCapability.limits.maxBindGroups} | ` +
-        `maxStorageBuffersPerShaderStage=${webgpuCapability.limits.maxStorageBuffersPerShaderStage}`,
+          `maxBindGroups=${webgpuCapability.limits.maxBindGroups} | ` +
+          `maxStorageBuffersPerShaderStage=${webgpuCapability.limits.maxStorageBuffersPerShaderStage}`,
       );
     }
 
@@ -158,9 +152,7 @@ export async function createRenderer(
  *
  * 适用于不需要 WebGPU 检测的场景, 或 WebGPU 检测已在其他地方完成。
  */
-export function createRendererSync(
-  options: RenderManagerOptions = {},
-): RendererAdapter {
+export function createRendererSync(options: RenderManagerOptions = {}): RendererAdapter {
   return new RenderManager(options);
 }
 

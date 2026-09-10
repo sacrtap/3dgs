@@ -41,7 +41,9 @@ describe('FrameCallbackManager', () => {
 
   it('单个回调异常不影响其他回调', () => {
     const manager = new FrameCallbackManager();
-    const cb1 = vi.fn(() => { throw new Error('test error'); });
+    const cb1 = vi.fn(() => {
+      throw new Error('test error');
+    });
     const cb2 = vi.fn();
     manager.onFrame(cb1);
     manager.onFrame(cb2);

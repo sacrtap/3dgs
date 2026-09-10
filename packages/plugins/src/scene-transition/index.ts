@@ -37,7 +37,7 @@ type EasingFn = (t: number) => number;
 /** 缓动函数实现 */
 const EASINGS: Record<string, EasingFn> = {
   linear: (t) => t,
-  easeInOut: (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2,
+  easeInOut: (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2),
   easeOut: (t) => 1 - Math.pow(1 - t, 3),
 };
 
@@ -71,9 +71,7 @@ interface FlyState {
  * player.use(createSceneTransitionPlugin({ defaultType: 'fade', defaultDuration: 800 }));
  * ```
  */
-export function createSceneTransitionPlugin(
-  options: SceneTransitionOptions = {},
-): TourPlugin {
+export function createSceneTransitionPlugin(options: SceneTransitionOptions = {}): TourPlugin {
   const {
     defaultType = 'fade',
     defaultDuration = 800,
@@ -137,7 +135,10 @@ export function createSceneTransitionPlugin(
 
       // 监听场景切换完成事件 → fade-in / fly
       ctx.player.on('scene:switched', (data) => {
-        const d = data as { sceneId: string; scene?: { config?: { initialView?: { yaw: number; pitch: number; fov: number } } } };
+        const d = data as {
+          sceneId: string;
+          scene?: { config?: { initialView?: { yaw: number; pitch: number; fov: number } } };
+        };
         const transType = pendingTransition?.type ?? defaultType;
         const duration = pendingTransition?.duration ?? defaultDuration;
 
@@ -232,7 +233,10 @@ export function createSceneTransitionPlugin(
   }
 
   function startFlyAnimation(
-    data: { sceneId: string; scene?: { config?: { initialView?: { yaw: number; pitch: number; fov: number } } } },
+    data: {
+      sceneId: string;
+      scene?: { config?: { initialView?: { yaw: number; pitch: number; fov: number } } };
+    },
     duration: number,
   ): void {
     const initialView = data.scene?.config?.initialView;

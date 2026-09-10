@@ -118,50 +118,120 @@ export function getTierSettings(tier: DeviceTier): {
   switch (tier) {
     case DeviceTier.LOW:
       return {
-        pixelRatio: 1.0, resolutionScale: 0.5, shDegree: 0, maxSplats: 250_000, antialias: false,
-        lodSplatScale: 0.3, lodRenderScale: 3.0, maxStdDev: Math.sqrt(4), minPixelRadius: 2.0, clipXY: 1.0, lodQuality: false,
-        minSortIntervalMs: 100, coneFov0: 60, coneFov: 90, coneFoveate: 0.3, behindFoveate: 0.1,
-        maxPagedSplats: 4_194_304, numLodFetchers: 2, // 64 pages, 2 fetchers
+        pixelRatio: 1.0,
+        resolutionScale: 0.5,
+        shDegree: 0,
+        maxSplats: 250_000,
+        antialias: false,
+        lodSplatScale: 0.3,
+        lodRenderScale: 3.0,
+        maxStdDev: Math.sqrt(4),
+        minPixelRadius: 2.0,
+        clipXY: 1.0,
+        lodQuality: false,
+        minSortIntervalMs: 100,
+        coneFov0: 60,
+        coneFov: 90,
+        coneFoveate: 0.3,
+        behindFoveate: 0.1,
+        maxPagedSplats: 4_194_304,
+        numLodFetchers: 2, // 64 pages, 2 fetchers
         blurAmount: 0.1, // L1: 低模糊量, 减少 overdraw 提升性能
         minAlpha: 5 / 255, // L1 衡生: 激进裁剪透明 splat, 减少 overdraw
         focalAdjustment: 1.0, // L1 衡生: Spark 默认, 低端设备不做锐化
       };
     case DeviceTier.MEDIUM:
       return {
-        pixelRatio: 1.0, resolutionScale: 0.75, shDegree: 0, maxSplats: 500_000, antialias: false,
-        lodSplatScale: 0.5, lodRenderScale: 2.0, maxStdDev: Math.sqrt(6), minPixelRadius: 1.5, clipXY: 1.1, lodQuality: false,
-        minSortIntervalMs: 50, coneFov0: 70, coneFov: 100, coneFoveate: 0.35, behindFoveate: 0.15,
-        maxPagedSplats: 8_388_608, numLodFetchers: 3, // 128 pages, 3 fetchers
+        pixelRatio: 1.0,
+        resolutionScale: 0.75,
+        shDegree: 0,
+        maxSplats: 500_000,
+        antialias: false,
+        lodSplatScale: 0.5,
+        lodRenderScale: 2.0,
+        maxStdDev: Math.sqrt(6),
+        minPixelRadius: 1.5,
+        clipXY: 1.1,
+        lodQuality: false,
+        minSortIntervalMs: 50,
+        coneFov0: 70,
+        coneFov: 100,
+        coneFoveate: 0.35,
+        behindFoveate: 0.15,
+        maxPagedSplats: 8_388_608,
+        numLodFetchers: 3, // 128 pages, 3 fetchers
         blurAmount: 0.2, // L1: 中等模糊量, 平衡质量和性能
         minAlpha: 2 / 255, // L1 衡生: 中等裁剪透明 splat
         focalAdjustment: 1.0, // L1 衡生: Spark 默认
       };
     case DeviceTier.HIGH:
       return {
-        pixelRatio: cappedDpr(1.25), resolutionScale: 1.0, shDegree: 1, maxSplats: 1_000_000, antialias: false,
-        lodSplatScale: 1.0, lodRenderScale: 1.0, maxStdDev: Math.sqrt(8), minPixelRadius: 1.0, clipXY: 1.2, lodQuality: true,
-        minSortIntervalMs: 33, coneFov0: 80, coneFov: 110, coneFoveate: 0.4, behindFoveate: 0.2,
-        maxPagedSplats: 12_582_912, numLodFetchers: 3, // 192 pages, 3 fetchers
+        pixelRatio: cappedDpr(1.25),
+        resolutionScale: 1.0,
+        shDegree: 1,
+        maxSplats: 1_000_000,
+        antialias: false,
+        lodSplatScale: 1.0,
+        lodRenderScale: 1.0,
+        maxStdDev: Math.sqrt(8),
+        minPixelRadius: 1.0,
+        clipXY: 1.2,
+        lodQuality: true,
+        minSortIntervalMs: 33,
+        coneFov0: 80,
+        coneFov: 110,
+        coneFoveate: 0.4,
+        behindFoveate: 0.2,
+        maxPagedSplats: 12_582_912,
+        numLodFetchers: 3, // 192 pages, 3 fetchers
         blurAmount: 0.3, // L1: Spark 默认值, 平衡抗锯齿质量
         minAlpha: 1 / 255, // L1 衡生: 轻微裁剪, 质量优先
         focalAdjustment: 1.5, // L1 衡生: 中等锐化, 改善视觉质量
       };
     case DeviceTier.ULTRA:
       return {
-        pixelRatio: cappedDpr(1.5), resolutionScale: 1.0, shDegree: 2, maxSplats: 2_500_000, antialias: false,
-        lodSplatScale: 1.5, lodRenderScale: 1.0, maxStdDev: Math.sqrt(8), minPixelRadius: 0.5, clipXY: 1.4, lodQuality: true,
-        minSortIntervalMs: 16, coneFov0: 90, coneFov: 120, coneFoveate: 0.4, behindFoveate: 0.2,
-        maxPagedSplats: 16_777_216, numLodFetchers: 4, // 256 pages, 4 fetchers
+        pixelRatio: cappedDpr(1.5),
+        resolutionScale: 1.0,
+        shDegree: 2,
+        maxSplats: 2_500_000,
+        antialias: false,
+        lodSplatScale: 1.5,
+        lodRenderScale: 1.0,
+        maxStdDev: Math.sqrt(8),
+        minPixelRadius: 0.5,
+        clipXY: 1.4,
+        lodQuality: true,
+        minSortIntervalMs: 16,
+        coneFov0: 90,
+        coneFov: 120,
+        coneFoveate: 0.4,
+        behindFoveate: 0.2,
+        maxPagedSplats: 16_777_216,
+        numLodFetchers: 4, // 256 pages, 4 fetchers
         blurAmount: 0.3, // L1: Spark 默认值, 最高质量
         minAlpha: 0.5 / 255, // L1 衡生: Spark 默认, 几乎不裁剪
         focalAdjustment: 2.0, // L1 衡生: 匹配 PlayCanvas, 最锐利
       };
     default:
       return {
-        pixelRatio: 1.0, resolutionScale: 0.75, shDegree: 0, maxSplats: 500_000, antialias: false,
-        lodSplatScale: 0.5, lodRenderScale: 2.0, maxStdDev: Math.sqrt(6), minPixelRadius: 1.5, clipXY: 1.1, lodQuality: false,
-        minSortIntervalMs: 50, coneFov0: 70, coneFov: 100, coneFoveate: 0.35, behindFoveate: 0.15,
-        maxPagedSplats: 8_388_608, numLodFetchers: 3,
+        pixelRatio: 1.0,
+        resolutionScale: 0.75,
+        shDegree: 0,
+        maxSplats: 500_000,
+        antialias: false,
+        lodSplatScale: 0.5,
+        lodRenderScale: 2.0,
+        maxStdDev: Math.sqrt(6),
+        minPixelRadius: 1.5,
+        clipXY: 1.1,
+        lodQuality: false,
+        minSortIntervalMs: 50,
+        coneFov0: 70,
+        coneFov: 100,
+        coneFoveate: 0.35,
+        behindFoveate: 0.15,
+        maxPagedSplats: 8_388_608,
+        numLodFetchers: 3,
         blurAmount: 0.2, // L1: 中等模糊量
         minAlpha: 2 / 255, // L1 衡生: 中等裁剪
         focalAdjustment: 1.0, // L1 衡生: Spark 默认
@@ -211,5 +281,7 @@ function isIntegratedGpu(renderer: string): boolean {
   const r = renderer.toLowerCase();
   // Intel 集成显卡 (UHD, Iris, Iris Plus, Iris Xe)
   // AMD 集成显卡 (Radeon Graphics, Vega Mobile)
-  return /intel.*iris|intel.*uhd|intel.*hd graphics|intel.*arc.*a380|radeon.*graphics|vega.*mobile|radeon.*vega.*8|radeon.*vega.*10|radeon.*vega.*3/.test(r);
+  return /intel.*iris|intel.*uhd|intel.*hd graphics|intel.*arc.*a380|radeon.*graphics|vega.*mobile|radeon.*vega.*8|radeon.*vega.*10|radeon.*vega.*3/.test(
+    r,
+  );
 }

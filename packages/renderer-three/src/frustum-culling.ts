@@ -222,8 +222,12 @@ export class SpatialGrid {
     const numSplats = Math.floor(splatData.byteLength / SPLAT_BYTES_PER_SPLAT);
     const view = new DataView(splatData.buffer, splatData.byteOffset, splatData.byteLength);
 
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      minZ = Infinity;
+    let maxX = -Infinity,
+      maxY = -Infinity,
+      maxZ = -Infinity;
 
     for (let i = 0; i < numSplats; i++) {
       const offset = i * SPLAT_BYTES_PER_SPLAT;
@@ -243,10 +247,7 @@ export class SpatialGrid {
       return new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 1, 1));
     }
 
-    return new THREE.Box3(
-      new THREE.Vector3(minX, minY, minZ),
-      new THREE.Vector3(maxX, maxY, maxZ),
-    );
+    return new THREE.Box3(new THREE.Vector3(minX, minY, minZ), new THREE.Vector3(maxX, maxY, maxZ));
   }
 
   /**
@@ -314,11 +315,7 @@ export class SpatialGrid {
       const actualCount = cellCount[idx];
 
       // 计算分块包围盒
-      const cellMin = new THREE.Vector3(
-        min.x + gx * cs.x,
-        min.y + gy * cs.y,
-        min.z + gz * cs.z,
-      );
+      const cellMin = new THREE.Vector3(min.x + gx * cs.x, min.y + gy * cs.y, min.z + gz * cs.z);
       const cellMax = new THREE.Vector3(
         min.x + (gx + 1) * cs.x,
         min.y + (gy + 1) * cs.y,
@@ -328,7 +325,9 @@ export class SpatialGrid {
       cellCenter.copy(cellMin).add(cellMax).multiplyScalar(0.5);
 
       this.cells.push({
-        gx, gy, gz,
+        gx,
+        gy,
+        gz,
         startSplat,
         rangeCount,
         actualCount,

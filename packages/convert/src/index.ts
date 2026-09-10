@@ -26,16 +26,8 @@ export type {
 } from './ply-parser.js';
 
 // Gaussian 数据模型
-export {
-  loadGaussiansFromPly,
-  SH_C0,
-  SPZ_COLOR_SCALE,
-} from './gaussian-loader.js';
-export type {
-  GaussianSplat,
-  GaussianCloud,
-  LoadGaussianOptions,
-} from './gaussian-loader.js';
+export { loadGaussiansFromPly, SH_C0, SPZ_COLOR_SCALE } from './gaussian-loader.js';
+export type { GaussianSplat, GaussianCloud, LoadGaussianOptions } from './gaussian-loader.js';
 
 // .splat 写入器
 export { writeSplat, SPLAT_BYTES_PER_SPLAT } from './splat-writer.js';
@@ -45,12 +37,7 @@ export { loadGaussiansFromSplat } from './splat-reader.js';
 export type { LoadSplatOptions } from './splat-reader.js';
 
 // SPZ 写入器
-export {
-  writeSpz,
-  SPZ_MAGIC,
-  SPZ_VERSION,
-  SPZ_FLAG_ANTIALIASED,
-} from './spz-writer.js';
+export { writeSpz, SPZ_MAGIC, SPZ_VERSION, SPZ_FLAG_ANTIALIASED } from './spz-writer.js';
 export type { SpzWriterOptions } from './spz-writer.js';
 
 // SOG 写入器
@@ -76,18 +63,8 @@ export {
   MIN_LOD_SPLATS,
   LOD_TREE_HEADER_SIZE,
 } from './sog-writer.js';
-export type {
-  SogWriterOptions,
-  SogChunkEntry,
-  SogMetadata,
-} from './sog-writer.js';
+export type { SogWriterOptions, SogChunkEntry, SogMetadata } from './sog-writer.js';
 
 // 数据处理
-export {
-  pruneGaussians,
-  mortonSortGaussians,
-} from './processing.js';
-export type {
-  PruneOptions,
-  MortonSortOptions,
-} from './processing.js';
+export { pruneGaussians, mortonSortGaussians } from './processing.js';
+export type { PruneOptions, MortonSortOptions } from './processing.js';

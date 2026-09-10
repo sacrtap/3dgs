@@ -11,7 +11,7 @@ import { CameraMatrixCache } from './camera-matrix-cache.js';
 describe('CameraMatrixCache', () => {
   it('初始状态: vpMatrix 全零, camPos 原点', () => {
     const cache = new CameraMatrixCache();
-    expect(cache.vpMatrix.every(v => v === 0)).toBe(true);
+    expect(cache.vpMatrix.every((v) => v === 0)).toBe(true);
     expect(cache.camPos.x).toBe(0);
     expect(cache.camPos.y).toBe(0);
     expect(cache.camPos.z).toBe(0);
@@ -23,7 +23,7 @@ describe('CameraMatrixCache', () => {
     camera.position.set(0, 0, 5);
     camera.lookAt(0, 0, 0);
     cache.update(camera);
-    expect(cache.vpMatrix.some(v => v !== 0)).toBe(true);
+    expect(cache.vpMatrix.some((v) => v !== 0)).toBe(true);
   });
 
   it('update 后 camPos 反映相机世界坐标', () => {
@@ -59,8 +59,8 @@ describe('CameraMatrixCache', () => {
     const posRef = cache.camPos;
 
     cache.update(camera);
-    expect(cache.vpMatrix).toBe(vpRef);   // 同一引用
-    expect(cache.camPos).toBe(posRef);     // 同一引用
+    expect(cache.vpMatrix).toBe(vpRef); // 同一引用
+    expect(cache.camPos).toBe(posRef); // 同一引用
   });
 
   it('相机移动后 camPos 更新', () => {

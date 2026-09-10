@@ -19,9 +19,12 @@ import type { RendererAdapter } from './renderer-adapter.js';
 
 export type TourPlayerEventType =
   | SceneEvent['type']
-  | 'hotspot:click' | 'hotspot:hover'
-  | 'scene:switching' | 'scene:switched'
-  | 'load' | 'error';
+  | 'hotspot:click'
+  | 'hotspot:hover'
+  | 'scene:switching'
+  | 'scene:switched'
+  | 'load'
+  | 'error';
 
 export type TourPlayerHandler = (data: unknown) => void;
 
@@ -71,9 +74,10 @@ export class TourPlayer {
       throw new Error('TourPlayer 已销毁, 无法加载');
     }
     try {
-      const runtime: TourRuntime = typeof config === 'string'
-        ? await this.loader.load(config)
-        : this.loader.fromObject(config);
+      const runtime: TourRuntime =
+        typeof config === 'string'
+          ? await this.loader.load(config)
+          : this.loader.fromObject(config);
 
       this.runtime = runtime;
       this.sceneManager = runtime.sceneManager;

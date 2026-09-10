@@ -53,9 +53,7 @@ interface PerspectiveCameraLike {
  * player.use(createTouchGesturesPlugin({ pinchSensitivity: 0.01 }));
  * ```
  */
-export function createTouchGesturesPlugin(
-  options: TouchGesturesOptions = {},
-): TourPlugin {
+export function createTouchGesturesPlugin(options: TouchGesturesOptions = {}): TourPlugin {
   const {
     pinchSensitivity = 0.01,
     rotationSensitivity = 0.005,

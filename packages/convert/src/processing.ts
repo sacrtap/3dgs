@@ -50,10 +50,7 @@ export interface PruneOptions {
  * @param options 剔除选项
  * @returns 剔除后的新 GaussianCloud
  */
-export function pruneGaussians(
-  cloud: GaussianCloud,
-  options: PruneOptions = {},
-): GaussianCloud {
+export function pruneGaussians(cloud: GaussianCloud, options: PruneOptions = {}): GaussianCloud {
   const {
     minOpacity = 0.01,
     maxScale = Infinity,
@@ -69,10 +66,19 @@ export function pruneGaussians(
   for (const s of cloud.splats) {
     // 检查无效值
     if (removeInvalid) {
-      if (!isFinite(s.x) || !isFinite(s.y) || !isFinite(s.z) ||
-          !isFinite(s.scaleX) || !isFinite(s.scaleY) || !isFinite(s.scaleZ) ||
-          !isFinite(s.rotW) || !isFinite(s.rotX) || !isFinite(s.rotY) || !isFinite(s.rotZ) ||
-          !isFinite(s.opacity)) {
+      if (
+        !isFinite(s.x) ||
+        !isFinite(s.y) ||
+        !isFinite(s.z) ||
+        !isFinite(s.scaleX) ||
+        !isFinite(s.scaleY) ||
+        !isFinite(s.scaleZ) ||
+        !isFinite(s.rotW) ||
+        !isFinite(s.rotX) ||
+        !isFinite(s.rotY) ||
+        !isFinite(s.rotZ) ||
+        !isFinite(s.opacity)
+      ) {
         continue;
       }
     }
@@ -161,8 +167,12 @@ export function mortonSortGaussians(
   if (splats.length === 0) return { ...cloud, splats: [] };
 
   // 1. 计算包围盒
-  let minX = Infinity, minY = Infinity, minZ = Infinity;
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    minZ = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity,
+    maxZ = -Infinity;
 
   for (const s of splats) {
     if (s.x < minX) minX = s.x;
@@ -237,9 +247,9 @@ function morton3D(x: number, y: number, z: number): number {
  */
 function spreadBits(v: number): number {
   // 确保 32-bit 无符号运算
-  v = (v | (v << 16)) & 0x030000FF;
-  v = (v | (v << 8))  & 0x0300F00F;
-  v = (v | (v << 4))  & 0x030C30C3;
-  v = (v | (v << 2))  & 0x09249249;
+  v = (v | (v << 16)) & 0x030000ff;
+  v = (v | (v << 8)) & 0x0300f00f;
+  v = (v | (v << 4)) & 0x030c30c3;
+  v = (v | (v << 2)) & 0x09249249;
   return v;
 }

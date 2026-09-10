@@ -66,13 +66,13 @@ import { writeSplat } from './splat-writer.js';
 import { mortonSortGaussians } from './processing.js';
 
 /** SOG v1 魔数 */
-const SOG_MAGIC_V1 = 0x31474F53; // "SOG1" in LE
+const SOG_MAGIC_V1 = 0x31474f53; // "SOG1" in LE
 
 /** SOG v2 魔数 */
-const SOG_MAGIC_V2 = 0x32474F53; // "SOG2" in LE
+const SOG_MAGIC_V2 = 0x32474f53; // "SOG2" in LE
 
 /** ★ L2: SOG v3 魔数 — SH overlay 分层加载 */
-export const SOG_MAGIC_V3 = 0x33474F53; // "SOG3" in LE
+export const SOG_MAGIC_V3 = 0x33474f53; // "SOG3" in LE
 
 /** ★ L2: SOG v3 版本 */
 export const SOG_VERSION_V3 = 3;
@@ -102,11 +102,11 @@ export const SOG_POSITION_QUANT_24BIT = 1;
 export const SOG_COMPACT_BYTES_PER_SPLAT = 29;
 
 /** ★ P2-3: 24-bit 量化最大值 */
-const QUANT_MAX = 0xFFFFFF; // 16777215
+const QUANT_MAX = 0xffffff; // 16777215
 
 /** ★ H2: SH DC 追加模式 */
-export const SOG_SH_MODE_OFF = 0;       // 不追加 SH DC
-export const SOG_SH_MODE_DC_INT8 = 1;   // 追加 SH DC 3 bytes (Int8 量化)
+export const SOG_SH_MODE_OFF = 0; // 不追加 SH DC
+export const SOG_SH_MODE_DC_INT8 = 1; // 追加 SH DC 3 bytes (Int8 量化)
 
 /** ★ H2: SH DC 追加后每 splat 额外字节数 (3 bytes: R, G, B 各 1 byte) */
 const SH_DC_EXTRA_BYTES = 3;
@@ -253,10 +253,7 @@ export interface SogMetadata {
  * @param options 写入选项
  * @returns SOG 格式的 ArrayBuffer
  */
-export function writeSog(
-  cloud: GaussianCloud,
-  options: SogWriterOptions = {},
-): ArrayBuffer {
+export function writeSog(cloud: GaussianCloud, options: SogWriterOptions = {}): ArrayBuffer {
   const {
     chunkSize = DEFAULT_CHUNK_SIZE,
     spatialSort = true,
@@ -278,8 +275,12 @@ export function writeSog(
   }
 
   // 2. 计算包围盒
-  let minX = Infinity, minY = Infinity, minZ = Infinity;
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    minZ = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity,
+    maxZ = -Infinity;
   for (const s of splats) {
     if (s.x < minX) minX = s.x;
     if (s.y < minY) minY = s.y;
@@ -313,8 +314,12 @@ export function writeSog(
     if (positionQuantization) {
       // ★ M1: 借鉴 SuperSplat chunk 级量化 — 每个 chunk 独立计算 local bbox
       // 局部量化比全局量化精度更高 (chunk 范围 << 全局范围)
-      let cMinX = Infinity, cMinY = Infinity, cMinZ = Infinity;
-      let cMaxX = -Infinity, cMaxY = -Infinity, cMaxZ = -Infinity;
+      let cMinX = Infinity,
+        cMinY = Infinity,
+        cMinZ = Infinity;
+      let cMaxX = -Infinity,
+        cMaxY = -Infinity,
+        cMaxZ = -Infinity;
       for (let j = start; j < end; j++) {
         const s = splats[j];
         if (s.x < cMinX) cMinX = s.x;
@@ -343,7 +348,12 @@ export function writeSog(
     // ★ M4: gzip 压缩 chunk 数据 (level 6→9, 更高压缩率, 传输更小)
     if (compression) {
       const compressed = gzipSync(Buffer.from(rawChunkData), { level: 9 });
-      chunkDataList.push(compressed.buffer.slice(compressed.byteOffset, compressed.byteOffset + compressed.byteLength));
+      chunkDataList.push(
+        compressed.buffer.slice(
+          compressed.byteOffset,
+          compressed.byteOffset + compressed.byteLength,
+        ),
+      );
     } else {
       chunkDataList.push(rawChunkData);
     }
@@ -383,9 +393,9 @@ export function writeSog(
   const u8 = new Uint8Array(buffer);
 
   // ★ Header (v2)
-  view.setUint32(0, SOG_MAGIC_V2, true);           // magic "SOG2"
-  view.setUint16(4, SOG_VERSION_V2, true);          // version 2
-  view.setUint8(6, cloud.shDegree);                  // shDegree
+  view.setUint32(0, SOG_MAGIC_V2, true); // magic "SOG2"
+  view.setUint16(4, SOG_VERSION_V2, true); // version 2
+  view.setUint8(6, cloud.shDegree); // shDegree
   view.setUint8(7, compression ? SOG_COMPRESSION_GZIP : SOG_COMPRESSION_NONE); // compression
   view.setUint32(8, numSplats, true);
   view.setUint32(12, numChunks, true);
@@ -400,9 +410,9 @@ export function writeSog(
   view.setFloat32(40, maxZ, true);
 
   // ★ M2: LOD 元数据 (offset 44-56)
-  view.setUint32(44, lodTreeOffset, true);              // lodTreeOffset (0 = 无预构建)
-  view.setUint32(48, lodTreeSize, true);                // lodTreeSize (0 = 无预构建)
-  view.setUint8(52, lodQuality);                      // lodQuality (0=fast, 1=quality)
+  view.setUint32(44, lodTreeOffset, true); // lodTreeOffset (0 = 无预构建)
+  view.setUint32(48, lodTreeSize, true); // lodTreeSize (0 = 无预构建)
+  view.setUint8(52, lodQuality); // lodQuality (0=fast, 1=quality)
   // ★ P2-3: 位置量化标志 (byte 53)
   view.setUint8(53, positionQuantization ? SOG_POSITION_QUANT_24BIT : SOG_POSITION_QUANT_OFF);
   // ★ H2: SH DC 模式 (byte 54, 旧版文件此字节为 0 = 无 SH DC, 兼容)
@@ -551,8 +561,16 @@ function writeEmptySog(): ArrayBuffer {
 
 /** 导出常量供外部使用 */
 export {
-  SOG_MAGIC_V1, SOG_MAGIC_V2, SOG_VERSION_V1, SOG_VERSION_V2, SOG_HEADER_SIZE,
-  DEFAULT_LOD_LEVELS, DEFAULT_LOD_BASE_QUALITY, DEFAULT_LOD_BASE_FAST, MIN_LOD_SPLATS, LOD_TREE_HEADER_SIZE,
+  SOG_MAGIC_V1,
+  SOG_MAGIC_V2,
+  SOG_VERSION_V1,
+  SOG_VERSION_V2,
+  SOG_HEADER_SIZE,
+  DEFAULT_LOD_LEVELS,
+  DEFAULT_LOD_BASE_QUALITY,
+  DEFAULT_LOD_BASE_FAST,
+  MIN_LOD_SPLATS,
+  LOD_TREE_HEADER_SIZE,
 };
 
 // ─── M2: LOD 树构建与序列化 ───────────────────────────────
@@ -582,11 +600,7 @@ export {
  * @param lodBase LOD 缩减因子 (1.5=fast, 1.75=quality)
  * @returns 每个 LOD 层级的累计 splat 数 (单调递增, 最后一个 = numSplats)
  */
-export function buildLodLevels(
-  numSplats: number,
-  numLevels: number,
-  lodBase: number,
-): number[] {
+export function buildLodLevels(numSplats: number, numLevels: number, lodBase: number): number[] {
   if (numSplats <= 0 || numLevels <= 0) {
     return [numSplats];
   }
@@ -775,9 +789,9 @@ function writeCompactSplatChunk(
     view.setFloat32(20, bboxMax[2], true);
   }
 
-  const rangeX = (bboxMax[0] - bboxMin[0]) || 1;
-  const rangeY = (bboxMax[1] - bboxMin[1]) || 1;
-  const rangeZ = (bboxMax[2] - bboxMin[2]) || 1;
+  const rangeX = bboxMax[0] - bboxMin[0] || 1;
+  const rangeY = bboxMax[1] - bboxMin[1] || 1;
+  const rangeZ = bboxMax[2] - bboxMin[2] || 1;
 
   for (let i = 0; i < numSplats; i++) {
     const s = splats[i];
@@ -816,7 +830,7 @@ function writeCompactSplatChunk(
 
 /** 位置量化: round((pos - min) / range * 0xFFFFFF), clamped to [0, 0xFFFFFF] */
 function quantizePos(value: number, min: number, range: number): number {
-  return Math.max(0, Math.min(QUANT_MAX, Math.round((value - min) / range * QUANT_MAX)));
+  return Math.max(0, Math.min(QUANT_MAX, Math.round(((value - min) / range) * QUANT_MAX)));
 }
 
 /** 写入 24-bit 无符号整数 (little-endian) */

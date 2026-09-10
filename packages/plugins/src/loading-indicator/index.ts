@@ -56,9 +56,7 @@ const SPINNER_KEYFRAMES = `
  * }));
  * ```
  */
-export function createLoadingIndicatorPlugin(
-  options: LoadingIndicatorOptions = {},
-): TourPlugin {
+export function createLoadingIndicatorPlugin(options: LoadingIndicatorOptions = {}): TourPlugin {
   const {
     template,
     text = '加载中...',

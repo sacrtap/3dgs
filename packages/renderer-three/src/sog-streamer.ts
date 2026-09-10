@@ -68,7 +68,12 @@ export interface SogStreamerOptions {
   /** SOG 文件 URL */
   url: string;
   /** 加载进度回调 */
-  onProgress?: (loadedChunks: number, totalChunks: number, loadedSplats: number, totalSplats: number) => void;
+  onProgress?: (
+    loadedChunks: number,
+    totalChunks: number,
+    loadedSplats: number,
+    totalSplats: number,
+  ) => void;
   /** chunk 加载完成回调 (返回该 chunk 的 **解压后** splat 数据) */
   onChunkLoaded?: (chunkIndex: number, data: ArrayBuffer, count: number) => void;
   /** 所有 chunk 加载完成回调 */
@@ -94,10 +99,10 @@ export interface SogStreamerOptions {
 }
 
 /** SOG v1 魔数 */
-const SOG_MAGIC_V1 = 0x31474F53; // "SOG1"
+const SOG_MAGIC_V1 = 0x31474f53; // "SOG1"
 
 /** SOG v2 魔数 */
-const SOG_MAGIC_V2 = 0x32474F53; // "SOG2"
+const SOG_MAGIC_V2 = 0x32474f53; // "SOG2"
 
 /** Header 大小 */
 const SOG_HEADER_SIZE = 64;
@@ -117,7 +122,7 @@ const COMPACT_BYTES_PER_SPLAT = 29;
 const SPLAT_BYTES_PER_SPLAT = 32;
 
 /** ★ P2-3: 24-bit 量化最大值 */
-const QUANT_MAX = 0xFFFFFF;
+const QUANT_MAX = 0xffffff;
 
 /** ★ M2: LOD 树二进制头大小 (numLevels: 4B + lodBase: 4B = 8B) */
 const LOD_TREE_HEADER_SIZE = 8;
@@ -182,9 +187,9 @@ export class SogStreamer {
       }
       console.info(
         `[SogStreamer] P2 早期终止: 加载 ${this._maxChunksToLoad}/${this.metadata.numChunks} chunks ` +
-        `(目标 ${this.options.maxSplats.toLocaleString()} / 总量 ${this.metadata.numSplats.toLocaleString()} splats, ` +
-        `预计 ${(accumulated).toLocaleString()} splats, ` +
-        `节省 ${((1 - this._maxChunksToLoad / this.metadata.numChunks) * 100).toFixed(1)}% 下载量)`,
+          `(目标 ${this.options.maxSplats.toLocaleString()} / 总量 ${this.metadata.numSplats.toLocaleString()} splats, ` +
+          `预计 ${accumulated.toLocaleString()} splats, ` +
+          `节省 ${((1 - this._maxChunksToLoad / this.metadata.numChunks) * 100).toFixed(1)}% 下载量)`,
       );
     }
 
@@ -295,7 +300,9 @@ export class SogStreamer {
       throw new Error('无效的 SOG 文件: numSplats = 0');
     }
     if (numSplats > 100_000_000) {
-      throw new Error(`SOG numSplats 过大: ${numSplats.toLocaleString()} (上限 100M), 可能导致 OOM`);
+      throw new Error(
+        `SOG numSplats 过大: ${numSplats.toLocaleString()} (上限 100M), 可能导致 OOM`,
+      );
     }
     if (numChunks === 0) {
       throw new Error('无效的 SOG 文件: numChunks = 0');
@@ -307,7 +314,9 @@ export class SogStreamer {
       throw new Error(`无效的 SOG compression 值: ${compression} (仅支持 0=none, 1=gzip)`);
     }
     if (positionQuantization > 1) {
-      throw new Error(`无效的 SOG positionQuantization 值: ${positionQuantization} (仅支持 0=off, 1=24bit)`);
+      throw new Error(
+        `无效的 SOG positionQuantization 值: ${positionQuantization} (仅支持 0=off, 1=24bit)`,
+      );
     }
 
     // ★ M2: 读取 LOD 树偏移和大小
@@ -385,7 +394,9 @@ export class SogStreamer {
 
     const expectedSize = LOD_TREE_HEADER_SIZE + numLevels * 4;
     if (buffer.byteLength < expectedSize) {
-      console.warn(`[SogStreamer] LOD 树数据不完整: 期望 ${expectedSize} 字节, 实际 ${buffer.byteLength}`);
+      console.warn(
+        `[SogStreamer] LOD 树数据不完整: 期望 ${expectedSize} 字节, 实际 ${buffer.byteLength}`,
+      );
       return;
     }
 
@@ -487,9 +498,7 @@ export class SogStreamer {
       if (!this.aborted) {
         this.failedChunks.add(index);
       }
-      this.options.onError?.(
-        err instanceof Error ? err : new Error(String(err)),
-      );
+      this.options.onError?.(err instanceof Error ? err : new Error(String(err)));
     }
   }
 
@@ -552,33 +561,34 @@ export class SogStreamer {
     let chunkBboxMin = bboxMin;
     let chunkBboxMax = bboxMax;
     if (hasChunkBbox) {
-      chunkBboxMin = [
-        src.getFloat32(0, true),
-        src.getFloat32(4, true),
-        src.getFloat32(8, true),
-      ];
-      chunkBboxMax = [
-        src.getFloat32(12, true),
-        src.getFloat32(16, true),
-        src.getFloat32(20, true),
-      ];
+      chunkBboxMin = [src.getFloat32(0, true), src.getFloat32(4, true), src.getFloat32(8, true)];
+      chunkBboxMax = [src.getFloat32(12, true), src.getFloat32(16, true), src.getFloat32(20, true)];
     }
 
     const output = new ArrayBuffer(splatCount * SPLAT_BYTES_PER_SPLAT);
     const dst = new DataView(output);
 
-    const rangeX = (chunkBboxMax[0] - chunkBboxMin[0]) || 1;
-    const rangeY = (chunkBboxMax[1] - chunkBboxMin[1]) || 1;
-    const rangeZ = (chunkBboxMax[2] - chunkBboxMin[2]) || 1;
+    const rangeX = chunkBboxMax[0] - chunkBboxMin[0] || 1;
+    const rangeY = chunkBboxMax[1] - chunkBboxMin[1] || 1;
+    const rangeZ = chunkBboxMax[2] - chunkBboxMin[2] || 1;
 
     for (let i = 0; i < splatCount; i++) {
       const srcBase = bboxHeaderSize + i * COMPACT_BYTES_PER_SPLAT;
       const dstBase = i * SPLAT_BYTES_PER_SPLAT;
 
       // 反量化 Position XYZ: Uint24 → Float32
-      const qx = src.getUint8(srcBase) | (src.getUint8(srcBase + 1) << 8) | (src.getUint8(srcBase + 2) << 16);
-      const qy = src.getUint8(srcBase + 3) | (src.getUint8(srcBase + 4) << 8) | (src.getUint8(srcBase + 5) << 16);
-      const qz = src.getUint8(srcBase + 6) | (src.getUint8(srcBase + 7) << 8) | (src.getUint8(srcBase + 8) << 16);
+      const qx =
+        src.getUint8(srcBase) |
+        (src.getUint8(srcBase + 1) << 8) |
+        (src.getUint8(srcBase + 2) << 16);
+      const qy =
+        src.getUint8(srcBase + 3) |
+        (src.getUint8(srcBase + 4) << 8) |
+        (src.getUint8(srcBase + 5) << 16);
+      const qz =
+        src.getUint8(srcBase + 6) |
+        (src.getUint8(srcBase + 7) << 8) |
+        (src.getUint8(srcBase + 8) << 16);
 
       dst.setFloat32(dstBase + 0, (qx / QUANT_MAX) * rangeX + chunkBboxMin[0], true);
       dst.setFloat32(dstBase + 4, (qy / QUANT_MAX) * rangeY + chunkBboxMin[1], true);

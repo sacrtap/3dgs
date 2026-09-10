@@ -83,7 +83,11 @@ export interface SpzHeader {
  * [来源: 项目源码 — packages/convert/src/spz-writer.ts:96-103]
  */
 export function parseSpzHeader(data: ArrayBuffer | Uint8Array): SpzHeader {
-  const view = new DataView(data instanceof Uint8Array ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : data);
+  const view = new DataView(
+    data instanceof Uint8Array
+      ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
+      : data,
+  );
   return {
     magic: view.getUint32(0, true),
     version: view.getUint32(4, true),
@@ -109,7 +113,9 @@ export function validateSpzHeader(header: SpzHeader): void {
   // ★ C3: numSplats 合理性检查 — 防止恶意/损坏文件导致 OOM
   //   注意: numSplats=0 是合法的空文件, 不报错 (返回空 buffer)
   if (header.numSplats > 100_000_000) {
-    throw new Error(`SPZ numSplats 过大: ${header.numSplats.toLocaleString()} (上限 100M), 可能导致 OOM`);
+    throw new Error(
+      `SPZ numSplats 过大: ${header.numSplats.toLocaleString()} (上限 100M), 可能导致 OOM`,
+    );
   }
 }
 
@@ -183,9 +189,9 @@ export async function decodeSpz(data: ArrayBuffer): Promise<Uint8Array> {
     // ── Scale (log-scale encoded → Float32) ──
     // 编码: round((log(scale) + 10) * 16)
     // 解码: scale = exp((byte / 16) - 10)
-    const sx = Math.exp((decompressed[scalesOffset + i * 3] / 16) - 10);
-    const sy = Math.exp((decompressed[scalesOffset + i * 3 + 1] / 16) - 10);
-    const sz = Math.exp((decompressed[scalesOffset + i * 3 + 2] / 16) - 10);
+    const sx = Math.exp(decompressed[scalesOffset + i * 3] / 16 - 10);
+    const sy = Math.exp(decompressed[scalesOffset + i * 3 + 1] / 16 - 10);
+    const sz = Math.exp(decompressed[scalesOffset + i * 3 + 2] / 16 - 10);
     splatF32[dstF32Base + 3] = sx;
     splatF32[dstF32Base + 4] = sy;
     splatF32[dstF32Base + 5] = sz;
@@ -253,7 +259,9 @@ export async function decodeSpzInWorker(data: ArrayBuffer): Promise<Uint8Array> 
 
   return new Promise((resolve, reject) => {
     try {
-      const worker = new Worker(URL.createObjectURL(new Blob([WORKER_CODE], { type: 'application/javascript' })));
+      const worker = new Worker(
+        URL.createObjectURL(new Blob([WORKER_CODE], { type: 'application/javascript' })),
+      );
 
       worker.onmessage = (e: MessageEvent) => {
         worker.terminate();

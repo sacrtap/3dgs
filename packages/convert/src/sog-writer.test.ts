@@ -1,9 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { writeSog, parseSogMetadata, buildLodLevels, serializeLodTree, deserializeLodTree } from './sog-writer.js';
 import {
-  SOG_MAGIC_V1, SOG_MAGIC_V2, SOG_VERSION_V1, SOG_VERSION_V2,
+  writeSog,
+  parseSogMetadata,
+  buildLodLevels,
+  serializeLodTree,
+  deserializeLodTree,
+} from './sog-writer.js';
+import {
+  SOG_MAGIC_V1,
+  SOG_MAGIC_V2,
+  SOG_VERSION_V1,
+  SOG_VERSION_V2,
   SOG_COMPACT_BYTES_PER_SPLAT,
-  SOG_POSITION_QUANT_OFF, SOG_POSITION_QUANT_24BIT,
+  SOG_POSITION_QUANT_OFF,
+  SOG_POSITION_QUANT_24BIT,
 } from './sog-writer.js';
 import { writeSplat } from './splat-writer.js';
 import { gzipSync, gunzipSync } from 'node:zlib';
@@ -11,7 +21,9 @@ import type { GaussianCloud } from './gaussian-loader.js';
 
 // ── 测试工具 ──────────────────────────────────────────────
 
-function makeCloud(splats: Array<Partial<import('./gaussian-loader.js').GaussianSplat>>): GaussianCloud {
+function makeCloud(
+  splats: Array<Partial<import('./gaussian-loader.js').GaussianSplat>>,
+): GaussianCloud {
   return {
     splats: splats.map((s) => ({
       x: s.x ?? 0,
@@ -184,7 +196,7 @@ describe('parseSogMetadata — v1/v2 向后兼容', () => {
 
     expect(metadata.version).toBe(SOG_VERSION_V1);
     expect(metadata.compression).toBe(0); // v1 无压缩
-    expect(metadata.lodQuality).toBe(0);  // v1 无 LOD 字段
+    expect(metadata.lodQuality).toBe(0); // v1 无 LOD 字段
     expect(metadata.numSplats).toBe(numSplats);
     expect(metadata.numChunks).toBe(numChunks);
   });
@@ -192,7 +204,7 @@ describe('parseSogMetadata — v1/v2 向后兼容', () => {
   it('★ 无效 magic 抛出错误', () => {
     const badBuffer = new ArrayBuffer(64);
     const view = new DataView(badBuffer);
-    view.setUint32(0, 0xDEADBEEF, true);
+    view.setUint32(0, 0xdeadbeef, true);
 
     expect(() => parseSogMetadata(badBuffer)).toThrow(/magic 不匹配/);
   });
@@ -344,29 +356,38 @@ describe('writeSog — P2-3 位置量化', () => {
     const rangeY = metadata.bboxMax[1] - metadata.bboxMin[1];
     const rangeZ = metadata.bboxMax[2] - metadata.bboxMin[2];
 
-    const QUANT_MAX = 0xFFFFFF;
+    const QUANT_MAX = 0xffffff;
 
     // ★ M1: chunk data 现在包含 24 字节 local bbox 前缀
     const BBOX_HEADER_SIZE = 24;
 
     // 读取第一个 splat (原始位置 0,0,0)
-    const qx0 = chunkData[BBOX_HEADER_SIZE + 0] | (chunkData[BBOX_HEADER_SIZE + 1] << 8) | (chunkData[BBOX_HEADER_SIZE + 2] << 16);
+    const qx0 =
+      chunkData[BBOX_HEADER_SIZE + 0] |
+      (chunkData[BBOX_HEADER_SIZE + 1] << 8) |
+      (chunkData[BBOX_HEADER_SIZE + 2] << 16);
     // ★ M1: 使用 chunk local bbox (前 24 字节), 而非全局 bbox
     const chunkBboxMinX = new DataView(chunkData.buffer, chunkData.byteOffset).getFloat32(0, true);
     const chunkBboxMaxX = new DataView(chunkData.buffer, chunkData.byteOffset).getFloat32(12, true);
     const chunkRangeX = chunkBboxMaxX - chunkBboxMinX;
     const x0 = (qx0 / QUANT_MAX) * chunkRangeX + chunkBboxMinX;
-    expect(Math.abs(x0 - 0)).toBeLessThan(chunkRangeX / QUANT_MAX * 2 + 0.01); // 2 步精度 + 容差
+    expect(Math.abs(x0 - 0)).toBeLessThan((chunkRangeX / QUANT_MAX) * 2 + 0.01); // 2 步精度 + 容差
 
     // 读取第二个 splat (原始位置 50,50,50)
-    const qx1 = chunkData[BBOX_HEADER_SIZE + 29] | (chunkData[BBOX_HEADER_SIZE + 30] << 8) | (chunkData[BBOX_HEADER_SIZE + 31] << 16);
+    const qx1 =
+      chunkData[BBOX_HEADER_SIZE + 29] |
+      (chunkData[BBOX_HEADER_SIZE + 30] << 8) |
+      (chunkData[BBOX_HEADER_SIZE + 31] << 16);
     const x1 = (qx1 / QUANT_MAX) * chunkRangeX + chunkBboxMinX;
-    expect(Math.abs(x1 - 50)).toBeLessThan(chunkRangeX / QUANT_MAX * 2 + 0.01);
+    expect(Math.abs(x1 - 50)).toBeLessThan((chunkRangeX / QUANT_MAX) * 2 + 0.01);
 
     // 读取第三个 splat (原始位置 100,100,100)
-    const qx2 = chunkData[BBOX_HEADER_SIZE + 58] | (chunkData[BBOX_HEADER_SIZE + 59] << 8) | (chunkData[BBOX_HEADER_SIZE + 60] << 16);
+    const qx2 =
+      chunkData[BBOX_HEADER_SIZE + 58] |
+      (chunkData[BBOX_HEADER_SIZE + 59] << 8) |
+      (chunkData[BBOX_HEADER_SIZE + 60] << 16);
     const x2 = (qx2 / QUANT_MAX) * chunkRangeX + chunkBboxMinX;
-    expect(Math.abs(x2 - 100)).toBeLessThan(chunkRangeX / QUANT_MAX * 2 + 0.01);
+    expect(Math.abs(x2 - 100)).toBeLessThan((chunkRangeX / QUANT_MAX) * 2 + 0.01);
   });
 
   it('★ 量化 + gzip 组合正常工作', () => {
@@ -396,13 +417,24 @@ describe('writeSog — P2-3 位置量化', () => {
   });
 
   it('★ 量化后非位置属性 (scale, color, rotation) 保持正确', () => {
-    const cloud = makeCloud([{
-      x: 50, y: 50, z: 50,
-      scaleX: 0.05, scaleY: 0.03, scaleZ: 0.02,
-      colorR: 0.8, colorG: 0.4, colorB: 0.2,
-      opacity: 0.9,
-      rotW: 0.7, rotX: 0.1, rotY: 0.2, rotZ: 0.3,
-    }]);
+    const cloud = makeCloud([
+      {
+        x: 50,
+        y: 50,
+        z: 50,
+        scaleX: 0.05,
+        scaleY: 0.03,
+        scaleZ: 0.02,
+        colorR: 0.8,
+        colorG: 0.4,
+        colorB: 0.2,
+        opacity: 0.9,
+        rotW: 0.7,
+        rotX: 0.1,
+        rotY: 0.2,
+        rotZ: 0.3,
+      },
+    ]);
     const buffer = writeSog(cloud, {
       positionQuantization: true,
       compression: false,
@@ -512,7 +544,7 @@ describe('writeSog — P2-3 位置量化', () => {
     // 读取量化数据并反量化
     const chunkOffset = metadata.chunks[0].offset;
     const view = new DataView(buffer);
-    const QUANT_MAX = 0xFFFFFF;
+    const QUANT_MAX = 0xffffff;
 
     // ★ M1: chunk data 包含 24 字节 local bbox 前缀
     const BBOX_HEADER_SIZE = 24;
@@ -530,9 +562,12 @@ describe('writeSog — P2-3 位置量化', () => {
 
     for (let i = 0; i < 100; i++) {
       const base = chunkOffset + BBOX_HEADER_SIZE + i * SOG_COMPACT_BYTES_PER_SPLAT;
-      const qx = view.getUint8(base) | (view.getUint8(base + 1) << 8) | (view.getUint8(base + 2) << 16);
-      const qy = view.getUint8(base + 3) | (view.getUint8(base + 4) << 8) | (view.getUint8(base + 5) << 16);
-      const qz = view.getUint8(base + 6) | (view.getUint8(base + 7) << 8) | (view.getUint8(base + 8) << 16);
+      const qx =
+        view.getUint8(base) | (view.getUint8(base + 1) << 8) | (view.getUint8(base + 2) << 16);
+      const qy =
+        view.getUint8(base + 3) | (view.getUint8(base + 4) << 8) | (view.getUint8(base + 5) << 16);
+      const qz =
+        view.getUint8(base + 6) | (view.getUint8(base + 7) << 8) | (view.getUint8(base + 8) << 16);
 
       const x = (qx / QUANT_MAX) * chunkRangeX + chunkBboxMinX;
       const y = (qy / QUANT_MAX) * chunkRangeY + chunkBboxMinY;
@@ -770,7 +805,7 @@ describe('writeSog — M2 预构建 LOD 树', () => {
     // 验证 LOD 树在 chunk data 之后
     expect(metadata.lodTreeOffset).toBeGreaterThanOrEqual(
       metadata.chunks[metadata.chunks.length - 1].offset +
-      metadata.chunks[metadata.chunks.length - 1].size,
+        metadata.chunks[metadata.chunks.length - 1].size,
     );
   });
 });

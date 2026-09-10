@@ -49,9 +49,7 @@ export interface AutoRotateOptions {
  * player.emit('autorotate:toggle');
  * ```
  */
-export function createAutoRotatePlugin(
-  options: AutoRotateOptions = {},
-): TourPlugin {
+export function createAutoRotatePlugin(options: AutoRotateOptions = {}): TourPlugin {
   const {
     speed = 10,
     enabled = false,
@@ -85,7 +83,11 @@ export function createAutoRotatePlugin(
 
       // ★ N-07: 尊重系统"减弱动效"偏好 — 命中时不自动旋转 (无障碍要求),
       //   用户仍可通过 autorotate:start 事件显式强制开启; 并动态跟随系统设置变化。
-      if (respectReducedMotion && typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+      if (
+        respectReducedMotion &&
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function'
+      ) {
         reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
         if (reducedMotionQuery.matches) {
           isActive = false;
@@ -123,7 +125,20 @@ export function createAutoRotatePlugin(
         pointerDownHandler = () => onUserInteraction();
         wheelHandler = () => onUserInteraction();
         keyDownHandler = (e) => {
-          if (['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) {
+          if (
+            [
+              'w',
+              'a',
+              's',
+              'd',
+              'q',
+              'e',
+              'arrowup',
+              'arrowdown',
+              'arrowleft',
+              'arrowright',
+            ].includes(e.key.toLowerCase())
+          ) {
             onUserInteraction();
           }
         };

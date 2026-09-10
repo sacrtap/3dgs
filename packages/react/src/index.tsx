@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { TourPlayer } from '@3dgs/core';
-import type {
-  TourConfig,
-  TourPlugin,
-  RendererAdapter,
-  TourPlayerHandler,
-} from '@3dgs/core';
+import type { TourConfig, TourPlugin, RendererAdapter, TourPlayerHandler } from '@3dgs/core';
 
 export interface TourViewerProps {
   config: string | TourConfig;
@@ -65,8 +60,7 @@ export function TourViewer({
     playerRef.current = player;
 
     // 挂载渲染器
-    const rendererInstance =
-      typeof renderer === 'function' ? renderer() : renderer;
+    const rendererInstance = typeof renderer === 'function' ? renderer() : renderer;
     player.setRenderer(rendererInstance);
 
     // 注册插件
@@ -80,39 +74,47 @@ export function TourViewer({
 
     const cb = callbacksRef.current;
 
-    unsubs.push(player.on('load', (data) => {
-      setError(null);
-      cb.onLoad?.(data);
-      cb.onEvent?.('load', data);
+    unsubs.push(
+      player.on('load', (data) => {
+        setError(null);
+        cb.onLoad?.(data);
+        cb.onEvent?.('load', data);
 
-      if (initialSceneRef.current) {
-        player.switchScene(initialSceneRef.current).catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          setError(msg);
-          cb.onError?.(msg);
-          cb.onEvent?.('error', { message: msg });
-        });
-      }
-    }));
+        if (initialSceneRef.current) {
+          player.switchScene(initialSceneRef.current).catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            setError(msg);
+            cb.onError?.(msg);
+            cb.onEvent?.('error', { message: msg });
+          });
+        }
+      }),
+    );
 
-    unsubs.push(player.on('scene:switched', (data) => {
-      const d = data as { sceneId: string };
-      cb.onSceneSwitch?.(d.sceneId);
-      cb.onEvent?.('scene:switched', data);
-    }));
+    unsubs.push(
+      player.on('scene:switched', (data) => {
+        const d = data as { sceneId: string };
+        cb.onSceneSwitch?.(d.sceneId);
+        cb.onEvent?.('scene:switched', data);
+      }),
+    );
 
-    unsubs.push(player.on('hotspot:click', (data) => {
-      const d = data as { id: string };
-      cb.onHotspotClick?.(d.id);
-      cb.onEvent?.('hotspot:click', data);
-    }));
+    unsubs.push(
+      player.on('hotspot:click', (data) => {
+        const d = data as { id: string };
+        cb.onHotspotClick?.(d.id);
+        cb.onEvent?.('hotspot:click', data);
+      }),
+    );
 
-    unsubs.push(player.on('error', (data) => {
-      const d = data as { message: string };
-      setError(d.message);
-      cb.onError?.(d.message);
-      cb.onEvent?.('error', d);
-    }));
+    unsubs.push(
+      player.on('error', (data) => {
+        const d = data as { message: string };
+        setError(d.message);
+        cb.onError?.(d.message);
+        cb.onEvent?.('error', d);
+      }),
+    );
 
     player.load(configRef.current).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
@@ -170,16 +172,20 @@ export function TourViewer({
       }}
     >
       {error && (
-        <div style={{
-          position: 'absolute',
-          bottom: 16, left: 16, right: 16,
-          padding: '8px 16px',
-          background: 'rgba(220, 38, 38, 0.9)',
-          color: '#fff',
-          borderRadius: 6,
-          fontSize: 14,
-          zIndex: 10,
-        }}>
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 16,
+            left: 16,
+            right: 16,
+            padding: '8px 16px',
+            background: 'rgba(220, 38, 38, 0.9)',
+            color: '#fff',
+            borderRadius: 6,
+            fontSize: 14,
+            zIndex: 10,
+          }}
+        >
           {error}
         </div>
       )}

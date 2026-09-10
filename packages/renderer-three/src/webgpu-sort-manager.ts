@@ -231,13 +231,7 @@ export class WebGPUSortManager {
 
     // ★ §2.3: 复用 readback buffer (按容量按需扩容), 避免每次排序新建/销毁 1M×4B buffer
     const readbackBuffer = this.ensureReadbackBuffer(this.splatCount);
-    encoder.copyBufferToBuffer(
-      this.distanceBuffer!,
-      0,
-      readbackBuffer,
-      0,
-      this.splatCount * 4,
-    );
+    encoder.copyBufferToBuffer(this.distanceBuffer!, 0, readbackBuffer, 0, this.splatCount * 4);
 
     this.device.queue.submit([encoder.finish()]);
     // ★ §2.3: 移除 onSubmittedWorkDone() — 它会等待所有已提交工作 (含渲染),
@@ -310,12 +304,7 @@ export class WebGPUSortManager {
     if (!this._cpuPositions) {
       return { indices: new Uint32Array(0), durationMs: 0, count: 0, method: 'cpu' };
     }
-    return WebGPUSortManager.sortOnCPUStatic(
-      this._cpuPositions,
-      camX,
-      camY,
-      camZ,
-    );
+    return WebGPUSortManager.sortOnCPUStatic(this._cpuPositions, camX, camY, camZ);
   }
 
   /**

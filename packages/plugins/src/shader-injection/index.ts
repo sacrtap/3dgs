@@ -69,9 +69,7 @@ export interface ShaderInjectionPluginOptions {
  * }));
  * ```
  */
-export function createShaderInjectionPlugin(
-  options: ShaderInjectionPluginOptions,
-): TourPlugin {
+export function createShaderInjectionPlugin(options: ShaderInjectionPluginOptions): TourPlugin {
   const { injections } = options;
 
   return {
@@ -111,8 +109,6 @@ export function createShaderInjectionPlugin(
  * @param injection 单个注入定义
  * @returns TourPlugin 实例
  */
-export function createShaderInjection(
-  injection: ShaderInjection,
-): TourPlugin {
+export function createShaderInjection(injection: ShaderInjection): TourPlugin {
   return createShaderInjectionPlugin({ injections: [injection] });
 }

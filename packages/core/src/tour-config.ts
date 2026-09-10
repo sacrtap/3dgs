@@ -30,9 +30,9 @@ export interface CameraSettings {
 export interface QualitySettings {
   maxSplats: number;
   shDegree: number;
-  resolution: number;       // 渲染缩放比 0.5-1.0
-  antialias: boolean;       // 是否开启抗锯齿 (默认 false)
-  pixelRatio: number;       // 像素比 (默认 1.0)
+  resolution: number; // 渲染缩放比 0.5-1.0
+  antialias: boolean; // 是否开启抗锯齿 (默认 false)
+  pixelRatio: number; // 像素比 (默认 1.0)
 }
 
 // ─── 场景配置 ────────────────────────────────────────────────

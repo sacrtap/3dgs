@@ -61,7 +61,11 @@ export class DragLookControls {
       this._pointerId = e.pointerId;
       this._lastX = e.clientX;
       this._lastY = e.clientY;
-      try { domElement.setPointerCapture(e.pointerId); } catch { /* 安全 */ }
+      try {
+        domElement.setPointerCapture(e.pointerId);
+      } catch {
+        /* 安全 */
+      }
     };
 
     this._onPointerMove = (e: PointerEvent) => {
@@ -83,7 +87,11 @@ export class DragLookControls {
       if (e.pointerId !== this._pointerId) return;
       this._pointerActive = false;
       this._pointerId = -1;
-      try { domElement.releasePointerCapture(e.pointerId); } catch { /* 安全 */ }
+      try {
+        domElement.releasePointerCapture(e.pointerId);
+      } catch {
+        /* 安全 */
+      }
     };
 
     this._onWheel = (e: WheelEvent) => {

@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { writeSog, parseSogMetadata } from './sog-writer.js';
-import {
-  SOG_SH_MODE_OFF, SOG_SH_MODE_DC_INT8,
-  SOG_COMPACT_BYTES_PER_SPLAT,
-} from './sog-writer.js';
+import { SOG_SH_MODE_OFF, SOG_SH_MODE_DC_INT8, SOG_COMPACT_BYTES_PER_SPLAT } from './sog-writer.js';
 import { writeSplat } from './splat-writer.js';
 import { writeSpz } from './spz-writer.js';
 import { loadGaussiansFromPly } from './gaussian-loader.js';
@@ -63,32 +60,48 @@ function makeShCloud(splats: Array<Partial<GaussianSplat>>, shDegree: number): G
  * 构建标准 3DGS PLY binary 文件
  */
 function make3dgsPlyBuffer(
-  splats: Array<{ x: number; y: number; z: number; scaleX: number; scaleY: number; scaleZ: number; rotW: number; rotX: number; rotY: number; rotZ: number; opacity: number; colorR: number; colorG: number; colorB: number }>,
+  splats: Array<{
+    x: number;
+    y: number;
+    z: number;
+    scaleX: number;
+    scaleY: number;
+    scaleZ: number;
+    rotW: number;
+    rotX: number;
+    rotY: number;
+    rotZ: number;
+    opacity: number;
+    colorR: number;
+    colorG: number;
+    colorB: number;
+  }>,
 ): ArrayBuffer {
   const numVerts = splats.length;
-  const header = [
-    'ply',
-    'format binary_little_endian 1.0',
-    `element vertex ${numVerts}`,
-    'property float x',
-    'property float y',
-    'property float z',
-    'property float nx',
-    'property float ny',
-    'property float nz',
-    'property float f_dc_0',
-    'property float f_dc_1',
-    'property float f_dc_2',
-    'property float opacity',
-    'property float scale_0',
-    'property float scale_1',
-    'property float scale_2',
-    'property float rot_0',
-    'property float rot_1',
-    'property float rot_2',
-    'property float rot_3',
-    'end_header',
-  ].join('\n') + '\n';
+  const header =
+    [
+      'ply',
+      'format binary_little_endian 1.0',
+      `element vertex ${numVerts}`,
+      'property float x',
+      'property float y',
+      'property float z',
+      'property float nx',
+      'property float ny',
+      'property float nz',
+      'property float f_dc_0',
+      'property float f_dc_1',
+      'property float f_dc_2',
+      'property float opacity',
+      'property float scale_0',
+      'property float scale_1',
+      'property float scale_2',
+      'property float rot_0',
+      'property float rot_1',
+      'property float rot_2',
+      'property float rot_3',
+      'end_header',
+    ].join('\n') + '\n';
 
   const headerBytes = new TextEncoder().encode(header);
   // 17 properties × 4 bytes = 68 bytes per vertex
@@ -148,7 +161,12 @@ describe('H2: SOG SH DC 追加', () => {
       { x: 1, y: 2, z: 3, colorR: 0.8, colorG: 0.4, colorB: 0.2 },
       { x: 4, y: 5, z: 6, colorR: 0.1, colorG: 0.9, colorB: 0.5 },
     ]);
-    const buffer = writeSog(cloud, { shMode: SOG_SH_MODE_DC_INT8, compression: false, spatialSort: false, buildLodTree: false });
+    const buffer = writeSog(cloud, {
+      shMode: SOG_SH_MODE_DC_INT8,
+      compression: false,
+      spatialSort: false,
+      buildLodTree: false,
+    });
     const view = new DataView(buffer);
     expect(view.getUint8(54)).toBe(SOG_SH_MODE_DC_INT8);
 
@@ -229,7 +247,7 @@ describe('H2: SOG SH DC 追加', () => {
     const cloud = makeCloud([]);
     const buffer = writeSog(cloud, { shMode: SOG_SH_MODE_DC_INT8 });
     const view = new DataView(buffer);
-    expect(view.getUint32(0, true)).toBe(0x32474F53); // SOG_MAGIC_V2
+    expect(view.getUint32(0, true)).toBe(0x32474f53); // SOG_MAGIC_V2
   });
 });
 
@@ -271,7 +289,7 @@ describe('M1: SuperSplat chunk 级量化', () => {
     // 局部量化精度: 10m / 2^24 ≈ 0.6μm (10x 提升)
     const globalRange = 100;
     const chunkRange = 10;
-    const quantMax = 0xFFFFFF;
+    const quantMax = 0xffffff;
     const globalPrecision = globalRange / quantMax;
     const chunkPrecision = chunkRange / quantMax;
     expect(chunkPrecision).toBeLessThan(globalPrecision);
@@ -316,8 +334,38 @@ describe('M1: SuperSplat chunk 级量化', () => {
 describe('M2: PLY 快路径解析', () => {
   it('★ 快路径解析标准 3DGS PLY binary', () => {
     const testSplats = [
-      { x: 1.5, y: 2.5, z: 3.5, scaleX: 0.01, scaleY: 0.02, scaleZ: 0.03, rotW: 1, rotX: 0, rotY: 0, rotZ: 0, opacity: 0.9, colorR: 0.8, colorG: 0.4, colorB: 0.2 },
-      { x: 4.5, y: 5.5, z: 6.5, scaleX: 0.04, scaleY: 0.05, scaleZ: 0.06, rotW: 0.7, rotX: 0.1, rotY: 0.2, rotZ: 0.3, opacity: 0.5, colorR: 0.1, colorG: 0.9, colorB: 0.5 },
+      {
+        x: 1.5,
+        y: 2.5,
+        z: 3.5,
+        scaleX: 0.01,
+        scaleY: 0.02,
+        scaleZ: 0.03,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        opacity: 0.9,
+        colorR: 0.8,
+        colorG: 0.4,
+        colorB: 0.2,
+      },
+      {
+        x: 4.5,
+        y: 5.5,
+        z: 6.5,
+        scaleX: 0.04,
+        scaleY: 0.05,
+        scaleZ: 0.06,
+        rotW: 0.7,
+        rotX: 0.1,
+        rotY: 0.2,
+        rotZ: 0.3,
+        opacity: 0.5,
+        colorR: 0.1,
+        colorG: 0.9,
+        colorB: 0.5,
+      },
     ];
     const plyBuffer = make3dgsPlyBuffer(testSplats);
 
@@ -337,7 +385,22 @@ describe('M2: PLY 快路径解析', () => {
 
   it('★ buildCloudFromFastPath 生成正确的 GaussianCloud', () => {
     const testSplats = [
-      { x: 1.0, y: 2.0, z: 3.0, scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01, rotW: 1, rotX: 0, rotY: 0, rotZ: 0, opacity: 0.9, colorR: 0.8, colorG: 0.4, colorB: 0.2 },
+      {
+        x: 1.0,
+        y: 2.0,
+        z: 3.0,
+        scaleX: 0.01,
+        scaleY: 0.01,
+        scaleZ: 0.01,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        opacity: 0.9,
+        colorR: 0.8,
+        colorG: 0.4,
+        colorB: 0.2,
+      },
     ];
     const plyBuffer = make3dgsPlyBuffer(testSplats);
     const headerResult = parsePlyHeader(plyBuffer);
@@ -357,11 +420,20 @@ describe('M2: PLY 快路径解析', () => {
     const testSplats = [];
     for (let i = 0; i < 10; i++) {
       testSplats.push({
-        x: i * 1.5, y: i * 2.5, z: i * 3.5,
-        scaleX: 0.01 + i * 0.001, scaleY: 0.02, scaleZ: 0.03,
-        rotW: 1, rotX: 0, rotY: 0, rotZ: 0,
+        x: i * 1.5,
+        y: i * 2.5,
+        z: i * 3.5,
+        scaleX: 0.01 + i * 0.001,
+        scaleY: 0.02,
+        scaleZ: 0.03,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
         opacity: 0.5 + i * 0.05,
-        colorR: 0.1 + i * 0.05, colorG: 0.9 - i * 0.05, colorB: 0.5,
+        colorR: 0.1 + i * 0.05,
+        colorG: 0.9 - i * 0.05,
+        colorB: 0.5,
       });
     }
     const plyBuffer = make3dgsPlyBuffer(testSplats);
@@ -382,9 +454,12 @@ describe('M2: PLY 快路径解析', () => {
 
   it('★ ASCII PLY 不支持快路径 (返回 null)', () => {
     const asciiPly = new TextEncoder().encode(
-      'ply\nformat ascii 1.0\nelement vertex 1\nproperty float x\nproperty float y\nproperty float z\nend_header\n1 2 3\n'
+      'ply\nformat ascii 1.0\nelement vertex 1\nproperty float x\nproperty float y\nproperty float z\nend_header\n1 2 3\n',
     );
-    const buffer = asciiPly.buffer.slice(asciiPly.byteOffset, asciiPly.byteOffset + asciiPly.byteLength) as ArrayBuffer;
+    const buffer = asciiPly.buffer.slice(
+      asciiPly.byteOffset,
+      asciiPly.byteOffset + asciiPly.byteLength,
+    ) as ArrayBuffer;
     const headerResult = parsePlyHeader(buffer);
     const fastData = tryFastPathParsePly(buffer, headerResult.header, headerResult.headerEnd);
     expect(fastData).toBeNull();
@@ -392,9 +467,12 @@ describe('M2: PLY 快路径解析', () => {
 
   it('★ List 属性不支持快路径 (返回 null)', () => {
     const plyBuffer = new TextEncoder().encode(
-      'ply\nformat binary_little_endian 1.0\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n'
+      'ply\nformat binary_little_endian 1.0\nelement face 1\nproperty list uchar int vertex_indices\nend_header\n',
     );
-    const buffer = plyBuffer.buffer.slice(plyBuffer.byteOffset, plyBuffer.byteOffset + plyBuffer.byteLength) as ArrayBuffer;
+    const buffer = plyBuffer.buffer.slice(
+      plyBuffer.byteOffset,
+      plyBuffer.byteOffset + plyBuffer.byteLength,
+    ) as ArrayBuffer;
     const headerResult = parsePlyHeader(buffer);
     const fastData = tryFastPathParsePly(buffer, headerResult.header, headerResult.headerEnd);
     expect(fastData).toBeNull();
@@ -406,8 +484,38 @@ describe('M2: PLY 快路径解析', () => {
 describe('L1: SoA 数据布局', () => {
   it('★ toSoA: AoS → SoA 转换正确', () => {
     const cloud = makeCloud([
-      { x: 1, y: 2, z: 3, scaleX: 0.01, scaleY: 0.02, scaleZ: 0.03, rotW: 1, rotX: 0.1, rotY: 0.2, rotZ: 0.3, colorR: 0.8, colorG: 0.4, colorB: 0.2, opacity: 0.9 },
-      { x: 4, y: 5, z: 6, scaleX: 0.04, scaleY: 0.05, scaleZ: 0.06, rotW: 0.7, rotX: 0.1, rotY: 0.2, rotZ: 0.3, colorR: 0.1, colorG: 0.9, colorB: 0.5, opacity: 0.5 },
+      {
+        x: 1,
+        y: 2,
+        z: 3,
+        scaleX: 0.01,
+        scaleY: 0.02,
+        scaleZ: 0.03,
+        rotW: 1,
+        rotX: 0.1,
+        rotY: 0.2,
+        rotZ: 0.3,
+        colorR: 0.8,
+        colorG: 0.4,
+        colorB: 0.2,
+        opacity: 0.9,
+      },
+      {
+        x: 4,
+        y: 5,
+        z: 6,
+        scaleX: 0.04,
+        scaleY: 0.05,
+        scaleZ: 0.06,
+        rotW: 0.7,
+        rotX: 0.1,
+        rotY: 0.2,
+        rotZ: 0.3,
+        colorR: 0.1,
+        colorG: 0.9,
+        colorB: 0.5,
+        opacity: 0.5,
+      },
     ]);
     const soa = toSoA(cloud);
 
@@ -423,10 +531,35 @@ describe('L1: SoA 数据布局', () => {
   });
 
   it('★ fromSoA: SoA → AoS round-trip 一致', () => {
-    const cloud = makeShCloud([
-      { x: 1, y: 2, z: 3, scaleX: 0.01, scaleY: 0.02, scaleZ: 0.03, colorR: 0.8, colorG: 0.4, colorB: 0.2, opacity: 0.9 },
-      { x: 4, y: 5, z: 6, scaleX: 0.04, scaleY: 0.05, scaleZ: 0.06, colorR: 0.1, colorG: 0.9, colorB: 0.5, opacity: 0.5 },
-    ], 1);
+    const cloud = makeShCloud(
+      [
+        {
+          x: 1,
+          y: 2,
+          z: 3,
+          scaleX: 0.01,
+          scaleY: 0.02,
+          scaleZ: 0.03,
+          colorR: 0.8,
+          colorG: 0.4,
+          colorB: 0.2,
+          opacity: 0.9,
+        },
+        {
+          x: 4,
+          y: 5,
+          z: 6,
+          scaleX: 0.04,
+          scaleY: 0.05,
+          scaleZ: 0.06,
+          colorR: 0.1,
+          colorG: 0.9,
+          colorB: 0.5,
+          opacity: 0.5,
+        },
+      ],
+      1,
+    );
     const soa = toSoA(cloud);
     const restored = fromSoA(soa);
 
@@ -537,14 +670,18 @@ describe('L3: Morton 排序 → gzip 压缩率验证', () => {
     for (let i = 0; i < 500; i++) {
       splats.push({
         x: (i % 10) * 0.5,
-        y: Math.floor(i / 10) % 10 * 0.5,
+        y: (Math.floor(i / 10) % 10) * 0.5,
         z: Math.floor(i / 100) * 0.5,
       });
     }
     const cloud = makeCloud(splats);
 
     // SOG (Morton + gzip level 9)
-    const sogBuffer = writeSog(cloud, { compression: true, spatialSort: true, buildLodTree: false });
+    const sogBuffer = writeSog(cloud, {
+      compression: true,
+      spatialSort: true,
+      buildLodTree: false,
+    });
     // 原始 .splat (未压缩)
     const splatBuffer = writeSplat(cloud);
 
@@ -560,8 +697,38 @@ describe('L3: Morton 排序 → gzip 压缩率验证', () => {
 describe('端到端转换测试: PLY → SPLAT → SPZ → SOG', () => {
   it('★ PLY → SPLAT round-trip: 位置/颜色/不透明度一致', () => {
     const testSplats = [
-      { x: 1.5, y: 2.5, z: 3.5, scaleX: 0.01, scaleY: 0.02, scaleZ: 0.03, rotW: 1, rotX: 0, rotY: 0, rotZ: 0, opacity: 0.9, colorR: 0.8, colorG: 0.4, colorB: 0.2 },
-      { x: 4.5, y: 5.5, z: 6.5, scaleX: 0.04, scaleY: 0.05, scaleZ: 0.06, rotW: 0.7, rotX: 0.1, rotY: 0.2, rotZ: 0.3, opacity: 0.5, colorR: 0.1, colorG: 0.9, colorB: 0.5 },
+      {
+        x: 1.5,
+        y: 2.5,
+        z: 3.5,
+        scaleX: 0.01,
+        scaleY: 0.02,
+        scaleZ: 0.03,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        opacity: 0.9,
+        colorR: 0.8,
+        colorG: 0.4,
+        colorB: 0.2,
+      },
+      {
+        x: 4.5,
+        y: 5.5,
+        z: 6.5,
+        scaleX: 0.04,
+        scaleY: 0.05,
+        scaleZ: 0.06,
+        rotW: 0.7,
+        rotX: 0.1,
+        rotY: 0.2,
+        rotZ: 0.3,
+        opacity: 0.5,
+        colorR: 0.1,
+        colorG: 0.9,
+        colorB: 0.5,
+      },
     ];
     const plyBuffer = make3dgsPlyBuffer(testSplats);
 
@@ -581,20 +748,48 @@ describe('端到端转换测试: PLY → SPLAT → SPZ → SOG', () => {
       expect(restoredCloud.splats[i].y).toBeCloseTo(cloud.splats[i].y, 3);
       expect(restoredCloud.splats[i].z).toBeCloseTo(cloud.splats[i].z, 3);
       // .splat 颜色精度: Float32→Uint8→Float32, 容差 1/255
-      expect(Math.abs(restoredCloud.splats[i].colorR - cloud.splats[i].colorR)).toBeLessThan(2 / 255);
-      expect(Math.abs(restoredCloud.splats[i].opacity - cloud.splats[i].opacity)).toBeLessThan(2 / 255);
+      expect(Math.abs(restoredCloud.splats[i].colorR - cloud.splats[i].colorR)).toBeLessThan(
+        2 / 255,
+      );
+      expect(Math.abs(restoredCloud.splats[i].opacity - cloud.splats[i].opacity)).toBeLessThan(
+        2 / 255,
+      );
     }
   });
 
   it('★ PLY → SPZ round-trip: 位置/颜色一致', async () => {
-    const testSplats: Array<{ x: number; y: number; z: number; scaleX: number; scaleY: number; scaleZ: number; rotW: number; rotX: number; rotY: number; rotZ: number; opacity: number; colorR: number; colorG: number; colorB: number }> = [];
+    const testSplats: Array<{
+      x: number;
+      y: number;
+      z: number;
+      scaleX: number;
+      scaleY: number;
+      scaleZ: number;
+      rotW: number;
+      rotX: number;
+      rotY: number;
+      rotZ: number;
+      opacity: number;
+      colorR: number;
+      colorG: number;
+      colorB: number;
+    }> = [];
     for (let i = 0; i < 5; i++) {
       testSplats.push({
-        x: i * 1.5, y: i * 2.5, z: i * 3.5,
-        scaleX: 0.01, scaleY: 0.02, scaleZ: 0.03,
-        rotW: 1, rotX: 0, rotY: 0, rotZ: 0,
+        x: i * 1.5,
+        y: i * 2.5,
+        z: i * 3.5,
+        scaleX: 0.01,
+        scaleY: 0.02,
+        scaleZ: 0.03,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
         opacity: 0.5 + i * 0.1,
-        colorR: 0.1 + i * 0.15, colorG: 0.9 - i * 0.1, colorB: 0.5,
+        colorR: 0.1 + i * 0.15,
+        colorG: 0.9 - i * 0.1,
+        colorB: 0.5,
       });
     }
     const plyBuffer = make3dgsPlyBuffer(testSplats);
@@ -610,23 +805,54 @@ describe('端到端转换测试: PLY → SPLAT → SPZ → SOG', () => {
     // 验证 SPZ 布局: 整文件单个 gzip 流, 解压后 = [16B header][body] (与 Spark 一致)
     expect(spzData[0]).toBe(0x1f); // gzip magic
     expect(spzData[1]).toBe(0x8b);
-    const spzStream = new Blob([spzData as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const spzStream = new Blob([spzData as Uint8Array<ArrayBuffer>])
+      .stream()
+      .pipeThrough(new DecompressionStream('gzip'));
     const decompressed = new Uint8Array(await new Response(spzStream).arrayBuffer());
-    const view = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
+    const view = new DataView(
+      decompressed.buffer,
+      decompressed.byteOffset,
+      decompressed.byteLength,
+    );
     expect(view.getUint32(0, true)).toBe(1347635022); // SPZ_MAGIC
     expect(view.getUint32(4, true)).toBe(2); // version
     expect(view.getUint32(8, true)).toBe(5); // numPoints
   });
 
   it('★ PLY → SOG round-trip: 元数据完整', () => {
-    const testSplats: Array<{ x: number; y: number; z: number; scaleX: number; scaleY: number; scaleZ: number; rotW: number; rotX: number; rotY: number; rotZ: number; opacity: number; colorR: number; colorG: number; colorB: number }> = [];
+    const testSplats: Array<{
+      x: number;
+      y: number;
+      z: number;
+      scaleX: number;
+      scaleY: number;
+      scaleZ: number;
+      rotW: number;
+      rotX: number;
+      rotY: number;
+      rotZ: number;
+      opacity: number;
+      colorR: number;
+      colorG: number;
+      colorB: number;
+    }> = [];
     // ★ LOD 树构建条件: numSplats > MIN_LOD_SPLATS (100), 因此使用 150 个 splats
     for (let i = 0; i < 150; i++) {
       testSplats.push({
-        x: i * 0.1, y: i * 0.2, z: i * 0.3,
-        scaleX: 0.01, scaleY: 0.01, scaleZ: 0.01,
-        rotW: 1, rotX: 0, rotY: 0, rotZ: 0,
-        opacity: 0.9, colorR: 0.8, colorG: 0.4, colorB: 0.2,
+        x: i * 0.1,
+        y: i * 0.2,
+        z: i * 0.3,
+        scaleX: 0.01,
+        scaleY: 0.01,
+        scaleZ: 0.01,
+        rotW: 1,
+        rotX: 0,
+        rotY: 0,
+        rotZ: 0,
+        opacity: 0.9,
+        colorR: 0.8,
+        colorG: 0.4,
+        colorB: 0.2,
       });
     }
     const plyBuffer = make3dgsPlyBuffer(testSplats);
@@ -656,11 +882,17 @@ describe('端到端转换测试: PLY → SPLAT → SPZ → SOG', () => {
 
   it('★ SPLAT → SOG round-trip: 数据完整性', () => {
     // 先创建 .splat 数据
-    const cloud = makeCloud(Array.from({ length: 50 }, (_, i) => ({
-      x: i * 0.5, y: i * 0.3, z: i * 0.1,
-      colorR: 0.5, colorG: 0.5, colorB: 0.5,
-      opacity: 0.8,
-    })));
+    const cloud = makeCloud(
+      Array.from({ length: 50 }, (_, i) => ({
+        x: i * 0.5,
+        y: i * 0.3,
+        z: i * 0.1,
+        colorR: 0.5,
+        colorG: 0.5,
+        colorB: 0.5,
+        opacity: 0.8,
+      })),
+    );
 
     const splatBuffer = writeSplat(cloud);
     expect(splatBuffer.byteLength).toBe(50 * 32);
@@ -682,8 +914,12 @@ describe('端到端转换测试: PLY → SPLAT → SPZ → SOG', () => {
     // 创建带 SH 的 cloud
     const cloud = makeShCloud(
       Array.from({ length: 20 }, (_, i) => ({
-        x: i * 0.5, y: i * 0.3, z: i * 0.1,
-        colorR: 0.8, colorG: 0.4, colorB: 0.2,
+        x: i * 0.5,
+        y: i * 0.3,
+        z: i * 0.1,
+        colorR: 0.8,
+        colorG: 0.4,
+        colorB: 0.2,
         opacity: 0.9,
       })),
       1,
@@ -708,10 +944,20 @@ describe('端到端转换测试: PLY → SPLAT → SPZ → SOG', () => {
   it('★ 完整转换链: PLY → SPLAT → SOG → SPZ', async () => {
     // 1. PLY
     const testSplats = Array.from({ length: 10 }, (_, i) => ({
-      x: i * 1.0, y: i * 2.0, z: i * 3.0,
-      scaleX: 0.01, scaleY: 0.02, scaleZ: 0.03,
-      rotW: 1, rotX: 0, rotY: 0, rotZ: 0,
-      opacity: 0.8, colorR: 0.5, colorG: 0.5, colorB: 0.5,
+      x: i * 1.0,
+      y: i * 2.0,
+      z: i * 3.0,
+      scaleX: 0.01,
+      scaleY: 0.02,
+      scaleZ: 0.03,
+      rotW: 1,
+      rotX: 0,
+      rotY: 0,
+      rotZ: 0,
+      opacity: 0.8,
+      colorR: 0.5,
+      colorG: 0.5,
+      colorB: 0.5,
     }));
     const plyBuffer = make3dgsPlyBuffer(testSplats);
 
@@ -731,9 +977,15 @@ describe('端到端转换测试: PLY → SPLAT → SPZ → SOG', () => {
 
     // 6. Cloud → SPZ (整文件 gzip 布局, 解压后读 header)
     const spzData = await writeSpz(cloud2, { shDegree: 0 });
-    const spzStream = new Blob([spzData as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const spzStream = new Blob([spzData as Uint8Array<ArrayBuffer>])
+      .stream()
+      .pipeThrough(new DecompressionStream('gzip'));
     const spzDecompressed = new Uint8Array(await new Response(spzStream).arrayBuffer());
-    const spzView = new DataView(spzDecompressed.buffer, spzDecompressed.byteOffset, spzDecompressed.byteLength);
+    const spzView = new DataView(
+      spzDecompressed.buffer,
+      spzDecompressed.byteOffset,
+      spzDecompressed.byteLength,
+    );
     expect(spzView.getUint32(8, true)).toBe(10); // numPoints
 
     // 验证整条链路的位置数据一致 (容差范围内)
