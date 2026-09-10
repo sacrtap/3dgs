@@ -56,7 +56,7 @@ describe('AutoRotate — 自动旋转插件', () => {
     it('update 发射 autorotate:frame 事件', () => {
       const plugin = createAutoRotatePlugin({ enabled: true });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
       const frameCtx: FrameContext = {
         deltaTime: 16.67,
@@ -65,7 +65,7 @@ describe('AutoRotate — 自动旋转插件', () => {
         size: { width: 800, height: 600 },
       } as unknown as FrameContext;
 
-      plugin.update(frameCtx);
+      plugin.update!(frameCtx);
       expect(ctx.player.emit).toHaveBeenCalledWith(
         'autorotate:frame',
         expect.objectContaining({ axis: 'yaw' }),
@@ -80,9 +80,9 @@ describe('AutoRotate — 自动旋转插件', () => {
 
       const plugin = createAutoRotatePlugin({ enabled: true, speed, direction });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
-      plugin.update({
+      plugin.update!({
         deltaTime,
         camera: { x: 0, y: 0, z: 0 },
         vpMatrix: new Float32Array(16),
@@ -98,9 +98,9 @@ describe('AutoRotate — 自动旋转插件', () => {
     it('direction = -1 时 delta 为负', () => {
       const plugin = createAutoRotatePlugin({ enabled: true, speed: 10, direction: -1 });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
-      plugin.update({
+      plugin.update!({
         deltaTime: 100,
         camera: { x: 0, y: 0, z: 0 },
         vpMatrix: new Float32Array(16),
@@ -118,9 +118,9 @@ describe('AutoRotate — 自动旋转插件', () => {
     it('默认 disabled 时 update 不发射事件', () => {
       const plugin = createAutoRotatePlugin({ enabled: false });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
-      plugin.update({
+      plugin.update!({
         deltaTime: 16,
         camera: { x: 0, y: 0, z: 0 },
         vpMatrix: new Float32Array(16),
@@ -133,10 +133,10 @@ describe('AutoRotate — 自动旋转插件', () => {
     it('autorotate:start 事件启用旋转', () => {
       const plugin = createAutoRotatePlugin({ enabled: false });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
       emit(ctx, 'autorotate:start');
-      plugin.update({
+      plugin.update!({
         deltaTime: 16,
         camera: { x: 0, y: 0, z: 0 },
         vpMatrix: new Float32Array(16),
@@ -149,11 +149,11 @@ describe('AutoRotate — 自动旋转插件', () => {
     it('autorotate:stop 事件禁用旋转', () => {
       const plugin = createAutoRotatePlugin({ enabled: true });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
       emit(ctx, 'autorotate:stop');
       (ctx.player.emit as ReturnType<typeof vi.fn>).mockClear();
-      plugin.update({
+      plugin.update!({
         deltaTime: 16,
         camera: { x: 0, y: 0, z: 0 },
         vpMatrix: new Float32Array(16),
@@ -166,11 +166,11 @@ describe('AutoRotate — 自动旋转插件', () => {
     it('autorotate:toggle 切换状态', () => {
       const plugin = createAutoRotatePlugin({ enabled: false });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
       // toggle on
       emit(ctx, 'autorotate:toggle');
-      plugin.update({
+      plugin.update!({
         deltaTime: 16,
         camera: { x: 0, y: 0, z: 0 },
         vpMatrix: new Float32Array(16),
@@ -181,7 +181,7 @@ describe('AutoRotate — 自动旋转插件', () => {
       // toggle off
       (ctx.player.emit as ReturnType<typeof vi.fn>).mockClear();
       emit(ctx, 'autorotate:toggle');
-      plugin.update({
+      plugin.update!({
         deltaTime: 16,
         camera: { x: 0, y: 0, z: 0 },
         vpMatrix: new Float32Array(16),
@@ -195,7 +195,7 @@ describe('AutoRotate — 自动旋转插件', () => {
     it('用户交互时暂停并发射 autorotate:paused', () => {
       const plugin = createAutoRotatePlugin({ enabled: true, pauseOnInteraction: true });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
       ctx.container.dispatchEvent(new PointerEvent('pointerdown'));
       expect(ctx.player.emit).toHaveBeenCalledWith('autorotate:paused', {});
@@ -208,12 +208,12 @@ describe('AutoRotate — 自动旋转插件', () => {
         idleDelay: 3000,
       });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
       ctx.container.dispatchEvent(new PointerEvent('pointerdown'));
       (ctx.player.emit as ReturnType<typeof vi.fn>).mockClear();
 
-      plugin.update({
+      plugin.update!({
         deltaTime: 16,
         camera: { x: 0, y: 0, z: 0 },
         vpMatrix: new Float32Array(16),
@@ -229,7 +229,7 @@ describe('AutoRotate — 自动旋转插件', () => {
         idleDelay: 3000,
       });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
       ctx.container.dispatchEvent(new PointerEvent('pointerdown'));
       (ctx.player.emit as ReturnType<typeof vi.fn>).mockClear();
@@ -237,7 +237,7 @@ describe('AutoRotate — 自动旋转插件', () => {
       // 模拟时间前进超过 idleDelay
       vi.advanceTimersByTime(3100);
 
-      plugin.update({
+      plugin.update!({
         deltaTime: 16,
         camera: { x: 0, y: 0, z: 0 },
         vpMatrix: new Float32Array(16),
@@ -251,9 +251,9 @@ describe('AutoRotate — 自动旋转插件', () => {
     it('axis=pitch 时发射 pitch 轴旋转', () => {
       const plugin = createAutoRotatePlugin({ enabled: true, axis: 'pitch' });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
-      plugin.update({
+      plugin.update!({
         deltaTime: 100,
         camera: { x: 0, y: 0, z: 0 },
         vpMatrix: new Float32Array(16),
@@ -271,11 +271,11 @@ describe('AutoRotate — 自动旋转插件', () => {
     it('destroy 后 update 不再发射事件', () => {
       const plugin = createAutoRotatePlugin({ enabled: true });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
-      plugin.destroy();
+      plugin.init!(ctx);
+      plugin.destroy!();
 
       (ctx.player.emit as ReturnType<typeof vi.fn>).mockClear();
-      plugin.update({
+      plugin.update!({
         deltaTime: 16,
         camera: { x: 0, y: 0, z: 0 },
         vpMatrix: new Float32Array(16),

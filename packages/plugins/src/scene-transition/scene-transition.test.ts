@@ -63,7 +63,7 @@ describe('SceneTransition — 场景过渡插件', () => {
     it('init 创建 overlay 元素并挂载到 container', () => {
       const plugin = createSceneTransitionPlugin();
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
       const overlay = ctx.container.firstElementChild;
       expect(overlay).not.toBeNull();
       expect(overlay!.tagName.toLowerCase()).toBe('div');
@@ -72,7 +72,7 @@ describe('SceneTransition — 场景过渡插件', () => {
     it('自定义 fadeColor 应用到 overlay', () => {
       const plugin = createSceneTransitionPlugin({ fadeColor: '#ff0000' });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
       const overlay = ctx.container.firstElementChild as HTMLElement;
       expect(overlay.style.background).toBe('rgb(255, 0, 0)');
     });
@@ -82,7 +82,7 @@ describe('SceneTransition — 场景过渡插件', () => {
     it('scene:switching 触发 fade-out (overlay opacity → 1)', () => {
       const plugin = createSceneTransitionPlugin({ defaultType: 'fade', defaultDuration: 800 });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
       emit(ctx as any, 'scene:switching', {
         sceneId: 'scene2',
@@ -96,7 +96,7 @@ describe('SceneTransition — 场景过渡插件', () => {
     it('instant 类型不触发 fade-out', () => {
       const plugin = createSceneTransitionPlugin({ defaultType: 'fade' });
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
 
       emit(ctx as any, 'scene:switching', { sceneId: 'scene2', transition: { type: 'instant' } });
 
@@ -110,9 +110,9 @@ describe('SceneTransition — 场景过渡插件', () => {
     it('destroy 移除 overlay 元素', () => {
       const plugin = createSceneTransitionPlugin();
       const ctx = makeMockCtx();
-      plugin.init(ctx);
+      plugin.init!(ctx);
       expect(ctx.container.firstElementChild).not.toBeNull();
-      plugin.destroy();
+      plugin.destroy!();
       expect(ctx.container.firstElementChild).toBeNull();
     });
   });
