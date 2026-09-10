@@ -6,7 +6,7 @@
 pnpm monorepo for a lightweight Web 3DGS rendering engine and tour framework.
 6 publishable packages: `core`, `renderer-three`, `convert`, `plugins`, `react`, `vue`.
 Workspace layout declared in `pnpm-workspace.yaml`: `packages/*`, `apps/*`, `docs/site`.
-Runtime: Node >= 20 (vitest 4 + jsdom 30 require Node 20+), pnpm >= 9. TypeScript strict mode (`tsconfig.base.json`).
+Runtime: Node >= 22 (jsdom 30 runtime requires Node 22+; vitest 4 requires Node 20+), pnpm >= 9. TypeScript strict mode (`tsconfig.base.json`).
 
 ## Commands
 
