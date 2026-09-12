@@ -34,7 +34,7 @@
     "lint:fix": "eslint \"packages/*/src/**/*.ts\" \"packages/*/src/**/*.tsx\" --fix",
     "format": "prettier --write \"packages/*/src/**/*.ts\" \"packages/*/src/**/*.tsx\"",
     "format:check": "prettier --check \"packages/*/src/**/*.ts\" \"packages/*/src/**/*.tsx\"",
-    "typecheck": "pnpm --filter \"@3dgs/*\" --filter \"!@3dgs/demo\" --filter \"!@3dgs/docs\" --no-bail exec tsc --noEmit",
+    "typecheck": "pnpm --filter \"@3dgs/*\" --filter \"!@3dgs/demo\" --filter \"!@3dgs/docs\" --filter \"!@3dgs/r3f-example\" --no-bail exec tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

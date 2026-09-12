@@ -104,7 +104,8 @@ jobs:
           done
 
       - name: Run benchmark
-        run: npx tsx benchmarks/benchmark.ts
+        # ★ R-07: --gate 门禁 — 任一场景 P50 < 30fps 时 CI 失败
+        run: npx tsx benchmarks/benchmark.ts --gate
 
       - name: Upload benchmark results
         if: always()
