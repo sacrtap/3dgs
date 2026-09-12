@@ -430,3 +430,28 @@ describe('getTierSettings — N-02 高分屏 pixelRatio 适配', () => {
     expect(getTierSettings(DeviceTier.ULTRA).pixelRatio).toBeLessThanOrEqual(1.5);
   });
 });
+
+// ── ★ N-05: DPR 变化 → pixelRatio 重算 (matchMedia 由 RenderManager 监听) ──
+
+describe('getTierSettings — N-05 DPR 动态重算', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('DPR 变化后重算 pixelRatio (min(dpr, cap) 语义)', () => {
+    // HIGH cap=1.25: dpr=2 → 1.25 (封顶); dpr=1 → 1.0 (不封顶)
+    vi.stubGlobal('window', { devicePixelRatio: 2 });
+    const capped = getTierSettings(DeviceTier.HIGH);
+    expect(capped.pixelRatio).toBe(1.25);
+
+    vi.stubGlobal('window', { devicePixelRatio: 1 });
+    const uncapped = getTierSettings(DeviceTier.HIGH);
+    expect(uncapped.pixelRatio).toBe(1);
+  });
+
+  it('LOW 档 pixelRatio 恒为 1 (不受 DPR 影响, 性能优先)', () => {
+    vi.stubGlobal('window', { devicePixelRatio: 3 });
+    const settings = getTierSettings(DeviceTier.LOW);
+    expect(settings.pixelRatio).toBe(1);
+  });
+});

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   decodeSpz,
   decodeSpzInWorker,
+  decodeSpzToSplatData,
   parseSpzHeader,
   readSpzHeader,
   validateSpzHeader,
@@ -67,7 +68,7 @@ function writeInt24LE(view: DataView, offset: number, value: number): void {
  */
 async function createMockSpzFile(
   splats: TestSplat[],
-  opts?: { shDegree?: number; fractionalBits?: number },
+  opts?: { shDegree?: number; fractionalBits?: number; shValues?: number[][] },
 ): Promise<ArrayBuffer> {
   const numSplats = splats.length;
   const shDegree = opts?.shDegree ?? 0;
@@ -162,9 +163,21 @@ async function createMockSpzFile(
   }
   offset += rotationsSize;
 
-  // SH data (fill with 128 = neutral)
-  for (let i = offset; i < totalSize; i++) {
-    u8[i] = 128;
+  // ── 6. SH data (默认 128 = 中性; shValues[i] 提供非零系数) ──
+  for (let i = 0; i < numSplats; i++) {
+    const base = offset + i * shDim * 3;
+    const coeffs = opts?.shValues?.[i];
+    for (let j = 0; j < shDim * 3; j++) {
+      if (coeffs) {
+        // 与 spz-writer.ts quantizeSh 一致的编码: round(v*128)+128 → bucket 量化
+        const value = Math.round(coeffs[j] * 128) + 128;
+        const bits = j < 9 ? 5 : 4;
+        const bucketSize = 1 << (8 - bits);
+        u8[base + j] = clampU8(Math.floor((value + bucketSize / 2) / bucketSize) * bucketSize);
+      } else {
+        u8[base + j] = 128;
+      }
+    }
   }
 
   // ── Gzip compress body ──
@@ -191,6 +204,27 @@ async function gzipCompress(data: Uint8Array): Promise<Uint8Array> {
   const response = new Response(compressed);
   const buffer = await response.arrayBuffer();
   return new Uint8Array(buffer);
+}
+
+/** Gzip 解压 (模块级, 供权威布局构造与测试使用) */
+async function gzipDecompressLocal(data: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([data as Uint8Array<ArrayBuffer>])
+    .stream()
+    .pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/** 构造权威布局文件: 将旧布局 [未压缩 header][gzip body] 转为 [整文件 gzip] */
+async function createWholeGzipSpz(
+  splats: TestSplat[],
+  opts?: { shDegree?: number; shValues?: number[][] },
+): Promise<ArrayBuffer> {
+  const legacy = new Uint8Array(await createMockSpzFile(splats, opts));
+  const body = await gzipDecompressLocal(legacy.subarray(HEADER_SIZE));
+  const full = new Uint8Array(HEADER_SIZE + body.length);
+  full.set(legacy.subarray(0, HEADER_SIZE), 0);
+  full.set(body, HEADER_SIZE);
+  return (await gzipCompress(full)).buffer as ArrayBuffer;
 }
 
 /** 创建测试用高斯核数据 */
@@ -678,27 +712,6 @@ describe('decodeSpz — 边界条件', () => {
 // ── 权威布局 (2026-08-27): 整文件单个 gzip 流 ─────────────
 
 describe('decodeSpz — 权威布局: 整文件 gzip (Spark 兼容)', () => {
-  /** Gzip 解压 */
-  async function gzipDecompressLocal(data: Uint8Array): Promise<Uint8Array> {
-    const stream = new Blob([data as Uint8Array<ArrayBuffer>])
-      .stream()
-      .pipeThrough(new DecompressionStream('gzip'));
-    return new Uint8Array(await new Response(stream).arrayBuffer());
-  }
-
-  /** 构造权威布局文件: 将旧布局 [未压缩 header][gzip body] 转为 [整文件 gzip] */
-  async function createWholeGzipSpz(
-    splats: TestSplat[],
-    opts?: { shDegree?: number },
-  ): Promise<ArrayBuffer> {
-    const legacy = new Uint8Array(await createMockSpzFile(splats, opts));
-    const body = await gzipDecompressLocal(legacy.subarray(HEADER_SIZE));
-    const full = new Uint8Array(HEADER_SIZE + body.length);
-    full.set(legacy.subarray(0, HEADER_SIZE), 0);
-    full.set(body, HEADER_SIZE);
-    return (await gzipCompress(full)).buffer as ArrayBuffer;
-  }
-
   it('★ 文件以 gzip magic 开头, decodeSpz 自动识别并解码', async () => {
     const splats = createTestSplats(4);
     const spzData = await createWholeGzipSpz(splats);
@@ -743,5 +756,110 @@ describe('decodeSpz — 权威布局: 整文件 gzip (Spark 兼容)', () => {
     const fromWhole = await decodeSpz(wholeData);
 
     expect(Array.from(fromWhole)).toEqual(Array.from(fromLegacy));
+  });
+});
+
+// ── ★ TD-01: decodeSpzToSplatData — SH 保留 ────────────────
+
+describe('decodeSpzToSplatData — SPZ 直接解码为 SoA, 保留 SH (TD-01)', () => {
+  it('shDegree=0 时 sh 为 null, 属性与 decodeSpz 一致', async () => {
+    const splats = createTestSplats(3);
+    const spzData = await createWholeGzipSpz(splats);
+
+    const result = await decodeSpzToSplatData(spzData);
+    expect(result.sh).toBeNull();
+    expect(result.shDegree).toBe(0);
+    expect(result.count).toBe(3);
+    expect(result.positions.length).toBe(9);
+    expect(result.scales.length).toBe(9);
+    expect(result.colors.length).toBe(12);
+    expect(result.rotations.length).toBe(12);
+
+    // 与 decodeSpz (.splat 字节) 的属性逐项一致
+    const splatBytes = await decodeSpz(spzData);
+    const view = new DataView(splatBytes.buffer);
+    for (let i = 0; i < 3; i++) {
+      expect(result.positions[i * 3]).toBeCloseTo(view.getFloat32(i * 32, true), 5);
+      expect(result.positions[i * 3 + 1]).toBeCloseTo(view.getFloat32(i * 32 + 4, true), 5);
+      expect(result.positions[i * 3 + 2]).toBeCloseTo(view.getFloat32(i * 32 + 8, true), 5);
+      expect(result.scales[i * 3]).toBeCloseTo(view.getFloat32(i * 32 + 12, true), 5);
+      expect(result.colors[i * 4]).toBe(splatBytes[i * 32 + 24]);
+      expect(result.rotations[i * 4]).toBe(splatBytes[i * 32 + 28]);
+    }
+  });
+
+  it('shDegree=1 反量化 SH 系数, round-trip 误差在 5bit 桶内 (±4/128)', async () => {
+    const splats = createTestSplats(5);
+    const shValues = splats.map((_, i) => {
+      const arr: number[] = [];
+      for (let j = 0; j < 9; j++) {
+        arr.push(Math.sin(j * 0.7 + i * 0.3) * 0.4); // 控制在 ±0.4, 避开编码边界
+      }
+      return arr;
+    });
+    const spzData = await createWholeGzipSpz(splats, { shDegree: 1, shValues });
+
+    const result = await decodeSpzToSplatData(spzData);
+    expect(result.sh).not.toBeNull();
+    expect(result.shDegree).toBe(1);
+    expect(result.sh!.length).toBe(5 * 9);
+
+    for (let i = 0; i < 5; i++) {
+      for (let j = 0; j < 9; j++) {
+        // 最坏误差 = round 取整 0.5/128 + 半桶 4/128 = 4.5/128
+        expect(Math.abs(result.sh![i * 9 + j] - shValues[i][j])).toBeLessThanOrEqual(
+          4 / 128 + 1 / 128,
+        );
+      }
+    }
+  });
+
+  it('shDegree=2 混合 5bit/4bit 量化, 误差分别在对应桶内', async () => {
+    const splats = createTestSplats(2);
+    const shValues = splats.map((_, i) => {
+      const arr: number[] = [];
+      for (let j = 0; j < 24; j++) {
+        arr.push(Math.cos(j * 1.1 + i * 0.5) * 0.35);
+      }
+      return arr;
+    });
+    const spzData = await createWholeGzipSpz(splats, { shDegree: 2, shValues });
+
+    const result = await decodeSpzToSplatData(spzData);
+    expect(result.shDegree).toBe(2);
+    expect(result.sh!.length).toBe(2 * 24);
+
+    for (let i = 0; i < 2; i++) {
+      for (let j = 0; j < 24; j++) {
+        const bucket = 1 << (8 - (j < 9 ? 5 : 4));
+        // 最坏误差 = round 取整 0.5/128 + 半桶 bucket/2/128
+        expect(Math.abs(result.sh![i * 24 + j] - shValues[i][j])).toBeLessThanOrEqual(
+          bucket / 2 / 128 + 1 / 128,
+        );
+      }
+    }
+  });
+
+  it('旧布局 (未压缩 header) 同样支持 SH 解码', async () => {
+    const splats = createTestSplats(2);
+    const shValues = splats.map(() => [0.1, -0.2, 0.15, 0.05, -0.1, 0.2, 0.3, -0.05, 0.0]);
+    const legacyData = await createMockSpzFile(splats, { shDegree: 1, shValues });
+    const wholeData = await createWholeGzipSpz(splats, { shDegree: 1, shValues });
+
+    const fromLegacy = await decodeSpzToSplatData(legacyData);
+    const fromWhole = await decodeSpzToSplatData(wholeData);
+
+    // 两种布局解码的 SH 完全一致
+    expect(Array.from(fromLegacy.sh!)).toEqual(Array.from(fromWhole.sh!));
+    expect(fromLegacy.shDegree).toBe(1);
+  });
+
+  it('★ 中性 SH (全 128) 反量化为零, 不改变颜色', async () => {
+    const splats = createTestSplats(4);
+    const spzData = await createWholeGzipSpz(splats, { shDegree: 1 });
+
+    const result = await decodeSpzToSplatData(spzData);
+    expect(result.sh!.every((v) => v === 0)).toBe(true);
+    expect(result.shDegree).toBe(1);
   });
 });

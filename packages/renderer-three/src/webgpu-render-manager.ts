@@ -37,17 +37,30 @@ import { KeyboardControls } from './keyboard-controls.js';
 import { FrameCallbackManager } from './frame-callback-manager.js';
 import { CameraMatrixCache } from './camera-matrix-cache.js';
 // ★ M4-P2.2: 格式支持
-import { SogStreamer, type SogMetadata } from './sog-streamer.js';
-import { decodeSpzInWorker } from './spz-decoder-worker.js';
-import { concatChunksInWorker } from './sog-concat-worker.js';
+import { SogStreamer } from './sog-streamer.js';
+import { decodeSpzToSplatData } from './spz-decoder-worker.js';
+// ★ TD-08: 双后端共享加载工具
+import { fetchWithProgress } from './shared/fetch-util.js';
+import { loadSogChunks, downsampleSplatData } from './shared/scene-loader.js';
+import type { SplatData } from './shared/types.js';
 // ★ M4-P2.3: WGSL Shader 注入工具
 import {
   injectWgslAfterMainBegin,
   injectWgslBeforeMainEnd,
   injectWgslBeforePattern,
 } from './wgsl-shader-utils.js';
+// ★ TD-05: WGSL 渲染着色器独立成文件
+import { SPLAT_RENDER_SHADER } from './wgsl/splat-render-shader.js';
+// ★ TD-09: WebGPU 空间分块视锥裁剪 (非 Morton 数据)
+import { SplatGridCuller } from './splat-grid-culler.js';
+// ★ R-06: 共享统计聚合
+import { computeRenderStats } from './shared/stats.js';
+import type { RenderStats } from '@3dgs/core';
 import type { WebGPUCapability } from './webgpu-detector.js';
 import * as THREE from 'three';
+
+/** ★ TD-01: SH degree → 每通道非 DC 系数数 (uniform shDim 用, 0 = 无 SH) */
+const SH_DIM_FOR_UNIFORM: Record<number, number> = { 0: 0, 1: 3, 2: 8, 3: 15 };
 
 /** WebGPU 渲染管理器选项 */
 export interface WebGPURenderManagerOptions {
@@ -75,14 +88,7 @@ export interface WebGPURenderManagerOptions {
   enableLod?: boolean;
 }
 
-/** Splat 数据格式 (32 bytes/splat, .splat 格式) */
-interface SplatData {
-  positions: Float32Array; // 3N
-  scales: Float32Array; // 3N
-  colors: Uint8Array; // 4N (RGBA)
-  rotations: Uint8Array; // 4N (IJKL)
-  count: number;
-}
+/** Splat 数据格式 (SoA) — 定义移至 shared/types.ts (★ TD-05) */
 
 /**
  * ★ D-01 纯函数: 合并"全量有序索引"与"可见位图" → 绘制索引 = 有序 ∩ 可见。
@@ -170,12 +176,15 @@ export class WebGPURenderManager implements RendererAdapter {
     color: GPUBuffer | null;
     rotation: GPUBuffer | null;
     index: GPUBuffer | null;
+    /** ★ TD-01: 球谐非 DC 系数 storage buffer (无 SH 时为 null) */
+    sh: GPUBuffer | null;
   } = {
     position: null,
     scale: null,
     color: null,
     rotation: null,
     index: null,
+    sh: null,
   };
 
   // 渲染管线
@@ -237,17 +246,23 @@ export class WebGPURenderManager implements RendererAdapter {
   private _frustumCullEnabled = true;
   private _frustumUpdateInterval = 3; // 每 3 帧更新一次视锥
   private _frustumFrameCounter = 0;
-  // ★ 复用对象, 消除每帧分配
-  private _tmpPos = new THREE.Vector3();
   // ★ §2.6: 复用投影屏幕矩阵, 消除每 3 帧分配 THREE.Matrix4
   private _tmpProjScreen = new THREE.Matrix4();
   // ★ D-01 单一索引管线: 排序产出全量有序索引 (_lastSortResult),
   //   裁剪产出可见位图 (_visibleMask), 合并后仅写入一次 GPU index buffer
   private _visibleMask: Uint8Array | null = null;
   private _drawIndices: Uint32Array | null = null;
+  // ★ TD-09: 空间分块裁剪器 (惰性构建, 场景数据变更时重建)
+  private _gridCuller: SplatGridCuller | null = null;
+  private _gridCullerCount = 0;
+  // ★ TD-09: 上次裁剪结果 — 未变化时跳过 CPU→GPU index 回写
+  private _lastVisibleMask: Uint8Array | null = null;
   // ★ N-01: 页面可见性暂停 (移动端省电)
   private _visibilityHandler?: () => void;
   private _wasRunningBeforeHide = false;
+
+  // ★ TD-03: 预取缓存 — preloadScene 下载的资源, loadScene 命中后不再重复 fetch
+  private _preloadCache = new Map<string, Uint8Array>();
   // ★ 复用 uniform ArrayBuffer, 消除每帧分配
   // ★ M4-P2.1: 扩展为 192 字节 (VP 64 + view 64 + camPos 16 + focal 8 + splatCount 4 + time 4 + pad 8 = 168 → 176 对齐, 取 192 留余量)
   private _uniformData = new ArrayBuffer(192);
@@ -563,6 +578,15 @@ export class WebGPURenderManager implements RendererAdapter {
     }
   }
 
+  /** ★ TD-03/R-05: 预加载场景资源 — 下载并缓存字节, loadScene 命中后不重复 fetch */
+  async preloadScene(source: string): Promise<void> {
+    if (!source) return;
+    // 已预取或流式资源 (SOG 无需预取) 时跳过
+    if (this._preloadCache.has(source) || source.endsWith('.sog')) return;
+    const data = await fetchWithProgress(source);
+    this._preloadCache.set(source, data);
+  }
+
   async loadScene(source: string, options?: LoadOptions): Promise<void> {
     if (!this.device) throw new Error('WebGPURenderManager 未初始化');
 
@@ -623,44 +647,14 @@ export class WebGPURenderManager implements RendererAdapter {
    * 支持流式读取 + 进度回调, 与原有 loadScene 逻辑一致。
    */
   private async loadSceneWithSplat(source: string, options?: LoadOptions): Promise<void> {
-    const response = await fetch(source);
-    if (!response.ok) {
-      throw new Error(`加载失败: HTTP ${response.status}`);
-    }
-
-    const contentLength = parseInt(response.headers.get('Content-Length') || '0', 10);
-    const reader = response.body?.getReader();
-
-    if (!reader) {
-      const arrayBuffer = await response.arrayBuffer();
-      const splatData = this.parseSplatData(new Uint8Array(arrayBuffer));
-      await this.processSplatData(splatData, options);
-      return;
-    }
-
-    // 分块读取, 支持进度回调
-    const chunks: Uint8Array[] = [];
-    let receivedLength = 0;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        chunks.push(value);
-        receivedLength += value.byteLength;
-        if (options?.onProgress && contentLength > 0) {
-          options.onProgress(receivedLength, contentLength);
-        }
-      }
-    }
-
-    // 合并 chunks
-    const fullData = new Uint8Array(receivedLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      fullData.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
+    // ★ TD-08: 统一使用共享 fetchWithProgress (reader 分块 + 进度回调)
+    // ★ TD-03: preloadScene 预取命中时直接复用, 不重复下载
+    const cached = this._preloadCache.get(source);
+    const fullData =
+      cached ??
+      (await fetchWithProgress(source, {
+        onProgress: options?.onProgress,
+      }));
 
     const splatData = this.parseSplatData(fullData);
     await this.processSplatData(splatData, options);
@@ -678,25 +672,24 @@ export class WebGPURenderManager implements RendererAdapter {
    * [来源: 项目源码 — packages/renderer-three/src/spz-decoder-worker.ts]
    */
   private async loadSceneWithSpz(source: string, options?: LoadOptions): Promise<void> {
-    const response = await fetch(source);
-    if (!response.ok) {
-      throw new Error(`SPZ 加载失败: HTTP ${response.status}`);
-    }
+    // ★ TD-08: 统一使用共享 fetchWithProgress (reader 分块 + 进度回调)
+    // ★ TD-03: preloadScene 预取命中时直接复用, 不重复下载
+    const cached = this._preloadCache.get(source);
+    const spzData =
+      cached ??
+      (await fetchWithProgress(source, {
+        onProgress: options?.onProgress,
+      }));
 
-    const contentLength = parseInt(response.headers.get('Content-Length') || '0', 10);
-    const spzData = new Uint8Array(await response.arrayBuffer());
-
-    if (options?.onProgress && contentLength > 0) {
-      options.onProgress(spzData.byteLength, contentLength);
-    }
-
-    // Worker 解码 SPZ → .splat 格式
-    const splatBytes = await decodeSpzInWorker(
-      spzData.buffer.slice(spzData.byteOffset, spzData.byteOffset + spzData.byteLength),
+    // ★ TD-01: 直接解码为 SoA SplatData (保留 SH 球谐系数), 不再经过 .splat 中间格式
+    //   旧路径: SPZ → decodeSpzInWorker → .splat (SH 被丢弃) → parseSplatData
+    //   新路径: SPZ → decodeSpzToSplatData (SH 保留)
+    const splatData = await decodeSpzToSplatData(
+      spzData.buffer.slice(
+        spzData.byteOffset,
+        spzData.byteOffset + spzData.byteLength,
+      ) as ArrayBuffer,
     );
-
-    // 解析为 SplatData (降采样在 processSplatData 中处理)
-    const splatData = this.parseSplatData(splatBytes);
     await this.processSplatData(splatData, options);
 
     console.info(`[WebGPURenderManager] SPZ 加载完成: ${splatData.count.toLocaleString()} splats`);
@@ -715,33 +708,20 @@ export class WebGPURenderManager implements RendererAdapter {
    * [来源: SOG 格式 — packages/convert/src/sog-writer.ts]
    */
   private async loadSceneWithSog(source: string, options?: LoadOptions): Promise<void> {
-    const chunkDataList: ArrayBuffer[] = [];
-    let metadata: SogMetadata | null = null;
-
-    const streamer = new SogStreamer({
-      url: source,
-      parallel: true,
-      parallelCount: 4,
-      maxSplats: this.tierSettings.maxSplats,
-      onProgress: (_loadedChunks, _totalChunks, loadedSplats, totalSplats) => {
-        if (options?.onProgress) {
-          options.onProgress(loadedSplats, totalSplats);
-        }
+    // ★ TD-08: 统一使用共享 loadSogChunks (SogStreamer + concatChunksInWorker)
+    const { fullData, metadata, streamer } = await loadSogChunks(
+      source,
+      this.tierSettings.maxSplats,
+      {
+        onProgress: (loaded, total) => {
+          options?.onProgress?.(loaded, total);
+        },
+        onError: (error) => {
+          console.error('[WebGPURenderManager] SOG chunk 加载错误:', error.message);
+        },
       },
-      onChunkLoaded: (chunkIndex, data) => {
-        chunkDataList[chunkIndex] = data;
-      },
-      onError: (error) => {
-        console.error('[WebGPURenderManager] SOG chunk 加载错误:', error.message);
-      },
-    });
-
+    );
     this._sogStreamer = streamer;
-    metadata = await streamer.start();
-
-    // 在 Worker 中拼接所有 chunk
-    const fullBuffer = await concatChunksInWorker(chunkDataList);
-    const fullData = new Uint8Array(fullBuffer);
 
     // 缓存 LOD 元数据
     if (metadata.lodLevels && metadata.lodLevels.length > 0) {
@@ -768,7 +748,7 @@ export class WebGPURenderManager implements RendererAdapter {
     // 降采样: 使用 tierSettings.maxSplats (与 RenderManager 一致)
     const maxSplats = this.tierSettings.maxSplats;
     if (splatData.count > maxSplats) {
-      this.splatData = this.downsampleSplatData(splatData, maxSplats);
+      this.splatData = downsampleSplatData(splatData, maxSplats);
       console.info(
         `[WebGPURenderManager] 降采样: ${this.splatData.count.toLocaleString()} / ${splatData.count.toLocaleString()} splats`,
       );
@@ -788,8 +768,12 @@ export class WebGPURenderManager implements RendererAdapter {
 
     // ★ D-01: 场景数据变更 — 旧排序结果/可见位图对新数据无效, 重置索引管线状态;
     //   index buffer 已由 uploadSplatData 初始化为自然顺序, 首次裁剪/排序后自动收敛
+    // ★ TD-09: 空间分块裁剪器基于旧数据, 必须一并重建
     this._lastSortResult = null;
     this._visibleMask = null;
+    this._lastVisibleMask = null;
+    this._gridCuller = null;
+    this._gridCullerCount = 0;
     this._visibleCount = this.splatData.count;
 
     if (options?.onProgress) {
@@ -890,6 +874,8 @@ export class WebGPURenderManager implements RendererAdapter {
     // ★ M4-P2.2: 中止 SOG 流式加载
     this._sogStreamer?.abort();
     this._sogStreamer = undefined;
+    // ★ TD-03: 清理预取缓存
+    this._preloadCache.clear();
 
     // 释放 GPU 资源
     this.splatBuffers.position?.destroy();
@@ -897,7 +883,15 @@ export class WebGPURenderManager implements RendererAdapter {
     this.splatBuffers.color?.destroy();
     this.splatBuffers.rotation?.destroy();
     this.splatBuffers.index?.destroy();
-    this.splatBuffers = { position: null, scale: null, color: null, rotation: null, index: null };
+    this.splatBuffers.sh?.destroy();
+    this.splatBuffers = {
+      position: null,
+      scale: null,
+      color: null,
+      rotation: null,
+      index: null,
+      sh: null,
+    };
 
     this.uniformBuffer?.destroy();
     this.depthTexture?.destroy();
@@ -919,6 +913,17 @@ export class WebGPURenderManager implements RendererAdapter {
 
   getResolutionScale(): number {
     return this.adaptive?.currentResolutionScale ?? this.resolutionScale;
+  }
+
+  // ★ R-06: 渲染统计 (帧时间/可见数/分辨率; WebGPU 无 BufferPool, 池统计为 0)
+  getStats(): RenderStats {
+    return computeRenderStats({
+      smoothDt: this._smoothDt,
+      visibleSplats: this._frustumCullEnabled ? this._visibleCount : (this.splatData?.count ?? 0),
+      resolutionScale: this.getResolutionScale(),
+      renderWidth: this.renderWidth,
+      renderHeight: this.renderHeight,
+    });
   }
 
   isLodReady(): boolean {
@@ -1127,6 +1132,8 @@ export class WebGPURenderManager implements RendererAdapter {
       view.setUint32(152, this.splatData?.count ?? 0, true);
       // Time (Float32, at offset 156)
       view.setFloat32(156, performance.now() / 1000, true);
+      // ★ TD-01: shDim (Uint32, at offset 160) — SPZ SH 阶数对应系数数 0/3/8/15
+      view.setUint32(160, SH_DIM_FOR_UNIFORM[this.splatData?.shDegree ?? 0] ?? 0, true);
 
       this.device.queue.writeBuffer(this.uniformBuffer, 0, this._uniformData);
     }
@@ -1170,6 +1177,11 @@ export class WebGPURenderManager implements RendererAdapter {
 
   /**
    * 执行视锥裁剪 (★ D-01: 产出可见位图, 不再直接写 index buffer)
+   *
+   * ★ TD-09: 使用空间分块裁剪器替代 O(N×6) 逐 splat 中心点测试:
+   *   - 首帧惰性构建 8³ 网格 (O(N))
+   *   - 每帧对 512 个 cell 做 bbox 相交测试, 命中 cell 遍历其成员置 1 (O(G + N_visible))
+   *   - mask 未变化时跳过 mergeAndUploadIndices 的 CPU→GPU 回写
    */
   private performFrustumCull(): void {
     if (!this.splatData || !this._frustumCullEnabled) {
@@ -1185,20 +1197,34 @@ export class WebGPURenderManager implements RendererAdapter {
       this._visibleMask = new Uint8Array(count);
     }
 
-    // ★ 复用 _tmpPos, 避免每帧创建 THREE.Vector3
-    const tmpPos = this._tmpPos;
-    const mask = this._visibleMask;
-
-    // 遍历所有 splat 进行视锥测试 (中心点);
-    //   精确可见数由 mergeSortedVisibleIndices 统计并写回 _visibleCount
-    for (let i = 0; i < count; i++) {
-      tmpPos.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
-      mask[i] = this._frustum.containsPoint(tmpPos) ? 1 : 0;
+    // ★ TD-09: 惰性构建空间分块裁剪器 (positions 在 processSplatData 中已完成 D-09 y 翻转)
+    if (!this._gridCuller || this._gridCullerCount !== count) {
+      this._gridCuller = new SplatGridCuller(positions, count);
+      this._gridCullerCount = count;
     }
 
-    // ★ D-01: 裁剪结果不直接写入, 与排序结果合并后统一写入一次,
-    //   保证 index buffer 始终 = 有序 ∩ 可见 (alpha 混合顺序正确且裁剪生效)
-    this.mergeAndUploadIndices();
+    const mask = this._visibleMask;
+    this._gridCuller.cull(this._frustum, mask);
+
+    // ★ TD-09: mask 变更检测 — 未变化时跳过 index buffer 回写 (消除每 3 帧 N×4B 上传)
+    const last = this._lastVisibleMask;
+    let changed = !last || last.length !== mask.length;
+    if (!changed) {
+      for (let i = 0; i < mask.length; i++) {
+        if (mask[i] !== last![i]) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!this._lastVisibleMask || this._lastVisibleMask.length !== mask.length) {
+      this._lastVisibleMask = new Uint8Array(mask.length);
+    }
+    this._lastVisibleMask.set(mask);
+
+    if (changed) {
+      this.mergeAndUploadIndices();
+    }
   }
 
   /**
@@ -1319,6 +1345,8 @@ export class WebGPURenderManager implements RendererAdapter {
         { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
         { binding: 4, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
         { binding: 5, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
+        // ★ TD-01: SH 系数 storage buffer (vs_main 求值, 无 SH 时为占位 buffer)
+        { binding: 6, visibility: GPUShaderStage.VERTEX, buffer: { type: 'read-only-storage' } },
       ],
     });
 
@@ -1369,6 +1397,8 @@ export class WebGPURenderManager implements RendererAdapter {
         { binding: 3, resource: { buffer: this.splatBuffers.color! } },
         { binding: 4, resource: { buffer: this.splatBuffers.rotation! } },
         { binding: 5, resource: { buffer: this.splatBuffers.index! } },
+        // ★ TD-01: SH 系数 (无 SH 时占位 buffer)
+        { binding: 6, resource: { buffer: this.splatBuffers.sh! } },
       ],
     });
   }
@@ -1418,32 +1448,11 @@ export class WebGPURenderManager implements RendererAdapter {
     return { positions, scales, colors, rotations, count };
   }
 
-  /** 降采样 splat 数据 (均匀降采样, 与 RenderManager 一致) */
-  private downsampleSplatData(data: SplatData, maxCount: number): SplatData {
-    const step = data.count / maxCount;
-    const newCount = Math.floor(data.count / step);
-
-    const positions = new Float32Array(newCount * 3);
-    const scales = new Float32Array(newCount * 3);
-    const colors = new Uint8Array(newCount * 4);
-    const rotations = new Uint8Array(newCount * 4);
-
-    for (let i = 0; i < newCount; i++) {
-      const src = Math.floor(i * step);
-      positions.set(data.positions.subarray(src * 3, src * 3 + 3), i * 3);
-      scales.set(data.scales.subarray(src * 3, src * 3 + 3), i * 3);
-      colors.set(data.colors.subarray(src * 4, src * 4 + 4), i * 4);
-      rotations.set(data.rotations.subarray(src * 4, src * 4 + 4), i * 4);
-    }
-
-    return { positions, scales, colors, rotations, count: newCount };
-  }
-
   /** 上传 splat 数据到 GPU buffers */
   private uploadSplatData(): void {
     if (!this.device || !this.splatData) return;
 
-    const { positions, scales, colors, rotations, count } = this.splatData;
+    const { positions, scales, colors, rotations, count, sh } = this.splatData;
 
     // 释放旧 buffer
     this.splatBuffers.position?.destroy();
@@ -1451,6 +1460,7 @@ export class WebGPURenderManager implements RendererAdapter {
     this.splatBuffers.color?.destroy();
     this.splatBuffers.rotation?.destroy();
     this.splatBuffers.index?.destroy();
+    this.splatBuffers.sh?.destroy();
 
     this.splatBuffers.position = this.device.createBuffer({
       size: positions.byteLength,
@@ -1484,6 +1494,20 @@ export class WebGPURenderManager implements RendererAdapter {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     this.device.queue.writeBuffer(this.splatBuffers.index, 0, indices.buffer as ArrayBuffer);
+
+    // ★ TD-01: SH 系数上传 (无 SH 数据时创建 4 字节占位 buffer, WGSL 越界读返回 0)
+    if (sh && sh.length > 0) {
+      this.splatBuffers.sh = this.device.createBuffer({
+        size: sh.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      this.device.queue.writeBuffer(this.splatBuffers.sh, 0, sh.buffer as ArrayBuffer);
+    } else {
+      this.splatBuffers.sh = this.device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.STORAGE,
+      });
+    }
   }
 
   /** 定位相机到场景包围盒中心 */
@@ -1550,258 +1574,4 @@ export class WebGPURenderManager implements RendererAdapter {
     this.resolutionScale = scale;
     this.updateRenderSize();
   }
-}
-
-// ─── WGSL 渲染着色器 ─────────────────────────────────────
-
-/**
- * 3DGS Splat 渲染着色器 (WGSL) — ★ M4-P2.1: EWA 投影修复
- *
- * 改进内容 (vs 简化版):
- * - Vertex: 使用 view-space 协方差 + 透视 Jacobian 计算 2D 屏幕空间椭圆
- * - Fragment: 使用 conic (逆协方差矩阵) 计算正确的 2D 椭圆高斯衰减
- *
- * 渲染流程:
- * 1. 构建 3D 协方差: Sigma = R * S * S * R^T (scale + rotation)
- * 2. 变换到 view space: SigmaView = V * Sigma * V^T (V = view matrix 3x3)
- * 3. 透视 Jacobian: J = [[-fx/z, 0, fx*x/z²], [0, -fy/z, fy*y/z²]]
- * 4. 2D 屏幕协方差: Sigma2D = J * SigmaView * J^T (2×2)
- * 5. 低通滤波: Sigma2D += blur² * I (抗锯齿)
- * 6. conic = Sigma2D⁻¹ (逆协方差, 用于 fragment 高斯评估)
- * 7. 特征值 → quad 尺寸 (3σ 覆盖 ~99.7%)
- * 8. Fragment: power = uv^T * conic_scaled * uv, alpha = opacity * exp(-0.5 * power)
- *
- * [来源: 3DGS 论文 — Kerbl et al. 2023, EWA splatting]
- * [来源: Spark 着色器 — @sparkjsdev/spark splatVertex_default.glsl (参考)]
- * [来源: EWA Splatting — Zwicker et al. 2001, SIGGRAPH]
- */
-function SPLAT_RENDER_SHADER(_format: GPUTextureFormat): string {
-  return /* wgsl */ `
-struct Uniforms {
-  vpMatrix: mat4x4<f32>,
-  viewMatrix: mat4x4<f32>,
-  camPos: vec4<f32>,
-  focal: vec2<f32>,
-  splatCount: u32,
-  time: f32,
-  _pad: vec2<f32>,
-};
-
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var<storage, read> positions: array<f32>;
-@group(0) @binding(2) var<storage, read> scales: array<f32>;
-@group(0) @binding(3) var<storage, read> colors: array<u32>;
-@group(0) @binding(4) var<storage, read> rotations: array<u32>;
-@group(0) @binding(5) var<storage, read> indices: array<u32>;
-
-struct VertexOutput {
-  @builtin(position) position: vec4<f32>,
-  @location(0) color: vec4<f32>,
-  @location(1) uv: vec2<f32>,
-  @location(2) conic: vec3<f32>,
-};
-
-// ★ 辅助函数: 从四元数构建旋转矩阵
-fn quatToMat3(q: vec4<f32>) -> mat3x3<f32> {
-  let x = q.x;
-  let y = q.y;
-  let z = q.z;
-  let w = q.w;
-  return mat3x3<f32>(
-    vec3<f32>(1.0 - 2.0 * (y*y + z*z), 2.0 * (x*y - w*z), 2.0 * (x*z + w*y)),
-    vec3<f32>(2.0 * (x*y + w*z), 1.0 - 2.0 * (x*x + z*z), 2.0 * (y*z - w*x)),
-    vec3<f32>(2.0 * (x*z - w*y), 2.0 * (y*z + w*x), 1.0 - 2.0 * (x*x + y*y))
-  );
-}
-
-// ★ 安全的退化 splat 输出 (零面积三角形, GPU 自动跳过)
-fn degenerateOutput() -> VertexOutput {
-  var output: VertexOutput;
-  output.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-  output.color = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-  output.uv = vec2<f32>(0.0);
-  output.conic = vec3<f32>(0.0);
-  return output;
-}
-
-@vertex
-fn vs_main(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) -> VertexOutput {
-  let splatIdx = indices[iid];
-  let px = positions[splatIdx * 3u];
-  let py = positions[splatIdx * 3u + 1u];
-  let pz = positions[splatIdx * 3u + 2u];
-  let center = vec3<f32>(px, py, pz);
-
-  // 读取 scale (3 floats, 已在线性空间 — .splat 格式存储 exp 后的值)
-  let sx = scales[splatIdx * 3u];
-  let sy = scales[splatIdx * 3u + 1u];
-  let sz = scales[splatIdx * 3u + 2u];
-
-  // 读取 rotation (4 uint8 packed in uint32) 并归一化到 [-1, 1]
-  let rotPacked = rotations[splatIdx];
-  let r_x = (f32((rotPacked >> 0u) & 0xFFu) - 128.0) / 128.0;
-  let r_y = (f32((rotPacked >> 8u) & 0xFFu) - 128.0) / 128.0;
-  let r_z = (f32((rotPacked >> 16u) & 0xFFu) - 128.0) / 128.0;
-  let r_w = (f32((rotPacked >> 24u) & 0xFFu) - 128.0) / 128.0;
-  let q = normalize(vec4<f32>(r_x, r_y, r_z, r_w));
-
-  // ★ M4-P2.1: EWA 投影 — Step 1: 变换中心到 view space
-  let centerView = uniforms.viewMatrix * vec4<f32>(center, 1.0);
-
-  // ★ 安全检查: 跳过相机后面的 splat (Three.js 中 z < 0 为前方)
-  if (centerView.z >= 0.0) {
-    return degenerateOutput();
-  }
-
-  // ★ Step 2: 构建 3D 协方差矩阵: Sigma = R * S * S * R^T
-  let R = quatToMat3(q);
-  let S = mat3x3<f32>(
-    vec3<f32>(sx, 0.0, 0.0),
-    vec3<f32>(0.0, sy, 0.0),
-    vec3<f32>(0.0, 0.0, sz)
-  );
-  let Sigma = R * S * S * transpose(R);
-
-  // ★ Step 3: 变换协方差到 view space: SigmaView = V * Sigma * V^T
-  // V = view matrix 的 3x3 旋转部分
-  let V = mat3x3<f32>(
-    uniforms.viewMatrix[0].xyz,
-    uniforms.viewMatrix[1].xyz,
-    uniforms.viewMatrix[2].xyz
-  );
-  let SigmaView = V * Sigma * transpose(V);
-
-  // ★ Step 4: 透视投影 Jacobian
-  // Three.js 透视投影: x_ndc = -fx * x_view / z, y_ndc = -fy * y_view / z
-  // J = [[-fx/z, 0, fx*x/z²], [0, -fy/z, fy*y/z²], [0, 0, 0]]
-  let z = centerView.z;
-  let xv = centerView.x;
-  let yv = centerView.y;
-  let fx = uniforms.focal.x;
-  let fy = uniforms.focal.y;
-  let J00 = -fx / z;
-  let J02 = fx * xv / (z * z);
-  let J11 = -fy / z;
-  let J12 = fy * yv / (z * z);
-
-  // ★ Step 5: 计算 2D 屏幕空间协方差: Sigma2D = J * SigmaView * J^T (2×2)
-  // 提取 SigmaView 对称元素 (M[col][row])
-  let s00 = SigmaView[0][0];
-  let s11 = SigmaView[1][1];
-  let s22 = SigmaView[2][2];
-  let s01 = SigmaView[1][0]; // = SigmaView[0][1]
-  let s02 = SigmaView[2][0]; // = SigmaView[0][2]
-  let s12 = SigmaView[2][1]; // = SigmaView[1][2]
-
-  // Sigma2D[0][0] = J00² * s00 + 2 * J00 * J02 * s02 + J02² * s22
-  // Sigma2D[0][1] = J00 * J11 * s01 + J02 * J11 * s12 + J00 * J12 * s02 + J02 * J12 * s22
-  // Sigma2D[1][1] = J11² * s11 + 2 * J11 * J12 * s12 + J12² * s22
-  var covXX = J00 * J00 * s00 + 2.0 * J00 * J02 * s02 + J02 * J02 * s22;
-  var covXY = J00 * J11 * s01 + J02 * J11 * s12 + J00 * J12 * s02 + J02 * J12 * s22;
-  var covYY = J11 * J11 * s11 + 2.0 * J11 * J12 * s12 + J12 * J12 * s22;
-
-  // ★ Step 6: 低通滤波 (抗锯齿)
-  // Sigma2D += blur² * I, blur=0.3 (与 WebGL 路径 HIGH/ULTRA 一致)
-  let blurAmount = 0.3;
-  covXX = covXX + blurAmount * blurAmount;
-  covYY = covYY + blurAmount * blurAmount;
-
-  // ★ Step 7: 计算 conic (逆协方差矩阵)
-  let det = covXX * covYY - covXY * covXY;
-  if (det <= 0.0) {
-    return degenerateOutput();
-  }
-  let conicXX = covYY / det;
-  let conicXY = -covXY / det;
-  let conicYY = covXX / det;
-
-  // ★ Step 8: 计算特征值确定 quad 尺寸
-  let trace = covXX + covYY;
-  let discriminant = sqrt(max(trace * trace - 4.0 * det, 0.0));
-  let lambda1 = (trace + discriminant) * 0.5;
-  let lambda2 = (trace - discriminant) * 0.5;
-  let maxLambda = max(lambda1, lambda2);
-
-  // ★ 安全检查: 跳过异常大的 splat
-  if (maxLambda > 2500.0) {
-    return degenerateOutput();
-  }
-
-  // 3σ 覆盖 ~99.7% 高斯能量
-  let worldRadius = 3.0 * sqrt(max(maxLambda, 0.0));
-
-  // ★ 投影 splat 中心到裁剪空间
-  let centerClip = uniforms.vpMatrix * vec4<f32>(center, 1.0);
-
-  // ★ 安全检查: 跳过相机后面的 splat
-  if (centerClip.w <= 0.0) {
-    return degenerateOutput();
-  }
-
-  // ★ 计算 NDC 半径
-  let ndcRadius = clamp(worldRadius, 0.0, 0.3);
-
-  // ★ 跳过亚像素 splat
-  if (ndcRadius < 0.001) {
-    return degenerateOutput();
-  }
-
-  // 生成 quad (6 vertices = 2 triangles)
-  var quadPos = array<vec2<f32>, 6>(
-    vec2<f32>(-1.0, -1.0),
-    vec2<f32>( 1.0, -1.0),
-    vec2<f32>( 1.0,  1.0),
-    vec2<f32>(-1.0, -1.0),
-    vec2<f32>( 1.0,  1.0),
-    vec2<f32>(-1.0,  1.0),
-  );
-  let qp = quadPos[vid];
-
-  // 透视除法得到 NDC 中心位置
-  let centerNDC = centerClip.xyz / centerClip.w;
-
-  // 屏幕对齐 quad: 在 NDC 空间偏移
-  let offset = qp * ndcRadius;
-
-  var output: VertexOutput;
-  output.position = vec4<f32>(centerNDC.xy + offset, centerNDC.z, 1.0);
-  output.uv = qp;
-
-  // ★ 将 conic 按 quad 尺寸缩放后传递给 fragment
-  // fragment 中: power = uv^T * conicScaled * uv
-  // 其中 conicScaled = conic * ndcRadius² (因为 uv ∈ [-1,1] 映射到 ndcRadius 范围)
-  let scale2 = ndcRadius * ndcRadius;
-  output.conic = vec3<f32>(conicXX * scale2, conicXY * scale2, conicYY * scale2);
-
-  // 解包颜色 (RGBA Uint8 packed in Uint32)
-  let colorPacked = colors[splatIdx];
-  let r = f32((colorPacked >> 0u) & 0xFFu) / 255.0;
-  let g = f32((colorPacked >> 8u) & 0xFFu) / 255.0;
-  let b = f32((colorPacked >> 16u) & 0xFFu) / 255.0;
-  let a = f32((colorPacked >> 24u) & 0xFFu) / 255.0;
-  output.color = vec4<f32>(r, g, b, a);
-
-  return output;
-}
-
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-  // ★ M4-P2.1: 正确的 2D 椭圆高斯衰减
-  // power = uv^T * conic * uv
-  //   = u² * conicXX + 2 * u * v * conicXY + v² * conicYY
-  // alpha = opacity * exp(-0.5 * power)
-  let u = input.uv.x;
-  let v = input.uv.y;
-  let dist2 = u * u + v * v;
-  if (dist2 > 1.0) {
-    discard;
-  }
-  let power = u * (input.conic.x * u + input.conic.y * v)
-            + v * (input.conic.y * u + input.conic.z * v);
-  let gaussian = exp(-0.5 * power);
-  let alpha = input.color.a * gaussian;
-
-  return vec4<f32>(input.color.rgb * alpha, alpha);
-}
-`;
 }
