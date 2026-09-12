@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { RendererAdapter } from './renderer-adapter.js';
 import { SceneManager } from './scene-manager.js';
 import type { TourDefaults } from './tour-config.js';
 
@@ -76,6 +77,39 @@ describe('SceneManager', () => {
     it('preloadScenes 批量预加载', async () => {
       await mgr.preloadScenes(['scene1', 'scene2']);
       expect(mgr.get('scene1')!.state).toBe('loaded');
+      expect(mgr.get('scene2')!.state).toBe('loaded');
+    });
+
+    // ── ★ TD-03/R-05: 端到端预加载 ─────────────────────────
+
+    it('bindRenderer 后 preload 调用渲染器 preloadScene, 不改变场景状态', async () => {
+      const preloadScene = vi.fn().mockResolvedValue(undefined);
+      mgr.bindRenderer({ preloadScene } as unknown as RendererAdapter);
+
+      await mgr.preload('scene2');
+
+      expect(preloadScene).toHaveBeenCalledTimes(1);
+      // 预取不切换可见场景 → 场景保持 unloaded, 切换时 loadScene 命中缓存
+      expect(mgr.get('scene2')!.state).toBe('unloaded');
+    });
+
+    it('preloadScene 抛错时静默降级 (切换时仍可正常加载)', async () => {
+      const preloadScene = vi.fn().mockRejectedValue(new Error('网络失败'));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mgr.bindRenderer({ preloadScene } as unknown as RendererAdapter);
+
+      await mgr.preload('scene2'); // 不应 reject
+
+      expect(preloadScene).toHaveBeenCalledTimes(1);
+      expect(mgr.get('scene2')!.state).toBe('unloaded');
+      warn.mockRestore();
+    });
+
+    it('渲染器无 preloadScene 实现时回退为状态标记 (旧行为)', async () => {
+      mgr.bindRenderer({} as unknown as RendererAdapter);
+
+      await mgr.preload('scene2');
+
       expect(mgr.get('scene2')!.state).toBe('loaded');
     });
   });

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@3dgs + React Three Fiber 示例</title>
+    <style>
+      html,
+      body,
+      #root {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #111;
+      }
+      .viewer-layer {
+        position: absolute;
+        inset: 0;
+      }
+      .r3f-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .hud {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 10;
+        color: #7cc4ff;
+        font: 13px/1.6 ui-monospace, monospace;
+        background: rgba(0, 0, 0, 0.55);
+        padding: 8px 12px;
+        border-radius: 6px;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

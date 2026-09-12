@@ -50,6 +50,7 @@
     "vue": "^3.4"
   },
   "devDependencies": {
+    "@vue/test-utils": "^2.5.0",
     "typescript": "^5.5.0",
     "vue": "^3.4.0"
   },

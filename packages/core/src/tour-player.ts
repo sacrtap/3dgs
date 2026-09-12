@@ -96,6 +96,8 @@ export class TourPlayer {
 
       this.runtime = runtime;
       this.sceneManager = runtime.sceneManager;
+      // ★ TD-03/R-05: 注入渲染器 — SceneManager.preload 真实调用 preloadScene
+      this.sceneManager.bindRenderer(this.renderer);
       this._loaded = true;
 
       this.renderer?.start();
@@ -112,6 +114,15 @@ export class TourPlayer {
       this.emit('error', { message: msg });
       throw err;
     }
+  }
+
+  /**
+   * ★ TD-03: 预加载场景列表 (转发给 SceneManager)。
+   * 热点插件可调用此方法预加载相邻场景, 提前下载资源。
+   */
+  async preloadScenes(sceneIds: string[]): Promise<void> {
+    if (!this.sceneManager) throw new Error('TourPlayer 未加载');
+    await this.sceneManager.preloadScenes(sceneIds);
   }
 
   /** 切换场景 */

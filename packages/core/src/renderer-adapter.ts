@@ -18,7 +18,17 @@ export enum DeviceTier {
 
 /** 场景加载选项 */
 export interface LoadOptions {
+  /**
+   * 进度回调 (loaded, total)。
+   * 单位由 onProgressUnits 声明; 默认 'bytes'。
+   */
   onProgress?: (loaded: number, total: number) => void;
+  /**
+   * 进度回调单位。
+   * ★ TD-08: 历史实现中 WebGL/WebGPU 两端混用字节与 splat 数,
+   *   消费端无法区分。统一声明后, 下载阶段为字节、处理阶段为 splat 数。
+   */
+  onProgressUnits?: 'bytes' | 'splats';
   shDegree?: number;
   maxSplats?: number;
   /**
@@ -78,6 +88,29 @@ export interface ShaderInjection {
   onUpdate?: (uniforms: Record<string, unknown>, deltaTime: number) => void;
 }
 
+/** ★ R-06: 渲染统计信息 (getStats 返回) */
+export interface RenderStats {
+  /** 帧率 (smoothDt 平滑) */
+  fps: number;
+  /** 平滑帧时间 (ms) */
+  frameTimeMs: number;
+  /** 可见 splat 数 (视锥裁剪后; 未启用裁剪时为全部) */
+  visibleSplats: number;
+  /** 当前分辨率缩放 (自适应分辨率) */
+  resolutionScale: number;
+  /** 渲染缓冲宽度 (物理像素) */
+  renderWidth: number;
+  /** 渲染缓冲高度 (物理像素) */
+  renderHeight: number;
+  /** BufferPool 统计 (WebGPU 后端无池时为 0) */
+  bufferPool: {
+    hits: number;
+    misses: number;
+    /** 命中率 = hits / (hits + misses), 无分配时 0 */
+    hitRate: number;
+  };
+}
+
 export interface RendererAdapter {
   /** 挂载到 DOM 容器 */
   mount(container: HTMLElement): void;
@@ -90,6 +123,19 @@ export interface RendererAdapter {
 
   /** 加载并渲染一个 splat 场景文件 */
   loadScene(source: string, options?: LoadOptions): Promise<void>;
+
+  /**
+   * ★ TD-03/R-05: 预加载场景资源 (可选实现)。
+   *
+   * 后台预取/预处理场景资源但不切换可见场景; 随后调用 loadScene 时
+   * 应命中预取缓存, 避免重复网络下载。
+   *
+   * 未实现此方法的渲染器, SceneManager.preload 将回退为状态标记。
+   */
+  preloadScene?(source: string, options?: LoadOptions): Promise<void>;
+
+  /** ★ R-06: 获取渲染统计 (可选实现, 未实现返回 undefined) */
+  getStats?(): RenderStats;
 
   /** 获取当前相机视图投影矩阵 (16 元素) */
   getViewProjectionMatrix(): Float32Array;
