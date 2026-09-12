@@ -26,6 +26,8 @@ export const TourViewer = defineComponent({
     const containerRef = ref<HTMLElement | null>(null);
     const errorMessage = ref<string | null>(null);
     let player: TourPlayer | null = null;
+    // TD-17: guard against double-load on first mount
+    const isFirstMount = ref(true);
 
     function loadConfig(cfg: string | TourConfig) {
       if (!player) return;
@@ -92,7 +94,14 @@ export const TourViewer = defineComponent({
 
     watch(
       () => props.config,
-      (cfg) => loadConfig(cfg),
+      (cfg) => {
+        // TD-17: skip first -- onMounted handles initial load
+        if (isFirstMount.value) {
+          isFirstMount.value = false;
+          return;
+        }
+        loadConfig(cfg);
+      },
     );
 
     expose({ getPlayer: () => player });

@@ -45,6 +45,16 @@ export interface BufferPoolStats {
   evictedCount: number;
 }
 
+/** 池事件类型 */
+export type PoolEventType = 'acquire:hit' | 'acquire:miss' | 'release' | 'evict' | 'clear';
+
+/** 池事件数据 */
+export interface PoolEvent {
+  type: PoolEventType;
+  size: number;
+  stats: BufferPoolStats;
+}
+
 /** Buffer 池选项 */
 export interface BufferPoolOptions {
   /** 池最大容量 (buffer 数量, 默认 16) */
@@ -64,6 +74,11 @@ export interface BufferPoolOptions {
    * 默认 0.5 (即最多大 50%)
    */
   tolerance?: number;
+  /**
+   * TD-24: 池事件回调 — 用于外部持续监控池的使用情况
+   * 在 acquire、release、evict、clear 等操作时触发
+   */
+  onPoolEvent?: (event: PoolEvent) => void;
 }
 
 /**
@@ -86,8 +101,10 @@ export interface BufferPoolOptions {
  */
 export class SplatBufferPool {
   private pool: PoolEntry[] = [];
-  private options: Required<BufferPoolOptions>;
+  private options: Omit<Required<BufferPoolOptions>, 'onPoolEvent'>;
   private stats: BufferPoolStats;
+
+  private onPoolEvent?: (event: PoolEvent) => void;
 
   constructor(options: BufferPoolOptions = {}) {
     this.options = {
@@ -96,6 +113,7 @@ export class SplatBufferPool {
       matchStrategy: options.matchStrategy ?? 'ceil-with-slice',
       tolerance: options.tolerance ?? 0.5,
     };
+    this.onPoolEvent = options.onPoolEvent;
     this.stats = {
       hits: 0,
       misses: 0,
@@ -124,6 +142,7 @@ export class SplatBufferPool {
       // 命中: 从池中移除并返回
       this.removeFromPool(entry);
       this.stats.hits++;
+      this.emitEvent('acquire:hit', size);
 
       // ceil-with-slice 策略: 返回精确大小的 slice
       if (this.options.matchStrategy === 'ceil-with-slice' && entry.size > size) {
@@ -136,6 +155,7 @@ export class SplatBufferPool {
     // 未命中: 新分配
     this.stats.misses++;
     this.stats.totalAllocatedBytes += size;
+    this.emitEvent('acquire:miss', size);
     return new ArrayBuffer(size);
   }
 
@@ -177,6 +197,7 @@ export class SplatBufferPool {
     });
     this.stats.pooledCount++;
     this.stats.pooledBytes += size;
+    this.emitEvent('release', size);
   }
 
   /**
@@ -184,10 +205,12 @@ export class SplatBufferPool {
    */
   clear(): void {
     const count = this.pool.length;
+    const totalBytes = this.stats.pooledBytes;
     this.pool = [];
     this.stats.pooledCount = 0;
     this.stats.pooledBytes = 0;
     this.stats.evictedCount += count;
+    this.emitEvent('clear', totalBytes);
   }
 
   /**
@@ -221,6 +244,11 @@ export class SplatBufferPool {
   }
 
   // ── 内部方法 ──
+
+  /** TD-24: 触发池事件 */
+  private emitEvent(type: PoolEventType, size: number): void {
+    this.onPoolEvent?.({ type, size, stats: this.getStats() });
+  }
 
   /** 从池中查找大小最匹配的 buffer */
   private findBestMatch(size: number): PoolEntry | null {
@@ -286,6 +314,7 @@ export class SplatBufferPool {
       this.stats.pooledCount--;
       this.stats.pooledBytes -= oldest.size;
       this.stats.evictedCount++;
+      this.emitEvent('evict', oldest.size);
     }
   }
 }

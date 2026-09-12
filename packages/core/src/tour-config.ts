@@ -9,6 +9,12 @@
 // ─── 场景过渡 ────────────────────────────────────────────────
 
 export interface SceneTransition {
+  /**
+   * 过渡类型。
+   * - 'fade': CSS overlay 淡入淡出（生产就绪）
+   * - 'fly': 相机沿路径飞行（TD-02: experimental — 当前无消费者，fly 帧数据无渲染器消费）
+   * - 'instant': 无动画直接切换
+   */
   type: 'fade' | 'fly' | 'instant';
   duration?: number;
   targetYaw?: number;

@@ -1383,28 +1383,36 @@ export class WebGPURenderManager implements RendererAdapter {
     const colors = new Uint8Array(count * 4);
     const rotations = new Uint8Array(count * 4);
 
-    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    // TD-07: 使用 TypedArray 视图直取替代 DataView 逐字段读取
+    // 创建 Float32Array 视图用于读取位置和缩放（小端序）
+    const floatView = new Float32Array(data.buffer, data.byteOffset, data.byteLength / 4);
+    const byteView = data; // 直接使用 Uint8Array 视图
 
     for (let i = 0; i < count; i++) {
       const base = i * splatBytes;
-      // Position: 3 × Float32 (12 bytes)
-      positions[i * 3] = view.getFloat32(base, true);
-      positions[i * 3 + 1] = view.getFloat32(base + 4, true);
-      positions[i * 3 + 2] = view.getFloat32(base + 8, true);
-      // Scale: 3 × Float32 (12 bytes)
-      scales[i * 3] = view.getFloat32(base + 12, true);
-      scales[i * 3 + 1] = view.getFloat32(base + 16, true);
-      scales[i * 3 + 2] = view.getFloat32(base + 20, true);
-      // Color: 4 × Uint8 (4 bytes)
-      colors[i * 4] = data[base + 24];
-      colors[i * 4 + 1] = data[base + 25];
-      colors[i * 4 + 2] = data[base + 26];
-      colors[i * 4 + 3] = data[base + 27];
-      // Rotation: 4 × Uint8 (4 bytes)
-      rotations[i * 4] = data[base + 28];
-      rotations[i * 4 + 1] = data[base + 29];
-      rotations[i * 4 + 2] = data[base + 30];
-      rotations[i * 4 + 3] = data[base + 31];
+      const floatBase = base / 4; // Float32 索引
+
+      // Position: 3 × Float32 (12 bytes) - 偏移 0-11
+      positions[i * 3] = floatView[floatBase];
+      positions[i * 3 + 1] = floatView[floatBase + 1];
+      positions[i * 3 + 2] = floatView[floatBase + 2];
+
+      // Scale: 3 × Float32 (12 bytes) - 偏移 12-23
+      scales[i * 3] = floatView[floatBase + 3];
+      scales[i * 3 + 1] = floatView[floatBase + 4];
+      scales[i * 3 + 2] = floatView[floatBase + 5];
+
+      // Color: 4 × Uint8 (4 bytes) - 偏移 24-27
+      colors[i * 4] = byteView[base + 24];
+      colors[i * 4 + 1] = byteView[base + 25];
+      colors[i * 4 + 2] = byteView[base + 26];
+      colors[i * 4 + 3] = byteView[base + 27];
+
+      // Rotation: 4 × Uint8 (4 bytes) - 偏移 28-31
+      rotations[i * 4] = byteView[base + 28];
+      rotations[i * 4 + 1] = byteView[base + 29];
+      rotations[i * 4 + 2] = byteView[base + 30];
+      rotations[i * 4 + 3] = byteView[base + 31];
     }
 
     return { positions, scales, colors, rotations, count };

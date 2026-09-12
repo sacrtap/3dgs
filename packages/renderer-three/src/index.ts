@@ -383,7 +383,9 @@ export class RenderManager implements RendererAdapter {
         }
       }
 
-      // ★ H5: _lodReady 信号消费 — LOD 就绪时通知一次
+      // ★ H5/TD-23: _lodReady 信号消费 — LOD 就绪时通知一次
+      // TD-23: External consumers can poll isLodReady(); a callback-based
+      //   notification would require extending RendererAdapter (future enhancement)
       if (this._enableLod && !this._lodReadyLogged && this._lodReady) {
         this._lodReadyLogged = true;
         console.info('[RenderManager] LOD 构建完成, 渲染质量已提升');
@@ -1470,7 +1472,7 @@ export type {
 export { SogStreamer } from './sog-streamer.js';
 export type { SogStreamerOptions, SogMetadata, SogChunkEntry } from './sog-streamer.js';
 
-// ─── SPZ 解码 (★ C1: decodeSpzInWorker 已不再用于加载路径, 保留导出供向后兼容) ──
+// ─── SPZ 解码 (★ TD-20: decodeSpzInWorker 已不再用于加载路径, @deprecated 保留供向后兼容) ──
 export {
   decodeSpzInWorker,
   decodeSpz,

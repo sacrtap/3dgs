@@ -11,6 +11,19 @@
 
 import type { HotspotConfig } from './hotspot-config.js';
 
+// TD-30: 简单的 HTML 消毒函数 — 转义潜在的 XSS 向量
+function sanitizeHtml(html: string): string {
+  return html
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+    .replace(/on\w+="[^"]*"/gi, '') // 移除事件处理器
+    .replace(/on\w+='[^']*'/gi, '') // 移除事件处理器
+    .replace(/javascript:/gi, ''); // 移除 javascript: 协议
+}
+
 export interface HotspotInstance {
   config: HotspotConfig;
   el: HTMLDivElement;
@@ -217,7 +230,11 @@ export class HotspotManager {
     // 内容 (文本/HTML 片段)
     if (popup.content) {
       const content = document.createElement('div');
-      content.innerHTML = popup.content; // 配置来源为受信任的 tour.json; 如需用户输入请先消毒
+      // TD-30: 对内容进行消毒，防止 XSS 攻击
+      // 如果配置来源完全受信任（如内部 tour.json），可以禁用消毒以获得完整 HTML 支持
+      const sanitizedContent =
+        popup.sanitize !== false ? sanitizeHtml(popup.content) : popup.content;
+      content.innerHTML = sanitizedContent;
       content.style.color = 'rgba(255,255,255,0.82)';
       panel.appendChild(content);
     }
@@ -326,9 +343,9 @@ export class HotspotManager {
       instance.visible = visible;
 
       if (visible) {
+        // TD-12: use CSS transform instead of left/top for GPU-accelerated positioning
         el.style.display = 'flex';
-        el.style.left = `${screenX}px`;
-        el.style.top = `${screenY}px`;
+        el.style.transform = `translate(${screenX}px, ${screenY}px) translate(-50%, -50%)`;
 
         // ★ 记录屏幕坐标 — 弹出面板跟随锚点用
         instance.screenPos = { x: screenX, y: screenY };
@@ -369,7 +386,7 @@ export class HotspotManager {
       pointerEvents: 'auto',
       cursor: 'pointer',
       userSelect: 'none',
-      transform: 'translate(-50%, -50%)',
+      // TD-12: transform now set dynamically in updateVisibility; base transform removed
       zIndex: '10',
       transition: 'opacity 0.2s ease',
     };

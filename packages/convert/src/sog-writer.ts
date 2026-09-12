@@ -130,7 +130,8 @@ const DEFAULT_LOD_BASE_FAST = 1.5;
 const MIN_LOD_SPLATS = 100;
 
 /** ★ M2: LOD 树二进制头大小 (numLevels: 4B + lodBase: 4B = 8B) */
-const LOD_TREE_HEADER_SIZE = 8;
+const LOD_TREE_HEADER_SIZE = 12; // TD-26: expanded from 8 to 12 (added version field)
+const LOD_TREE_VERSION = 1; // TD-26: LOD tree format version
 
 /** SOG 写入选项 */
 export interface SogWriterOptions {
@@ -454,7 +455,7 @@ export function parseSogMetadata(buffer: ArrayBuffer): SogMetadata {
 
   const magic = view.getUint32(0, true);
 
-  let version: number;
+  let version: number; // TD-26: format version (0=legacy, 1=current)
   let compression = SOG_COMPRESSION_NONE;
   let lodTreeOffset = 0;
   let lodTreeSize = 0;
@@ -513,16 +514,15 @@ export function parseSogMetadata(buffer: ArrayBuffer): SogMetadata {
     });
   }
 
-  // ★ M2: 解析预构建 LOD 树数据
+  // ★ M2: 解析预构建 LOD 树数据 (★ TD-26: 使用 deserializeLodTree 保持格式一致)
   let lodLevels: number[] | undefined;
   let lodBase: number | undefined;
   if (lodTreeOffset > 0 && lodTreeSize > 0 && lodTreeOffset + lodTreeSize <= buffer.byteLength) {
-    const lodView = new DataView(buffer, lodTreeOffset, lodTreeSize);
-    const numLevels = lodView.getUint32(0, true);
-    lodBase = lodView.getFloat32(4, true);
-    lodLevels = [];
-    for (let i = 0; i < numLevels; i++) {
-      lodLevels.push(lodView.getUint32(LOD_TREE_HEADER_SIZE + i * 4, true));
+    const lodBuffer = buffer.slice(lodTreeOffset, lodTreeOffset + lodTreeSize);
+    const lod = deserializeLodTree(lodBuffer);
+    if (lod) {
+      lodLevels = lod.levels;
+      lodBase = lod.lodBase;
     }
   }
 
@@ -648,8 +648,10 @@ export function serializeLodTree(levels: number[], lodBase: number): ArrayBuffer
   const buffer = new ArrayBuffer(bufferSize);
   const view = new DataView(buffer);
 
-  view.setUint32(0, numLevels, true);
-  view.setFloat32(4, lodBase, true);
+  // TD-26: version field for forward compatibility
+  view.setUint32(0, LOD_TREE_VERSION, true);
+  view.setUint32(4, numLevels, true);
+  view.setFloat32(8, lodBase, true);
 
   for (let i = 0; i < numLevels; i++) {
     view.setUint32(LOD_TREE_HEADER_SIZE + i * 4, levels[i], true);
@@ -668,28 +670,52 @@ export function deserializeLodTree(buffer: ArrayBuffer): {
   levels: number[];
   lodBase: number;
 } | null {
-  if (buffer.byteLength < LOD_TREE_HEADER_SIZE) {
+  // TD-26: Support both v0 (8B header, no version) and v1 (12B header, with version)
+  // v0 format: numLevels(4B) + lodBase(4B) = 8B header
+  // v1 format: version(4B) + numLevels(4B) + lodBase(4B) = 12B header
+  if (buffer.byteLength < 8) {
     return null;
   }
 
   const view = new DataView(buffer);
-  const numLevels = view.getUint32(0, true);
-  const lodBase = view.getFloat32(4, true);
+  let version: number; // TD-26: format version (0=legacy, 1=current)
+  let numLevels: number;
+  let lodBase: number;
+  let headerSize: number;
+
+  // Detect format: if first uint32 is 1 (LOD_TREE_VERSION), it is v1;
+  //   otherwise treat as v0 (legacy 8B header without version field)
+  const firstUint = view.getUint32(0, true);
+  if (firstUint === LOD_TREE_VERSION && buffer.byteLength >= LOD_TREE_HEADER_SIZE) {
+    version = 1; // v1: has version field
+    numLevels = view.getUint32(4, true);
+    lodBase = view.getFloat32(8, true);
+    headerSize = LOD_TREE_HEADER_SIZE;
+  } else {
+    version = 0; // v0: legacy (no version field)
+    numLevels = firstUint;
+    lodBase = view.getFloat32(4, true);
+    headerSize = 8;
+  }
 
   if (numLevels === 0 || numLevels > 100) {
     return null; // 合理性检查
   }
 
-  const expectedSize = LOD_TREE_HEADER_SIZE + numLevels * 4;
+  const expectedSize = headerSize + numLevels * 4;
   if (buffer.byteLength < expectedSize) {
     return null;
   }
 
   const levels: number[] = [];
   for (let i = 0; i < numLevels; i++) {
-    levels.push(view.getUint32(LOD_TREE_HEADER_SIZE + i * 4, true));
+    levels.push(view.getUint32(headerSize + i * 4, true));
   }
 
+  // TD-26: log format version for debugging
+  if (version > 0) {
+    // v1 format detected (with version field)
+  }
   return { levels, lodBase };
 }
 

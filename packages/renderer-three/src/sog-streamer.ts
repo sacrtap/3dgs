@@ -103,7 +103,9 @@ const SOG_MAGIC_V1 = 0x31474f53; // "SOG1"
 
 /** SOG v2 魔数 */
 const SOG_MAGIC_V2 = 0x32474f53; // "SOG2"
-
+// TD-19: SOG v3 (SH overlay) magic — recognized for early error;
+//   read-side support not yet implemented.
+const SOG_MAGIC_V3 = 0x33474f53; // "SOG3"
 /** Header 大小 */
 const SOG_HEADER_SIZE = 64;
 
@@ -282,7 +284,11 @@ export class SogStreamer {
       // ★ SOG v1 (向后兼容)
       version = 1;
     } else {
-      throw new Error(`无效的 SOG 文件: magic 不匹配 (0x${magic.toString(16)})`);
+      if (magic === SOG_MAGIC_V3) {
+        throw new Error('SOG v3 (SH overlay) 尚不支持读取端, 请使用 v2 格式');
+      } else {
+        throw new Error(`无效的 SOG 文件: magic 不匹配 (0x${magic.toString(16)})`);
+      }
     }
 
     const versionField = view.getUint16(4, true);

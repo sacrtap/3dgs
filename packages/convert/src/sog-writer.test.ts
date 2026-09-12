@@ -699,7 +699,7 @@ describe('writeSog — M2 预构建 LOD 树', () => {
     expect(metadata.lodLevels![2]).toBe(1000); // 最后一层 = 全部
   });
 
-  it('★ LOD 树数据大小正确 (8 + numLevels * 4)', () => {
+  it('★ LOD 树数据大小正确 (12 + numLevels * 4)', () => {
     const splats: Array<Partial<import('./gaussian-loader.js').GaussianSplat>> = [];
     for (let i = 0; i < 500; i++) {
       splats.push({ x: i * 0.2, y: i * 0.1, z: i * 0.05 });
@@ -709,7 +709,7 @@ describe('writeSog — M2 预构建 LOD 树', () => {
     const metadata = parseSogMetadata(buffer);
 
     // 8 bytes header + 5 levels × 4 bytes = 28 bytes
-    expect(metadata.lodTreeSize).toBe(8 + 5 * 4);
+    expect(metadata.lodTreeSize).toBe(12 + 5 * 4);
   });
 
   it('★ LOD 树 + gzip 压缩组合正常工作', () => {
@@ -874,10 +874,10 @@ describe('serializeLodTree / deserializeLodTree — 序列化 round-trip', () =>
     expect(result!.lodBase).toBe(lodBase);
   });
 
-  it('★ 序列化后大小正确 (8 + numLevels * 4)', () => {
+  it('★ 序列化后大小正确 (12 + numLevels * 4)', () => {
     const levels = [100, 200, 300, 400, 500];
     const buffer = serializeLodTree(levels, 1.5);
-    expect(buffer.byteLength).toBe(8 + 5 * 4);
+    expect(buffer.byteLength).toBe(12 + 5 * 4);
   });
 
   it('★ 反序列化无效数据返回 null', () => {
