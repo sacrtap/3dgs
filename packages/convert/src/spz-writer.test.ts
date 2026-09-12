@@ -225,7 +225,11 @@ describe('writeSpz — Body 数据验证', () => {
     // Alpha 在 positions 之后: offset = numSplats * 9
     const alphaOffset = 5 * 9;
     for (let i = 0; i < 5; i++) {
-      const expectedAlpha = Math.max(0, Math.min(255, Math.round(cloud.splats[i].opacity * 255)));
+      // ★ C-01: 写入路径消费 SoA (f32 列式), 故期望值按 f32 精度计算
+      const expectedAlpha = Math.max(
+        0,
+        Math.min(255, Math.round(Math.fround(cloud.splats[i].opacity) * 255)),
+      );
       expect(body[alphaOffset + i]).toBe(expectedAlpha);
     }
   });

@@ -61,9 +61,10 @@
  */
 
 import { gzipSync } from 'node:zlib';
-import type { GaussianCloud, GaussianSplat } from './gaussian-loader.js';
-import { writeSplat } from './splat-writer.js';
-import { mortonSortGaussians } from './processing.js';
+import type { GaussianCloud, GaussianCloudSoA } from './gaussian-loader.js';
+import { toSoA } from './gaussian-loader.js';
+import { writeSplatSoA } from './splat-writer.js';
+import { mortonSortSoA } from './processing.js';
 
 /** SOG v1 魔数 */
 const SOG_MAGIC_V1 = 0x31474f53; // "SOG1" in LE
@@ -110,6 +111,20 @@ export const SOG_SH_MODE_DC_INT8 = 1; // 追加 SH DC 3 bytes (Int8 量化)
 
 /** ★ H2: SH DC 追加后每 splat 额外字节数 (3 bytes: R, G, B 各 1 byte) */
 const SH_DC_EXTRA_BYTES = 3;
+
+/** ★ C-04/TD-19: SH degree → 每通道系数数 */
+const SH_DIM_FOR_DEGREE = (degree: number): number => {
+  switch (degree) {
+    case 1:
+      return 3;
+    case 2:
+      return 8;
+    case 3:
+      return 15;
+    default:
+      return 0;
+  }
+};
 
 /** ★ H2: SH C0 常数 (球谐函数第 0 阶) */
 const SH_C0 = 0.28209479177387814;
@@ -165,6 +180,13 @@ export interface SogWriterOptions {
    * [来源: 会议决策 H2 — docs/party-mode-memories/2026-08-17-convert-quality-loss-memory.md]
    */
   shMode?: number;
+  /**
+   * ★ C-04/TD-19: SOG 版本 (默认 2)
+   *
+   * 3 = v3, 在 v2 布局尾部追加 SH overlay (完整 SH 系数: 每 splat shDim×3 字节,
+   * uint8 量化 (v×128)+128)。shDegree > 0 且 soa.sh 存在时才写 overlay。
+   */
+  version?: 2 | 3;
   /**
    * ★ M2: 是否启用预构建 LOD 树 (默认 true)
    *
@@ -225,6 +247,12 @@ export interface SogMetadata {
   shMode: number;
   /** ★ 格式版本 */
   version: number;
+  /** ★ C-04/TD-19: v3 SH overlay 数据偏移 (v3 且含 overlay 时 > 0) */
+  shOverlayOffset?: number;
+  /** ★ C-04/TD-19: v3 SH overlay 数据大小 (字节) */
+  shOverlaySize?: number;
+  /** ★ C-04/TD-19: v3 SH overlay header 文件偏移 (文件尾 12B) */
+  shOverlayHeaderOffset?: number;
   /**
    * ★ M2: 预构建 LOD 层级 (累计 splat 数)
    *
@@ -255,6 +283,16 @@ export interface SogMetadata {
  * @returns SOG 格式的 ArrayBuffer
  */
 export function writeSog(cloud: GaussianCloud, options: SogWriterOptions = {}): ArrayBuffer {
+  // ★ C-01/TD-06: 委托 SoA 写入路径, 保证 AoS/SoA 产物 byte 级一致。
+  return writeSogSoA(toSoA(cloud), options);
+}
+
+/**
+ * ★ C-01/TD-06: 将 GaussianCloudSoA 写入 SOG v2 格式 (列式消费)
+ *
+ * 与 writeSog 逻辑一致, 但直接消费列式 TypedArray, 跳过 AoS 装箱与 slice 拷贝。
+ */
+export function writeSogSoA(soa: GaussianCloudSoA, options: SogWriterOptions = {}): ArrayBuffer {
   const {
     chunkSize = DEFAULT_CHUNK_SIZE,
     spatialSort = true,
@@ -264,12 +302,12 @@ export function writeSog(cloud: GaussianCloud, options: SogWriterOptions = {}): 
     buildLodTree = true,
     lodLevels: numLodLevels = DEFAULT_LOD_LEVELS,
     shMode = SOG_SH_MODE_OFF,
+    version = 2,
   } = options;
 
   // 1. 可选: Morton Code 空间排序
-  const sorted = spatialSort ? mortonSortGaussians(cloud) : cloud;
-  const splats = sorted.splats;
-  const numSplats = splats.length;
+  const sorted = spatialSort ? mortonSortSoA(soa) : soa;
+  const numSplats = sorted.count;
 
   if (numSplats === 0) {
     return writeEmptySog();
@@ -282,13 +320,18 @@ export function writeSog(cloud: GaussianCloud, options: SogWriterOptions = {}): 
   let maxX = -Infinity,
     maxY = -Infinity,
     maxZ = -Infinity;
-  for (const s of splats) {
-    if (s.x < minX) minX = s.x;
-    if (s.y < minY) minY = s.y;
-    if (s.z < minZ) minZ = s.z;
-    if (s.x > maxX) maxX = s.x;
-    if (s.y > maxY) maxY = s.y;
-    if (s.z > maxZ) maxZ = s.z;
+  const positions = sorted.positions;
+  for (let i = 0; i < numSplats; i++) {
+    const i3 = i * 3;
+    const x = positions[i3];
+    const y = positions[i3 + 1];
+    const z = positions[i3 + 2];
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
   }
 
   // 3. 分块
@@ -301,20 +344,11 @@ export function writeSog(cloud: GaussianCloud, options: SogWriterOptions = {}): 
   for (let c = 0; c < numChunks; c++) {
     const start = c * chunkSize;
     const end = Math.min(start + chunkSize, numSplats);
-    const count = end - start;
-
-    const chunkCloud: GaussianCloud = {
-      splats: splats.slice(start, end),
-      shDegree: cloud.shDegree,
-      vertexCount: count,
-      source: cloud.source,
-    };
 
     // 使用 .splat 格式或 ★ P2-3 紧凑格式写入 chunk 数据
     let rawChunkData: ArrayBuffer;
     if (positionQuantization) {
-      // ★ M1: 借鉴 SuperSplat chunk 级量化 — 每个 chunk 独立计算 local bbox
-      // 局部量化比全局量化精度更高 (chunk 范围 << 全局范围)
+      // ★ M1: 每个 chunk 独立计算 local bbox (局部量化精度更高)
       let cMinX = Infinity,
         cMinY = Infinity,
         cMinZ = Infinity;
@@ -322,31 +356,35 @@ export function writeSog(cloud: GaussianCloud, options: SogWriterOptions = {}): 
         cMaxY = -Infinity,
         cMaxZ = -Infinity;
       for (let j = start; j < end; j++) {
-        const s = splats[j];
-        if (s.x < cMinX) cMinX = s.x;
-        if (s.y < cMinY) cMinY = s.y;
-        if (s.z < cMinZ) cMinZ = s.z;
-        if (s.x > cMaxX) cMaxX = s.x;
-        if (s.y > cMaxY) cMaxY = s.y;
-        if (s.z > cMaxZ) cMaxZ = s.z;
+        const j3 = j * 3;
+        const x = positions[j3];
+        const y = positions[j3 + 1];
+        const z = positions[j3 + 2];
+        if (x < cMinX) cMinX = x;
+        if (y < cMinY) cMinY = y;
+        if (z < cMinZ) cMinZ = z;
+        if (x > cMaxX) cMaxX = x;
+        if (y > cMaxY) cMaxY = y;
+        if (z > cMaxZ) cMaxZ = z;
       }
-      rawChunkData = writeCompactSplatChunk(
-        chunkCloud.splats,
+      rawChunkData = writeCompactSplatChunkSoA(
+        sorted,
+        start,
+        end,
         [cMinX, cMinY, cMinZ],
         [cMaxX, cMaxY, cMaxZ],
-        // ★ M1: chunk local bbox 作为前缀 (6 × Float32 = 24 bytes)
         true,
       );
     } else {
-      rawChunkData = writeSplat(chunkCloud);
+      rawChunkData = writeSplatSoA(sorted, start, end);
     }
 
     // ★ H2: 追加 SH DC 数据到 chunk 末尾
     if (shMode === SOG_SH_MODE_DC_INT8) {
-      rawChunkData = appendShDc(rawChunkData, chunkCloud.splats);
+      rawChunkData = appendShDcSoA(rawChunkData, sorted, start, end);
     }
 
-    // ★ M4: gzip 压缩 chunk 数据 (level 6→9, 更高压缩率, 传输更小)
+    // ★ M4: gzip 压缩 chunk 数据 (level 9)
     if (compression) {
       const compressed = gzipSync(Buffer.from(rawChunkData), { level: 9 });
       chunkDataList.push(
@@ -383,20 +421,29 @@ export function writeSog(cloud: GaussianCloud, options: SogWriterOptions = {}): 
     const lodBaseVal = lodQuality === 1 ? DEFAULT_LOD_BASE_QUALITY : DEFAULT_LOD_BASE_FAST;
     const levels = buildLodLevels(numSplats, numLodLevels, lodBaseVal);
     lodTreeBuffer = serializeLodTree(levels, lodBaseVal);
-    lodTreeOffset = dataOffset; // LOD 树紧跟在 chunk data 之后
+    lodTreeOffset = dataOffset;
     lodTreeSize = lodTreeBuffer.byteLength;
   }
 
-  // 6. 组装最终文件
-  const totalSize = dataOffset + (lodTreeBuffer?.byteLength ?? 0);
+  // 6. 组装最终文件 (v3: 尾部追加 SH overlay 数据 + 12B overlay header)
+  const isV3 = version === 3;
+  const shDim = isV3 ? SH_DIM_FOR_DEGREE(soa.shDegree) : 0;
+  const hasShOverlay = isV3 && shDim > 0 && !!soa.sh;
+  const overlayDataSize = hasShOverlay ? numSplats * shDim * 3 : 0;
+  const overlayHeaderSize = hasShOverlay ? SOG_V3_OVERLAY_HEADER_SIZE : 0;
+
+  const totalSize =
+    dataOffset + (lodTreeBuffer?.byteLength ?? 0) + overlayDataSize + overlayHeaderSize;
   const buffer = new ArrayBuffer(totalSize);
   const view = new DataView(buffer);
   const u8 = new Uint8Array(buffer);
 
-  // ★ Header (v2)
-  view.setUint32(0, SOG_MAGIC_V2, true); // magic "SOG2"
-  view.setUint16(4, SOG_VERSION_V2, true); // version 2
-  view.setUint8(6, cloud.shDegree); // shDegree
+  // ★ Header (v2/v3)
+  const magic = isV3 ? SOG_MAGIC_V3 : SOG_MAGIC_V2;
+  const ver = isV3 ? SOG_VERSION_V3 : SOG_VERSION_V2;
+  view.setUint32(0, magic, true); // magic "SOG3" / "SOG2"
+  view.setUint16(4, ver, true); // version 3 / 2
+  view.setUint8(6, soa.shDegree); // shDegree
   view.setUint8(7, compression ? SOG_COMPRESSION_GZIP : SOG_COMPRESSION_NONE); // compression
   view.setUint32(8, numSplats, true);
   view.setUint32(12, numChunks, true);
@@ -411,12 +458,10 @@ export function writeSog(cloud: GaussianCloud, options: SogWriterOptions = {}): 
   view.setFloat32(40, maxZ, true);
 
   // ★ M2: LOD 元数据 (offset 44-56)
-  view.setUint32(44, lodTreeOffset, true); // lodTreeOffset (0 = 无预构建)
-  view.setUint32(48, lodTreeSize, true); // lodTreeSize (0 = 无预构建)
-  view.setUint8(52, lodQuality); // lodQuality (0=fast, 1=quality)
-  // ★ P2-3: 位置量化标志 (byte 53)
+  view.setUint32(44, lodTreeOffset, true);
+  view.setUint32(48, lodTreeSize, true);
+  view.setUint8(52, lodQuality);
   view.setUint8(53, positionQuantization ? SOG_POSITION_QUANT_24BIT : SOG_POSITION_QUANT_OFF);
-  // ★ H2: SH DC 模式 (byte 54, 旧版文件此字节为 0 = 无 SH DC, 兼容)
   view.setUint8(54, shMode);
   // 9 bytes padding (55-63) already zeroed
 
@@ -432,9 +477,26 @@ export function writeSog(cloud: GaussianCloud, options: SogWriterOptions = {}): 
     u8.set(new Uint8Array(chunkDataList[c]), chunks[c].offset);
   }
 
-  // ★ M2: LOD tree data (紧跟在 chunk data 之后)
+  // ★ M2: LOD tree data
   if (lodTreeBuffer) {
     u8.set(new Uint8Array(lodTreeBuffer), lodTreeOffset);
+  }
+
+  // ★ C-04/TD-19: v3 SH overlay — 数据区后接 12B overlay header
+  if (hasShOverlay && soa.sh) {
+    const overlayDataOffset = dataOffset + (lodTreeBuffer?.byteLength ?? 0);
+    const shBase = overlayDataOffset;
+    for (let i = 0; i < numSplats * shDim * 3; i++) {
+      // SH 量化: round(v*128)+128 (与 SPZ quantizeSh 同源, 无桶化, 保持原始精度)
+      const v = clampU8(Math.round(soa.sh[i] * 128) + 128);
+      u8[shBase + i] = v;
+    }
+    const oh = shBase + overlayDataSize;
+    view.setUint32(oh, overlayDataOffset, true); // overlayOffset
+    view.setUint32(oh + 4, overlayDataSize, true); // overlaySize
+    view.setUint8(oh + 8, soa.shDegree); // shDegree
+    view.setUint8(oh + 9, SOG_SH_MODE_DC_INT8); // shMode: 1 = Int8 量化 overlay
+    // 10-11 reserved, 已为零
   }
 
   return buffer;
@@ -463,7 +525,16 @@ export function parseSogMetadata(buffer: ArrayBuffer): SogMetadata {
   let positionQuantization = SOG_POSITION_QUANT_OFF;
   let shMode = SOG_SH_MODE_OFF;
 
-  if (magic === SOG_MAGIC_V2) {
+  if (magic === SOG_MAGIC_V3) {
+    // ★ C-04/TD-19: SOG v3 — v2 字段 + 尾部 SH overlay
+    version = SOG_VERSION_V3;
+    compression = view.getUint8(7);
+    lodTreeOffset = view.getUint32(44, true);
+    lodTreeSize = view.getUint32(48, true);
+    lodQuality = view.getUint8(52);
+    positionQuantization = view.getUint8(53);
+    shMode = view.getUint8(54);
+  } else if (magic === SOG_MAGIC_V2) {
     // ★ SOG v2 — 读取新字段
     version = SOG_VERSION_V2;
     compression = view.getUint8(7);
@@ -526,6 +597,22 @@ export function parseSogMetadata(buffer: ArrayBuffer): SogMetadata {
     }
   }
 
+  // ★ C-04/TD-19: v3 — 尾部 SH overlay (最后 12B header)
+  let shOverlayOffset: number | undefined;
+  let shOverlaySize: number | undefined;
+  let shOverlayHeaderOffset: number | undefined;
+  if (magic === SOG_MAGIC_V3 && buffer.byteLength >= SOG_V3_OVERLAY_HEADER_SIZE) {
+    const oh = buffer.byteLength - SOG_V3_OVERLAY_HEADER_SIZE;
+    shOverlayOffset = view.getUint32(oh, true);
+    shOverlaySize = view.getUint32(oh + 4, true);
+    if (shOverlaySize > 0 && shOverlayOffset + shOverlaySize <= oh) {
+      shOverlayHeaderOffset = oh;
+    } else {
+      shOverlayOffset = undefined;
+      shOverlaySize = undefined;
+    }
+  }
+
   return {
     numSplats,
     numChunks,
@@ -543,6 +630,9 @@ export function parseSogMetadata(buffer: ArrayBuffer): SogMetadata {
     version,
     lodLevels,
     lodBase,
+    shOverlayOffset,
+    shOverlaySize,
+    shOverlayHeaderOffset,
   };
 }
 
@@ -557,6 +647,40 @@ function writeEmptySog(): ArrayBuffer {
   view.setUint8(54, SOG_SH_MODE_OFF); // H2: SH DC 关闭
   // 其余字段为 0
   return buffer;
+}
+
+/**
+ * ★ C-04/TD-19: 从 SOG v3 文件读取 SH overlay 系数
+ *
+ * SH 数据位于文件尾部 overlay 区 (uint8 量化 (v×128)+128, 每 splat shDim×3 字节,
+ * 系数主序 × RGB 通道, 与 SPZ/SOG v2 chunk 内 SH DC 布局兼容)。
+ *
+ * @param buffer SOG v3 文件的 ArrayBuffer
+ * @param metadata parseSogMetadata 的返回 (需 v3 且含 overlay)
+ * @returns 反量化后的 Float32Array (长度 = numSplats × shDim × 3; 无 overlay 时返回 undefined)
+ */
+export function readShOverlaySoA(
+  buffer: ArrayBuffer,
+  metadata: SogMetadata,
+): Float32Array | undefined {
+  if (metadata.shOverlayOffset === undefined || metadata.shOverlaySize === undefined) {
+    return undefined;
+  }
+  const shDim = SH_DIM_FOR_DEGREE(metadata.shDegree);
+  if (shDim === 0) return undefined;
+  const expected = metadata.numSplats * shDim * 3;
+  if (metadata.shOverlaySize !== expected) {
+    throw new Error(
+      `[sog-writer] SH overlay 大小不匹配: 期望 ${expected}, 实际 ${metadata.shOverlaySize}`,
+    );
+  }
+  const view = new DataView(buffer);
+  const out = new Float32Array(expected);
+  for (let i = 0; i < expected; i++) {
+    const v = view.getUint8(metadata.shOverlayOffset + i);
+    out[i] = (v - 128) / 128;
+  }
+  return out;
 }
 
 /** 导出常量供外部使用 */
@@ -727,27 +851,34 @@ export function deserializeLodTree(buffer: ArrayBuffer): {
  * SH DC 编码公式 (与 SPZ 一致):
  *   byte = clamp(((color - 0.5) / (SH_C0 / SPZ_COLOR_SCALE) + 0.5) * 255)
  *
- * 追加后的 chunk 格式:
- *   [原始 splat 数据 (32B 或 29B/splat)] + [SH DC R,G,B (3B/splat)]
+ * ★ C-01/TD-06: SoA 版本, 直接读列式 colors, 按 [start, end) 切片。
  *
  * @param rawChunkData 原始 chunk 数据 (无 SH)
- * @param splats 高斯核数组
+ * @param soa 高斯核集合 (列式)
+ * @param start 起始索引 (含)
+ * @param end 结束索引 (不含)
  * @returns 追加 SH DC 后的 ArrayBuffer
  */
-function appendShDc(rawChunkData: ArrayBuffer, splats: GaussianSplat[]): ArrayBuffer {
-  const numSplats = splats.length;
+function appendShDcSoA(
+  rawChunkData: ArrayBuffer,
+  soa: GaussianCloudSoA,
+  start: number,
+  end: number,
+): ArrayBuffer {
+  const numSplats = end - start;
   const originalSize = rawChunkData.byteLength;
   const newSize = originalSize + numSplats * SH_DC_EXTRA_BYTES;
   const result = new ArrayBuffer(newSize);
   new Uint8Array(result).set(new Uint8Array(rawChunkData), 0);
 
   const view = new DataView(result, originalSize);
-  for (let i = 0; i < numSplats; i++) {
-    const s = splats[i];
-    const base = i * SH_DC_EXTRA_BYTES;
-    view.setUint8(base + 0, scaleColorToShDc(s.colorR));
-    view.setUint8(base + 1, scaleColorToShDc(s.colorG));
-    view.setUint8(base + 2, scaleColorToShDc(s.colorB));
+  for (let n = 0; n < numSplats; n++) {
+    const i = start + n;
+    const i3 = i * 3;
+    const base = n * SH_DC_EXTRA_BYTES;
+    view.setUint8(base + 0, scaleColorToShDc(soa.colors[i3]));
+    view.setUint8(base + 1, scaleColorToShDc(soa.colors[i3 + 1]));
+    view.setUint8(base + 2, scaleColorToShDc(soa.colors[i3 + 2]));
   }
 
   return result;
@@ -770,7 +901,7 @@ function scaleColorToShDc(color: number): number {
 // ─── P2-3: 紧凑格式写入 ───────────────────────────────────
 
 /**
- * ★ P2-3 + M1: 将 splat 数据写入紧凑 29 字节格式
+ * ★ P2-3 + M1: 将 splat 数据写入紧凑 29 字节格式 (SoA 版本)
  *
  * 格式 (29 bytes/splat):
  *   Position XYZ  3 × Uint24 LE  (9 bytes)  — 量化: round((pos-min)/range*0xFFFFFF)
@@ -779,28 +910,26 @@ function scaleColorToShDc(color: number): number {
  *   Rotation IJKL 4 × Uint8      (4 bytes)
  *
  * ★ M1: 当 includeBbox=true 时, 在 chunk 数据前追加 local bbox (6 × Float32 = 24 bytes)
- *   客户端反量化时读取前 24 字节获取 chunk local bbox, 提高精度
  *
- * 量化精度:
- *   全局量化: sceneSize / 2^24 ≈ 6μm (100m 场景)
- *   ★ M1 局部量化: chunkSize / 2^24 ≈ 0.06μm (10m chunk, 精度提升 100×)
+ * ★ C-01/TD-06: SoA 版本, 直接读列式数组, 按 [start, end) 切片。
  *
- * [来源: SPZ 格式 — github.com/nianticlabs/spz, 位置 24-bit 定点]
- * [来源: SuperSplat chunk 级量化 — 每个 chunk 独立 min/max, node_modules/@sparkjsdev/spark]
- *
- * @param splats 高斯核数组
+ * @param soa 高斯核集合 (列式)
+ * @param start 起始索引 (含)
+ * @param end 结束索引 (不含)
  * @param bboxMin chunk 包围盒最小值 (★ M1: 局部 bbox)
  * @param bboxMax chunk 包围盒最大值 (★ M1: 局部 bbox)
  * @param includeBbox ★ M1: 是否在数据前追加 bbox (6 × Float32 = 24 bytes)
  * @returns 紧凑格式的 ArrayBuffer
  */
-function writeCompactSplatChunk(
-  splats: GaussianSplat[],
+function writeCompactSplatChunkSoA(
+  soa: GaussianCloudSoA,
+  start: number,
+  end: number,
   bboxMin: [number, number, number],
   bboxMax: [number, number, number],
   includeBbox: boolean = false,
 ): ArrayBuffer {
-  const numSplats = splats.length;
+  const numSplats = end - start;
   const bboxHeaderSize = includeBbox ? 24 : 0; // 6 × Float32
   const buffer = new ArrayBuffer(bboxHeaderSize + numSplats * SOG_COMPACT_BYTES_PER_SPLAT);
   const view = new DataView(buffer);
@@ -819,36 +948,36 @@ function writeCompactSplatChunk(
   const rangeY = bboxMax[1] - bboxMin[1] || 1;
   const rangeZ = bboxMax[2] - bboxMin[2] || 1;
 
-  for (let i = 0; i < numSplats; i++) {
-    const s = splats[i];
-    const byteBase = bboxHeaderSize + i * SOG_COMPACT_BYTES_PER_SPLAT;
+  for (let n = 0; n < numSplats; n++) {
+    const i = start + n;
+    const i3 = i * 3;
+    const i4 = i * 4;
+    const byteBase = bboxHeaderSize + n * SOG_COMPACT_BYTES_PER_SPLAT;
 
     // Position XYZ → 3 × Uint24 LE (9 bytes at offset 0-8)
-    const qx = quantizePos(s.x, bboxMin[0], rangeX);
-    const qy = quantizePos(s.y, bboxMin[1], rangeY);
-    const qz = quantizePos(s.z, bboxMin[2], rangeZ);
+    const qx = quantizePos(soa.positions[i3], bboxMin[0], rangeX);
+    const qy = quantizePos(soa.positions[i3 + 1], bboxMin[1], rangeY);
+    const qz = quantizePos(soa.positions[i3 + 2], bboxMin[2], rangeZ);
     writeUint24LE(view, byteBase + 0, qx);
     writeUint24LE(view, byteBase + 3, qy);
     writeUint24LE(view, byteBase + 6, qz);
 
     // Scale XYZ → 3 × Float32 (12 bytes at offset 9-20)
-    // Float32 数组从字节 9 开始, 但 Float32 需要 4 字节对齐
-    // 使用 DataView 直接写入
-    view.setFloat32(byteBase + 9, s.scaleX, true);
-    view.setFloat32(byteBase + 13, s.scaleY, true);
-    view.setFloat32(byteBase + 17, s.scaleZ, true);
+    view.setFloat32(byteBase + 9, soa.scales[i3], true);
+    view.setFloat32(byteBase + 13, soa.scales[i3 + 1], true);
+    view.setFloat32(byteBase + 17, soa.scales[i3 + 2], true);
 
     // Color RGBA → 4 × Uint8 (4 bytes at offset 21-24)
-    view.setUint8(byteBase + 21, clampU8(Math.round(s.colorR * 255)));
-    view.setUint8(byteBase + 22, clampU8(Math.round(s.colorG * 255)));
-    view.setUint8(byteBase + 23, clampU8(Math.round(s.colorB * 255)));
-    view.setUint8(byteBase + 24, clampU8(Math.round(s.opacity * 255)));
+    view.setUint8(byteBase + 21, clampU8(Math.round(soa.colors[i3] * 255)));
+    view.setUint8(byteBase + 22, clampU8(Math.round(soa.colors[i3 + 1] * 255)));
+    view.setUint8(byteBase + 23, clampU8(Math.round(soa.colors[i3 + 2] * 255)));
+    view.setUint8(byteBase + 24, clampU8(Math.round(soa.opacities[i] * 255)));
 
     // Rotation IJKL → 4 × Uint8 (4 bytes at offset 25-28)
-    view.setUint8(byteBase + 25, clampU8(Math.round(s.rotW * 128) + 128));
-    view.setUint8(byteBase + 26, clampU8(Math.round(s.rotX * 128) + 128));
-    view.setUint8(byteBase + 27, clampU8(Math.round(s.rotY * 128) + 128));
-    view.setUint8(byteBase + 28, clampU8(Math.round(s.rotZ * 128) + 128));
+    view.setUint8(byteBase + 25, clampU8(Math.round(soa.rotations[i4] * 128) + 128));
+    view.setUint8(byteBase + 26, clampU8(Math.round(soa.rotations[i4 + 1] * 128) + 128));
+    view.setUint8(byteBase + 27, clampU8(Math.round(soa.rotations[i4 + 2] * 128) + 128));
+    view.setUint8(byteBase + 28, clampU8(Math.round(soa.rotations[i4 + 3] * 128) + 128));
   }
 
   return buffer;

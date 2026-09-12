@@ -21,13 +21,18 @@ import { join, extname, basename, dirname } from 'node:path';
 import {
   loadGaussiansFromPly,
   loadGaussiansFromSplat,
+  loadGaussiansFromSpz,
   writeSplat,
   writeSpz,
   writeSog,
   pruneGaussians,
   mortonSortGaussians,
   parseSogMetadata,
+  writeCompressedPly,
 } from './index.js';
+import { gunzipSync } from 'node:zlib';
+import { SPLAT_BYTES_PER_SPLAT } from './splat-writer.js';
+import type { GaussianCloud, GaussianSplat } from './gaussian-loader.js';
 
 const program = new Command();
 
@@ -59,6 +64,7 @@ program
   .option('--prune', '启用冗余剔除 (过滤低透明度/异常高斯核)')
   .option('--min-opacity <num>', '最小不透明度阈值 (默认 0.01)', '0.01')
   .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
+  .option('--max-splats <num>', '★ C-07: 转换期按贡献度裁剪到最多 N 个 splat')
   .option('--sort', '启用 Morton Code 空间排序')
   .action(async (input: string, opts: Record<string, string>) => {
     await convertPly(input, opts, 'splat');
@@ -75,6 +81,7 @@ program
   .option('--prune', '启用冗余剔除')
   .option('--min-opacity <num>', '最小不透明度阈值', '0.01')
   .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
+  .option('--max-splats <num>', '★ C-07: 转换期按贡献度裁剪到最多 N 个 splat')
   .option('--sort', '启用 Morton Code 空间排序')
   .action(async (input: string, opts: Record<string, string>) => {
     await convertPly(input, opts, 'spz');
@@ -90,7 +97,9 @@ program
   .option('--prune', '启用冗余剔除')
   .option('--min-opacity <num>', '最小不透明度阈值', '0.01')
   .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
+  .option('--max-splats <num>', '★ C-07: 转换期按贡献度裁剪到最多 N 个 splat')
   .option('--sh-mode <num>', '★ H2: SH DC 追加模式 (0=off, 1=Int8, 默认 0)')
+  .option('--sog-version <num>', '★ C-04: SOG 版本 (2 或 3, 默认 2; 3 = 尾部 SH overlay)')
   .option('--no-sort', '禁用 Morton Code 空间排序 (SOG 默认启用)')
   .action(async (input: string, opts: Record<string, string>) => {
     await convertPly(input, opts, 'sog');
@@ -106,6 +115,7 @@ program
   .option('--prune', '启用冗余剔除')
   .option('--min-opacity <num>', '最小不透明度阈值', '0.01')
   .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
+  .option('--max-splats <num>', '★ C-07: 转换期按贡献度裁剪到最多 N 个 splat')
   .option('--sort', '启用 Morton Code 空间排序')
   .action(async (input: string, opts: Record<string, string>) => {
     await convertSplat(input, opts, 'spz');
@@ -121,12 +131,37 @@ program
   .option('--prune', '启用冗余剔除')
   .option('--min-opacity <num>', '最小不透明度阈值', '0.01')
   .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
+  .option('--max-splats <num>', '★ C-07: 转换期按贡献度裁剪到最多 N 个 splat')
+  .option('--sog-version <num>', '★ C-04: SOG 版本 (2 或 3, 默认 2; 3 = 尾部 SH overlay)')
   .option('--no-sort', '禁用 Morton Code 空间排序 (SOG 默认启用)')
   .action(async (input: string, opts: Record<string, string>) => {
     await convertSplat(input, opts, 'sog');
   });
 
-// ── batch ──
+program
+  .command('to-compressed-ply <input>')
+  .description('★ C-05: 转换为 SuperSplat 兼容的压缩 PLY')
+  .option('-o, --output <file>', '输出文件路径 (默认: 输入名 + .compressed.ply)')
+  .option('--max-splats <num>', '★ C-07: 转换期按贡献度裁剪到最多 N 个 splat')
+  .option('--min-opacity <num>', '最小不透明度阈值', '0.01')
+  .option('--prune', '启用冗余剔除')
+  .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
+  .action(async (input: string, opts: Record<string, string>) => {
+    const output = String(
+      opts.output || input.replace(/\.(ply|splat|spz|sog)$/i, '.compressed.ply'),
+    );
+    const startTime = Date.now();
+    const buffer = await readFile(input);
+    const cloud = await loadCloudFromAny(input, buffer);
+    const plyBytes = writeCompressedPly(cloud, { source: input });
+    await writeFile(output, Buffer.from(plyBytes));
+    const elapsed = Date.now() - startTime;
+    const mb = (plyBytes.byteLength / (1024 * 1024)).toFixed(2);
+    console.log(
+      `✅ 压缩 PLY: ${cloud.splats.length.toLocaleString()} splats → ${output} (${mb} MB, ${elapsed}ms)`,
+    );
+  });
+
 program
   .command('batch')
   .description('批量转换目录下所有 .ply 文件')
@@ -137,6 +172,8 @@ program
   .option('--prune', '启用冗余剔除')
   .option('--sort', '启用 Morton Code 空间排序')
   .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
+  .option('--max-splats <num>', '★ C-07: 转换期按贡献度裁剪到最多 N 个 splat')
+  .option('--sog-version <num>', '★ C-04: SOG 版本 (2 或 3, 默认 2)')
   .action(async (dir: string, opts: Record<string, string>) => {
     await batchConvert(dir, opts);
   });
@@ -239,6 +276,22 @@ async function convertCloud(
     );
   }
 
+  // ★ C-07: 转换期按贡献度预裁剪 (--max-splats)
+  // 独立于 --prune, 无 prune 时也可单独使用; 贡献度 = opacity × max(scale)
+  if (opts.maxSplats !== undefined) {
+    const maxSplats = parseInt(String(opts.maxSplats), 10);
+    if (!isNaN(maxSplats) && maxSplats > 0 && cloud.splats.length > maxSplats) {
+      const before = cloud.splats.length;
+      cloud = pruneGaussians(cloud, { contributionCutoff: maxSplats, minOpacity: 0 });
+      const after = cloud.splats.length;
+      console.log(
+        `✂️  预裁剪 (--max-splats ${maxSplats.toLocaleString()}): ` +
+          `${before.toLocaleString()} → ${after.toLocaleString()} 个 ` +
+          `(保留 ${((after / before) * 100).toFixed(1)}%)`,
+      );
+    }
+  }
+
   // Morton 排序
   // 对于 SOG 格式, 默认启用排序 (--no-sort 可禁用)
   // 对于 splat/spz 格式, 仅在 --sort 时启用
@@ -273,8 +326,16 @@ async function convertCloud(
     case 'sog': {
       const chunkSize = parseInt(String(opts.chunkSize || '8192'), 10);
       const shMode = parseInt(String(opts.shMode || '0'), 10);
+      // ★ C-04: SOG 版本 (2/3), 默认 2
+      const sogVersion = parseInt(String(opts.sogVersion || '2'), 10) === 3 ? 3 : 2;
       // SOG 已在上方完成 Morton 排序, 此处无需重复
-      outputData = writeSog(cloud, { chunkSize, spatialSort: false, shMode });
+      outputData = writeSog(cloud, {
+        chunkSize,
+        spatialSort: false,
+        shMode,
+        version: sogVersion,
+      });
+      console.log(`   SOG 版本: v${sogVersion}`);
       break;
     }
   }
@@ -297,7 +358,77 @@ async function convertCloud(
 }
 
 /**
+ * ★ C-10: 解码 SOG 为 GaussianCloud (供 batch 的 SOG → 目标格式转换)
+ *
+ * 逐 chunk 读取 splat 数据 (32B/个, 支持 gzip 与位置量化), 拼装为 AoS。
+ * 注意: SOG 语义上的 SH 数据仅 v3 overlay 中有, 此处不恢复 SH (与 .splat 源一致)。
+ */
+function decodeSogToCloud(
+  buffer: Buffer,
+  meta: import('./sog-writer.js').SogMetadata,
+): GaussianCloud {
+  const { numSplats } = meta;
+  const splats: GaussianSplat[] = new Array(numSplats);
+  let splatCursor = 0;
+
+  for (const chunk of meta.chunks) {
+    const raw = buffer.subarray(chunk.offset, chunk.offset + chunk.size);
+    const data = meta.compression === 1 ? new Uint8Array(gunzipSync(raw)) : raw;
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+    for (let n = 0; n < chunk.count && splatCursor < numSplats; n++, splatCursor++) {
+      const base = n * SPLAT_BYTES_PER_SPLAT;
+      const s: GaussianSplat = {
+        x: view.getFloat32(base + 0, true),
+        y: view.getFloat32(base + 4, true),
+        z: view.getFloat32(base + 8, true),
+        scaleX: view.getFloat32(base + 12, true),
+        scaleY: view.getFloat32(base + 16, true),
+        scaleZ: view.getFloat32(base + 20, true),
+        rotW: view.getUint8(base + 24) / 128 - 1,
+        rotX: view.getUint8(base + 25) / 128 - 1,
+        rotY: view.getUint8(base + 26) / 128 - 1,
+        rotZ: view.getUint8(base + 27) / 128 - 1,
+        colorR: view.getUint8(base + 28) / 255,
+        colorG: view.getUint8(base + 29) / 255,
+        colorB: view.getUint8(base + 30) / 255,
+        opacity: view.getUint8(base + 31) / 255,
+        shDegree: 0,
+      };
+      splats[splatCursor] = s;
+    }
+  }
+
+  return { splats, shDegree: 0, vertexCount: numSplats, source: 'sog' };
+}
+
+/**
+ * ★ C-05: 从任意受支持格式 (PLY/SPLAT/SPZ/SOG) 加载 GaussianCloud
+ */
+async function loadCloudFromAny(
+  input: string,
+  buffer: Buffer,
+): Promise<import('./gaussian-loader.js').GaussianCloud> {
+  const ext = extname(input).toLowerCase();
+  if (ext === '.ply') {
+    return loadGaussiansFromPly(toArrayBuffer(buffer), { source: input });
+  }
+  if (ext === '.splat') {
+    return loadGaussiansFromSplat(toArrayBuffer(buffer), { source: input });
+  }
+  if (ext === '.spz') {
+    return await loadGaussiansFromSpz(new Uint8Array(toArrayBuffer(buffer)), { source: input });
+  }
+  if (ext === '.sog') {
+    return decodeSogToCloud(buffer, parseSogMetadata(toArrayBuffer(buffer)));
+  }
+  throw new Error(`不支持的输入格式: ${ext} (支持 .ply/.splat/.spz/.sog)`);
+}
+
+/**
  * 批量转换
+ *
+ * ★ C-10: 支持多输入格式 (PLY/SPLAT/SPZ/SOG), 输出 manifest JSON。
  */
 async function batchConvert(dir: string, opts: Record<string, string | boolean>): Promise<void> {
   const format = String(opts.format) as 'splat' | 'spz' | 'sog';
@@ -305,34 +436,103 @@ async function batchConvert(dir: string, opts: Record<string, string | boolean>)
 
   console.log(`\n📂 扫描目录: ${dir}`);
   const entries = await readdir(dir);
-  const plyFiles = entries.filter((f) => extname(f).toLowerCase() === '.ply');
+  const supportedExts = ['.ply', '.splat', '.spz', '.sog'];
+  const inputFiles = entries.filter((f) => supportedExts.includes(extname(f).toLowerCase()));
 
-  if (plyFiles.length === 0) {
-    console.log('   未找到 .ply 文件');
+  if (inputFiles.length === 0) {
+    console.log('   未找到场景文件 (支持 .ply/.splat/.spz/.sog)');
     return;
   }
 
-  console.log(`   发现 ${plyFiles.length} 个 PLY 文件\n`);
+  console.log(`   发现 ${inputFiles.length} 个输入文件\n`);
 
   await mkdir(outputDir, { recursive: true });
   let successCount = 0;
   let failCount = 0;
+  const manifest: Array<{
+    input: string;
+    output: string;
+    count: number;
+    format: string;
+    elapsedMs: number;
+  }> = [];
 
-  for (const file of plyFiles) {
+  for (const file of inputFiles) {
     const inputPath = join(dir, file);
-    const outputPath = join(outputDir, file.replace(/\.ply$/i, `.${format}`));
+    const inputExt = extname(file).toLowerCase();
+    const outputPath = join(outputDir, file.replace(/\.(ply|splat|spz|sog)$/i, `.${format}`));
+
+    const startTime = Date.now();
+    let splatCount = -1;
 
     try {
       console.log(`── ${file} ──`);
-      await convertPly(inputPath, { ...opts, output: outputPath }, format);
+      // ★ C-10: 按输入扩展名路由到对应加载器
+      const inputOpts = { ...opts, output: outputPath };
+      if (inputExt === '.ply') {
+        await convertPly(inputPath, inputOpts, format);
+        const plyBuf = await readFile(inputPath);
+        splatCount = loadGaussiansFromPly(toArrayBuffer(plyBuf), { source: inputPath }).splats
+          .length;
+      } else if (inputExt === '.splat') {
+        await convertSplat(inputPath, inputOpts, format);
+        const splatBuf = await readFile(inputPath);
+        splatCount = loadGaussiansFromSplat(toArrayBuffer(splatBuf), { source: inputPath }).splats
+          .length;
+      } else if (inputExt === '.spz') {
+        // SPZ → 目标格式: 解压读取后走通用转换
+        const spzBuf = await readFile(inputPath);
+        const cloud = await loadGaussiansFromSpz(new Uint8Array(toArrayBuffer(spzBuf)), {
+          source: inputPath,
+        });
+        splatCount = cloud.splats.length;
+        await convertCloud(cloud, inputOpts, format, inputPath, spzBuf.byteLength, startTime);
+      } else if (inputExt === '.sog') {
+        // SOG → 目标格式: 通过 parseSogMetadata 读取数量, 逐 chunk 解码重建 (简化: 仅支持损格式→无损)
+        const sogBuf = await readFile(inputPath);
+        const meta = parseSogMetadata(toArrayBuffer(sogBuf));
+        splatCount = meta.numSplats;
+        const cloud = decodeSogToCloud(sogBuf, meta);
+        await convertCloud(cloud, inputOpts, format, inputPath, sogBuf.byteLength, startTime);
+      } else {
+        throw new Error(`不支持的输入格式: ${inputExt}`);
+      }
       successCount++;
     } catch (err) {
       console.error(`   ❌ 失败: ${err instanceof Error ? err.message : err}`);
       failCount++;
     }
+
+    manifest.push({
+      input: file,
+      output: outputPath,
+      count: splatCount,
+      format,
+      elapsedMs: Date.now() - startTime,
+    });
   }
 
-  console.log(`\n📊 批量转换完成: ${successCount} 成功, ${failCount} 失败\n`);
+  // ★ C-10: 输出 manifest JSON
+  const manifestPath = join(outputDir, 'manifest.json');
+  await writeFile(
+    manifestPath,
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        format,
+        successCount,
+        failCount,
+        files: manifest,
+      },
+      null,
+      2,
+    ),
+  );
+
+  console.log(
+    `\n📊 批量转换完成: ${successCount} 成功, ${failCount} 失败\n` +
+      `   📄 Manifest: ${manifestPath}`,
+  );
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pruneGaussians, mortonSortGaussians } from './processing.js';
+import { pruneGaussians, mortonSortGaussians, quickselect } from './processing.js';
 import type { GaussianCloud } from './gaussian-loader.js';
 
 function makeCloud(
@@ -316,5 +316,95 @@ describe('mortonSortGaussians', () => {
     // Morton 排序后相邻 splat 的平均距离应远小于网格尺寸 (10)
     // 随机排列的平均距离约 5.2, Morton 排序后应 < 2.0
     expect(avgDist).toBeLessThan(2.0);
+  });
+});
+
+// ── TD-15: quickselect 贡献度裁剪 ─────────────────────────
+
+describe('TD-15 quickselect 贡献度裁剪', () => {
+  it('quickselect 返回第 k 小值且分区正确', () => {
+    const arr = new Float64Array([3, 1, 4, 1, 5, 9, 2, 6]);
+    // 第 3 小 = 排序后 [1,1,2,3,4,5,6,9] 的索引 3 = 3
+    expect(quickselect(arr, 3)).toBe(3);
+    // 数组被分区: 索引 3 左侧 ≤ 3, 右侧 ≥ 3
+    for (let i = 0; i < 3; i++) expect(arr[i]).toBeLessThanOrEqual(3);
+    for (let i = 4; i < arr.length; i++) expect(arr[i]).toBeGreaterThanOrEqual(3);
+  });
+
+  it('quickselect 边界: k=0 返回最小值, k=length-1 返回最大值', () => {
+    const a = new Float64Array([7, 2, 9, 1, 5]);
+    expect(quickselect(a, 0)).toBe(1);
+    expect(quickselect(a, 4)).toBe(9);
+  });
+
+  it('乱序输入 → top-K 保留集合与全排序一致', () => {
+    // 构造 20 个乱序贡献度 (opacity 各异)
+    const splats: Array<Partial<import('./gaussian-loader.js').GaussianSplat>> = [];
+    for (let i = 0; i < 20; i++) {
+      // 乱序 opacity: 用固定种子乱序 (i*7 % 20) 保证确定性
+      const idx = (i * 7) % 20;
+      splats.push({ opacity: 0.05 + idx * 0.05, scaleX: 1, scaleY: 1, scaleZ: 1 });
+    }
+    const cloud = makeCloud(splats);
+
+    // quickselect 路径 (新)
+    const result = pruneGaussians(cloud, { contributionCutoff: 5 });
+    expect(result.splats).toHaveLength(5);
+
+    // 全排序路径 (参考): 手动算贡献度降序取前 5
+    const sorted = [...cloud.splats].sort((a, b) => b.opacity * 1 - a.opacity * 1);
+    const expectedTop5 = sorted
+      .slice(0, 5)
+      .map((s) => s.opacity)
+      .sort((a, b) => a - b);
+    const actualTop5 = result.splats.map((s) => s.opacity).sort((a, b) => a - b);
+    expect(actualTop5).toEqual(expectedTop5);
+  });
+
+  it('重复贡献度时恰好截断到 keepCount', () => {
+    const cloud = makeCloud([
+      { opacity: 1.0, scaleX: 1, scaleY: 1, scaleZ: 1 },
+      { opacity: 1.0, scaleX: 1, scaleY: 1, scaleZ: 1 },
+      { opacity: 1.0, scaleX: 1, scaleY: 1, scaleZ: 1 },
+      { opacity: 0.1, scaleX: 1, scaleY: 1, scaleZ: 1 },
+      { opacity: 0.2, scaleX: 1, scaleY: 1, scaleZ: 1 },
+    ]);
+    // 保留 3 个: 3 个 1.0 贡献度恰好占满
+    const result = pruneGaussians(cloud, { contributionCutoff: 3 });
+    expect(result.splats).toHaveLength(3);
+    expect(result.splats.every((s) => s.opacity === 1.0)).toBe(true);
+  });
+
+  it('贡献度裁剪保留输入顺序 (非降序排列)', () => {
+    const cloud = makeCloud([
+      { opacity: 0.3, scaleX: 1, scaleY: 1, scaleZ: 1 }, // 贡献度 0.3
+      { opacity: 0.9, scaleX: 1, scaleY: 1, scaleZ: 1 }, // 0.9
+      { opacity: 0.5, scaleX: 1, scaleY: 1, scaleZ: 1 }, // 0.5
+      { opacity: 0.7, scaleX: 1, scaleY: 1, scaleZ: 1 }, // 0.7
+    ]);
+    const result = pruneGaussians(cloud, { contributionCutoff: 2 });
+    // 保留 0.9 与 0.7, 且按输入顺序
+    expect(result.splats.map((s) => s.opacity)).toEqual([0.9, 0.7]);
+  });
+
+  it('TD-15 性能: 100K 乱序输入 quickselect 远快于全排序路径的 O(N log N)', () => {
+    const splats: Array<Partial<import('./gaussian-loader.js').GaussianSplat>> = [];
+    for (let i = 0; i < 100_000; i++) {
+      // 伪随机贡献度 (确定性)
+      const r = Math.sin(i * 12.9898) * 43758.5453;
+      splats.push({
+        opacity: 0.05 + (r - Math.floor(r)) * 0.95,
+        scaleX: 1,
+        scaleY: 1,
+        scaleZ: 1,
+      });
+    }
+    const cloud = makeCloud(splats);
+    const start = performance.now();
+    const result = pruneGaussians(cloud, { contributionCutoff: 10_000 });
+    const elapsed = performance.now() - start;
+    expect(result.splats).toHaveLength(10_000);
+    // 宽松上限: quickselect O(N) 在 100K 上应 < 500ms (全排序路径约 2-4x 更慢)
+    expect(elapsed).toBeLessThan(500);
   });
 });

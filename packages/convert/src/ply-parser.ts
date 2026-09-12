@@ -9,6 +9,8 @@
  * [来源: PLY 文件格式规范 — pavie/meshlib PLY spec]
  */
 
+import type { GaussianCloudSoA } from './gaussian-loader.js';
+
 export type PlyFormat = 'ascii' | 'binary_little_endian' | 'binary_big_endian';
 
 export interface PlyProperty {
@@ -311,6 +313,12 @@ function readBinaryValue(
 // ─── M2: PLY 快路径解析 → TypedArray ──────────────────────
 
 /**
+ * ★ C-02/TD-32: 分块读取的行数 (流式提取属性列, 降低峰值缓存压力)。
+ *   每块 2^16 = 65536 行, 使内层循环工作集保持在 L2/L3 缓存友好的范围。
+ */
+const PLY_STREAM_CHUNK_ROWS = 1 << 16;
+
+/**
  * ★ M2: 快路径二进制 PLY 解析结果 (TypedArray 列式存储)
  *
  * 将标准 3DGS PLY 的 binary body 直接读取到 TypedArray,
@@ -434,92 +442,109 @@ export function tryFastPathParsePly(
 
   const view = new DataView(buffer, headerEnd);
 
-  // 逐顶点读取, 直接写入 TypedArray
-  for (let i = 0; i < count; i++) {
-    const base = i * stride;
-    const i3 = i * 3;
-    const i4 = i * 4;
+  // ★ C-02/TD-32: 分块读取 + 属性列偏移预计算。
+  //   - 预计算每个属性列的字节偏移/类型 (避免逐顶点 Map.get, O(count) → O(props))
+  //   - 分块遍历 (每块 PLY_STREAM_CHUNK_ROWS 行), 降低峰值缓存压力, 为流式来源预留接口
+  const xProp = propertyMap.get('x');
+  const yProp = propertyMap.get('y');
+  const zProp = propertyMap.get('z');
+  const nxProp = propertyMap.get('nx');
+  const nyProp = propertyMap.get('ny');
+  const nzProp = propertyMap.get('nz');
+  const opProp = propertyMap.get('opacity');
+  const rProp = propertyMap.get('red');
+  const gProp = propertyMap.get('green');
+  const bProp = propertyMap.get('blue');
+  const dcProps: Array<{ offset: number; type: PlyDataType } | undefined> = [];
+  const restProps: Array<{ offset: number; type: PlyDataType } | undefined> = [];
+  const scaleProps: Array<{ offset: number; type: PlyDataType } | undefined> = [];
+  const rotProps: Array<{ offset: number; type: PlyDataType } | undefined> = [];
+  for (let j = 0; j < 3; j++) dcProps.push(propertyMap.get(`f_dc_${j}`));
+  for (let j = 0; j < shRestCount; j++) restProps.push(propertyMap.get(`f_rest_${j}`));
+  for (let j = 0; j < 3; j++) scaleProps.push(propertyMap.get(`scale_${j}`));
+  for (let j = 0; j < 4; j++) rotProps.push(propertyMap.get(`rot_${j}`));
 
-    // 位置
-    const xProp = propertyMap.get('x');
-    const yProp = propertyMap.get('y');
-    const zProp = propertyMap.get('z');
-    if (xProp) positions[i3] = readBinaryValue(view, base + xProp.offset, xProp.type, littleEndian);
-    if (yProp)
-      positions[i3 + 1] = readBinaryValue(view, base + yProp.offset, yProp.type, littleEndian);
-    if (zProp)
-      positions[i3 + 2] = readBinaryValue(view, base + zProp.offset, zProp.type, littleEndian);
+  // 分块逐顶点读取, 直接写入 TypedArray
+  for (let chunkStart = 0; chunkStart < count; chunkStart += PLY_STREAM_CHUNK_ROWS) {
+    const chunkEnd = Math.min(chunkStart + PLY_STREAM_CHUNK_ROWS, count);
+    for (let i = chunkStart; i < chunkEnd; i++) {
+      const base = i * stride;
+      const i3 = i * 3;
+      const i4 = i * 4;
 
-    // 法线
-    if (normals) {
-      const nxProp = propertyMap.get('nx');
-      const nyProp = propertyMap.get('ny');
-      const nzProp = propertyMap.get('nz');
-      if (nxProp)
-        normals[i3] = readBinaryValue(view, base + nxProp.offset, nxProp.type, littleEndian);
-      if (nyProp)
-        normals[i3 + 1] = readBinaryValue(view, base + nyProp.offset, nyProp.type, littleEndian);
-      if (nzProp)
-        normals[i3 + 2] = readBinaryValue(view, base + nzProp.offset, nzProp.type, littleEndian);
-    }
+      // 位置
+      if (xProp)
+        positions[i3] = readBinaryValue(view, base + xProp.offset, xProp.type, littleEndian);
+      if (yProp)
+        positions[i3 + 1] = readBinaryValue(view, base + yProp.offset, yProp.type, littleEndian);
+      if (zProp)
+        positions[i3 + 2] = readBinaryValue(view, base + zProp.offset, zProp.type, littleEndian);
 
-    // SH DC
-    if (shDc) {
-      for (let j = 0; j < 3; j++) {
-        const prop = propertyMap.get(`f_dc_${j}`);
-        if (prop) shDc[i3 + j] = readBinaryValue(view, base + prop.offset, prop.type, littleEndian);
+      // 法线
+      if (normals) {
+        if (nxProp)
+          normals[i3] = readBinaryValue(view, base + nxProp.offset, nxProp.type, littleEndian);
+        if (nyProp)
+          normals[i3 + 1] = readBinaryValue(view, base + nyProp.offset, nyProp.type, littleEndian);
+        if (nzProp)
+          normals[i3 + 2] = readBinaryValue(view, base + nzProp.offset, nzProp.type, littleEndian);
       }
-    }
 
-    // SH rest
-    if (shRest) {
-      for (let j = 0; j < shRestCount; j++) {
-        const prop = propertyMap.get(`f_rest_${j}`);
-        if (prop)
-          shRest[i * shRestCount + j] = readBinaryValue(
-            view,
-            base + prop.offset,
-            prop.type,
-            littleEndian,
-          );
+      // SH DC
+      if (shDc) {
+        for (let j = 0; j < 3; j++) {
+          const prop = dcProps[j];
+          if (prop)
+            shDc[i3 + j] = readBinaryValue(view, base + prop.offset, prop.type, littleEndian);
+        }
       }
-    }
 
-    // Opacity
-    if (opacity) {
-      const opProp = propertyMap.get('opacity');
-      if (opProp)
+      // SH rest
+      if (shRest) {
+        for (let j = 0; j < shRestCount; j++) {
+          const prop = restProps[j];
+          if (prop)
+            shRest[i * shRestCount + j] = readBinaryValue(
+              view,
+              base + prop.offset,
+              prop.type,
+              littleEndian,
+            );
+        }
+      }
+
+      // Opacity
+      if (opacity && opProp) {
         opacity[i] = readBinaryValue(view, base + opProp.offset, opProp.type, littleEndian);
-    }
-
-    // Scale
-    if (scales) {
-      for (let j = 0; j < 3; j++) {
-        const prop = propertyMap.get(`scale_${j}`);
-        if (prop)
-          scales[i3 + j] = readBinaryValue(view, base + prop.offset, prop.type, littleEndian);
       }
-    }
 
-    // Rotation
-    if (rotations) {
-      for (let j = 0; j < 4; j++) {
-        const prop = propertyMap.get(`rot_${j}`);
-        if (prop)
-          rotations[i4 + j] = readBinaryValue(view, base + prop.offset, prop.type, littleEndian);
+      // Scale
+      if (scales) {
+        for (let j = 0; j < 3; j++) {
+          const prop = scaleProps[j];
+          if (prop)
+            scales[i3 + j] = readBinaryValue(view, base + prop.offset, prop.type, littleEndian);
+        }
       }
-    }
 
-    // Color
-    if (colors) {
-      const rProp = propertyMap.get('red');
-      const gProp = propertyMap.get('green');
-      const bProp = propertyMap.get('blue');
-      if (rProp) colors[i3] = readBinaryValue(view, base + rProp.offset, rProp.type, littleEndian);
-      if (gProp)
-        colors[i3 + 1] = readBinaryValue(view, base + gProp.offset, gProp.type, littleEndian);
-      if (bProp)
-        colors[i3 + 2] = readBinaryValue(view, base + bProp.offset, bProp.type, littleEndian);
+      // Rotation
+      if (rotations) {
+        for (let j = 0; j < 4; j++) {
+          const prop = rotProps[j];
+          if (prop)
+            rotations[i4 + j] = readBinaryValue(view, base + prop.offset, prop.type, littleEndian);
+        }
+      }
+
+      // Color
+      if (colors) {
+        if (rProp)
+          colors[i3] = readBinaryValue(view, base + rProp.offset, rProp.type, littleEndian);
+        if (gProp)
+          colors[i3 + 1] = readBinaryValue(view, base + gProp.offset, gProp.type, littleEndian);
+        if (bProp)
+          colors[i3 + 2] = readBinaryValue(view, base + bProp.offset, bProp.type, littleEndian);
+      }
     }
   }
 
@@ -669,5 +694,125 @@ export function buildCloudFromFastPath(
     shDegree,
     vertexCount: count,
     source,
+  };
+}
+
+/**
+ * ★ C-01/TD-06: 从快路径解析结果直接构建 GaussianCloudSoA (跳过 AoS 中间对象)
+ *
+ * 与 buildCloudFromFastPath 解码逻辑完全一致, 但直接写入列式 TypedArray,
+ * 避免 count 个 GaussianSplat 对象的装箱与 GC 压力。
+ *
+ * @param fastData 快路径解析结果
+ * @param options 加载选项
+ * @returns GaussianCloudSoA
+ */
+export function buildCloudSoAFromFastPath(
+  fastData: PlyFastPathData,
+  options: { defaultScale?: number; source?: string } = {},
+): GaussianCloudSoA {
+  const { defaultScale = 0.01, source = 'fast-path-soa' } = options;
+  const count = fastData.count;
+
+  // 与 AoS 路径内联 clamp 保持一致
+  const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+  // 检测属性
+  const has3dgs = !!fastData.opacity && !!fastData.scales && !!fastData.rotations;
+  const hasShDc = !!fastData.shDc;
+  const hasShRest = !!fastData.shRest;
+  const hasColor = !!fastData.colors;
+
+  // 确定 SH 阶数
+  let shDegree = 0;
+  if (hasShRest) {
+    const restCount = fastData.shRest!.length / count;
+    if (restCount >= 45) shDegree = 3;
+    else if (restCount >= 24) shDegree = 2;
+    else if (restCount >= 9) shDegree = 1;
+  }
+
+  const shCoeffsPerChannel = shDegree === 0 ? 0 : shDegree * (shDegree + 2);
+  const totalShCoeffs = shCoeffsPerChannel * 3;
+
+  const SH_C0 = 0.28209479177387814;
+
+  // 分配列式 TypedArray
+  const positions = new Float32Array(count * 3);
+  const scales = new Float32Array(count * 3);
+  const rotations = new Float32Array(count * 4);
+  const colors = new Float32Array(count * 3);
+  const opacities = new Float32Array(count);
+  const sh = totalShCoeffs > 0 ? new Float32Array(count * totalShCoeffs) : undefined;
+
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3;
+    const i4 = i * 4;
+
+    positions[i3] = fastData.positions[i3];
+    positions[i3 + 1] = fastData.positions[i3 + 1];
+    positions[i3 + 2] = fastData.positions[i3 + 2];
+
+    // 缩放 (log 空间 → exp)
+    if (has3dgs && fastData.scales) {
+      scales[i3] = Math.exp(fastData.scales[i3]);
+      scales[i3 + 1] = Math.exp(fastData.scales[i3 + 1]);
+      scales[i3 + 2] = Math.exp(fastData.scales[i3 + 2]);
+    } else {
+      scales[i3] = scales[i3 + 1] = scales[i3 + 2] = defaultScale;
+    }
+
+    // 旋转
+    if (has3dgs && fastData.rotations) {
+      rotations[i4] = fastData.rotations[i4];
+      rotations[i4 + 1] = fastData.rotations[i4 + 1];
+      rotations[i4 + 2] = fastData.rotations[i4 + 2];
+      rotations[i4 + 3] = fastData.rotations[i4 + 3];
+    } else {
+      rotations[i4] = 1;
+      rotations[i4 + 1] = 0;
+      rotations[i4 + 2] = 0;
+      rotations[i4 + 3] = 0;
+    }
+
+    // 颜色
+    if (hasShDc && fastData.shDc) {
+      colors[i3] = clamp01(SH_C0 * fastData.shDc[i3] + 0.5);
+      colors[i3 + 1] = clamp01(SH_C0 * fastData.shDc[i3 + 1] + 0.5);
+      colors[i3 + 2] = clamp01(SH_C0 * fastData.shDc[i3 + 2] + 0.5);
+    } else if (hasColor && fastData.colors) {
+      colors[i3] = fastData.colors[i3] / 255;
+      colors[i3 + 1] = fastData.colors[i3 + 1] / 255;
+      colors[i3 + 2] = fastData.colors[i3 + 2] / 255;
+    } else {
+      colors[i3] = colors[i3 + 1] = colors[i3 + 2] = 0.8;
+    }
+
+    // 不透明度 (sigmoid)
+    if (has3dgs && fastData.opacity) {
+      opacities[i] = clamp01(1 / (1 + Math.exp(-fastData.opacity[i])));
+    } else {
+      opacities[i] = 1.0;
+    }
+
+    // SH 系数
+    if (sh && hasShRest && fastData.shRest) {
+      const shBase = i * totalShCoeffs;
+      for (let j = 0; j < totalShCoeffs; j++) {
+        sh[shBase + j] = fastData.shRest[i * totalShCoeffs + j] || 0;
+      }
+    }
+  }
+
+  return {
+    count,
+    shDegree,
+    source,
+    positions,
+    scales,
+    rotations,
+    colors,
+    opacities,
+    sh,
   };
 }

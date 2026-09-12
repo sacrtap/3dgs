@@ -6,7 +6,7 @@
  * [来源: PlayCanvas SOG 格式 — blog.playcanvas.com]
  */
 
-import type { GaussianCloud, GaussianSplat } from './gaussian-loader.js';
+import type { GaussianCloud, GaussianCloudSoA, GaussianSplat } from './gaussian-loader.js';
 
 /** 冗余剔除选项 */
 export interface PruneOptions {
@@ -98,19 +98,20 @@ export function pruneGaussians(cloud: GaussianCloud, options: PruneOptions = {})
     filtered.push(s);
   }
 
-  // ★ M3: 第二阶段 — 贡献度裁剪
+  // ★ M3/TD-15: 第二阶段 — 贡献度裁剪
   // 贡献度 = opacity × max(scaleX, scaleY, scaleZ)
   // 仅当 contributionCutoff 有值时执行
+  //
+  // ★ TD-15: 由全排序 (O(N log N) + slice) 改为 quickselect (O(N)) 求阈值,
+  //   再单遍过滤 + 恰好截断; 保留原输入顺序 (对下游 Morton 排序更友好)。
   let result = filtered;
   if (contributionCutoff !== undefined && contributionCutoff > 0 && filtered.length > 0) {
     // 计算每个 splat 的贡献度
-    const contributions = filtered.map((s) => ({
-      splat: s,
-      score: s.opacity * Math.max(s.scaleX, s.scaleY, s.scaleZ),
-    }));
-
-    // 按贡献度降序排序
-    contributions.sort((a, b) => b.score - a.score);
+    const scores = new Float64Array(filtered.length);
+    for (let i = 0; i < filtered.length; i++) {
+      const s = filtered[i];
+      scores[i] = s.opacity * Math.max(s.scaleX, s.scaleY, s.scaleZ);
+    }
 
     // 确定保留数量
     let keepCount: number;
@@ -122,7 +123,34 @@ export function pruneGaussians(cloud: GaussianCloud, options: PruneOptions = {})
       keepCount = Math.floor(filtered.length * contributionCutoff);
     }
 
-    result = contributions.slice(0, keepCount).map((c) => c.splat);
+    if (keepCount <= 0) {
+      result = [];
+    } else if (keepCount >= filtered.length) {
+      result = filtered;
+    } else {
+      // 第 (n - keepCount) 小的分数 = 保留阈值 (top-K 大值的下界)
+      // ★ TD-15: 对索引数组分区, 不破坏原始 scores (后续还需单遍过滤)
+      const indices = new Uint32Array(filtered.length);
+      for (let i = 0; i < filtered.length; i++) indices[i] = i;
+      const thresholdIdx = quickselectIndices(indices, scores, filtered.length - keepCount);
+      const threshold = scores[thresholdIdx];
+      // 单遍收集 score > threshold 的 splat (保留输入顺序)
+      const kept: GaussianSplat[] = [];
+      for (let i = 0; i < filtered.length; i++) {
+        if (scores[i] > threshold) kept.push(filtered[i]);
+      }
+      // 与阈值相等者恰好补足 (重复分数场景)
+      let slack = keepCount - kept.length;
+      if (slack > 0) {
+        for (let i = 0; i < filtered.length && slack > 0; i++) {
+          if (scores[i] === threshold) {
+            kept.push(filtered[i]);
+            slack--;
+          }
+        }
+      }
+      result = kept;
+    }
   }
 
   return {
@@ -131,6 +159,95 @@ export function pruneGaussians(cloud: GaussianCloud, options: PruneOptions = {})
     vertexCount: cloud.vertexCount,
     source: cloud.source,
   };
+}
+
+/**
+ * ★ TD-15: quickselect (nth_element 语义) — 就地部分排序, O(N) 平均
+ *
+ * 对 array 原地调整, 使第 k 小 (0-indexed) 的元素处于最终位置,
+ * 且其左侧元素 ≤ 它, 右侧元素 ≥ 它; 返回第 k 小的值。
+ *
+ * 与 Array.prototype.sort 不同: 只保证第 k 位置的分区正确,
+ * 不产生全排序, 用于贡献度裁剪的阈值查找。
+ *
+ * [来源: Hoare 1961 — quickselect / CLRS 第 9 章]
+ */
+export function quickselect(array: Float64Array | number[], k: number): number {
+  const n = array.length;
+  if (k < 0) k = 0;
+  if (k >= n) k = n - 1;
+
+  let low = 0;
+  let high = n - 1;
+  while (low < high) {
+    const pivot = array[high];
+    let i = low;
+    for (let j = low; j < high; j++) {
+      if (array[j] < pivot) {
+        swapValues(array, i, j);
+        i++;
+      }
+    }
+    swapValues(array, i, high);
+    if (i === k) break;
+    if (i < k) {
+      low = i + 1;
+    } else {
+      high = i - 1;
+    }
+  }
+  return array[k];
+}
+
+function swapValues(array: Float64Array | number[], i: number, j: number): void {
+  if (i === j) return;
+  const t = array[i];
+  array[i] = array[j];
+  array[j] = t;
+}
+
+/**
+ * ★ TD-15: quickselectIndices — 对索引数组分区, 不破坏被比较的分数数组
+ *
+ * 对 indices 就地调整, 使 scores[indices[k]] 为第 k 小的分数,
+ * 且 indices[0..k-1] 指向 ≤ 它的分数, indices[k+1..] 指向 ≥ 它的分数。
+ * 返回 indices[k] (原数组索引)。
+ *
+ * 用途: 贡献度裁剪需要阈值 + 原始分数做单遍过滤, 不能原地破坏分数数组。
+ */
+export function quickselectIndices(indices: Uint32Array, scores: Float64Array, k: number): number {
+  const n = indices.length;
+  if (k < 0) k = 0;
+  if (k >= n) k = n - 1;
+
+  let low = 0;
+  let high = n - 1;
+  while (low < high) {
+    const pivotIdx = indices[high];
+    const pivot = scores[pivotIdx];
+    let i = low;
+    for (let j = low; j < high; j++) {
+      if (scores[indices[j]] < pivot) {
+        swapIndices(indices, i, j);
+        i++;
+      }
+    }
+    swapIndices(indices, i, high);
+    if (i === k) break;
+    if (i < k) {
+      low = i + 1;
+    } else {
+      high = i - 1;
+    }
+  }
+  return indices[k];
+}
+
+function swapIndices(indices: Uint32Array, i: number, j: number): void {
+  if (i === j) return;
+  const t = indices[i];
+  indices[i] = indices[j];
+  indices[j] = t;
 }
 
 /** Morton Code 排序选项 */
@@ -214,6 +331,120 @@ export function mortonSortGaussians(
     shDegree: cloud.shDegree,
     vertexCount: cloud.vertexCount,
     source: cloud.source,
+  };
+}
+
+/**
+ * ★ C-01/TD-06: Morton Code 空间排序 (SoA 版本, 与 mortonSortGaussians 同算法)
+ *
+ * 直接对列式 TypedArray 按 Morton Code 重排各列, 供 SoA 写入路径 (writeSogSoA) 使用。
+ * 排序逻辑与 mortonSortGaussians 完全一致 (16-bit/轴, 48-bit Morton Code)。
+ *
+ * @param soa 高斯核集合 (列式)
+ * @returns 排序后的新 GaussianCloudSoA (不修改原始数据)
+ */
+export function mortonSortSoA(soa: GaussianCloudSoA): GaussianCloudSoA {
+  const count = soa.count;
+  if (count === 0) return soa;
+
+  const positions = soa.positions;
+
+  // 1. 计算包围盒
+  let minX = Infinity,
+    minY = Infinity,
+    minZ = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity,
+    maxZ = -Infinity;
+
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3;
+    const x = positions[i3];
+    const y = positions[i3 + 1];
+    const z = positions[i3 + 2];
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
+  }
+
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+  const rangeZ = maxZ - minZ || 1;
+
+  // 2. 计算 Morton Code 并排序 (与 mortonSortGaussians 相同的 16-bit 方案)
+  const BITS = 16;
+  const MAX_VAL = (1 << BITS) - 1;
+
+  const indexed = new Array<{ index: number; morton: number }>(count);
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3;
+    const nx = Math.floor(((positions[i3] - minX) / rangeX) * MAX_VAL);
+    const ny = Math.floor(((positions[i3 + 1] - minY) / rangeY) * MAX_VAL);
+    const nz = Math.floor(((positions[i3 + 2] - minZ) / rangeZ) * MAX_VAL);
+    indexed[i] = { index: i, morton: morton3D(nx, ny, nz) };
+  }
+
+  indexed.sort((a, b) => a.morton - b.morton);
+
+  // 3. 按排序顺序重排列式数组
+  const shCoeffsPerChannel = soa.shDegree === 0 ? 0 : soa.shDegree * (soa.shDegree + 2);
+  const totalShCoeffs = shCoeffsPerChannel * 3;
+
+  const nPositions = new Float32Array(count * 3);
+  const nScales = new Float32Array(count * 3);
+  const nRotations = new Float32Array(count * 4);
+  const nColors = new Float32Array(count * 3);
+  const nOpacities = new Float32Array(count);
+  const nSh = totalShCoeffs > 0 && soa.sh ? new Float32Array(count * totalShCoeffs) : undefined;
+
+  for (let n = 0; n < count; n++) {
+    const src = indexed[n].index;
+    const si3 = src * 3;
+    const si4 = src * 4;
+    const di3 = n * 3;
+    const di4 = n * 4;
+
+    nPositions[di3] = positions[si3];
+    nPositions[di3 + 1] = positions[si3 + 1];
+    nPositions[di3 + 2] = positions[si3 + 2];
+
+    nScales[di3] = soa.scales[si3];
+    nScales[di3 + 1] = soa.scales[si3 + 1];
+    nScales[di3 + 2] = soa.scales[si3 + 2];
+
+    nRotations[di4] = soa.rotations[si4];
+    nRotations[di4 + 1] = soa.rotations[si4 + 1];
+    nRotations[di4 + 2] = soa.rotations[si4 + 2];
+    nRotations[di4 + 3] = soa.rotations[si4 + 3];
+
+    nColors[di3] = soa.colors[si3];
+    nColors[di3 + 1] = soa.colors[si3 + 1];
+    nColors[di3 + 2] = soa.colors[si3 + 2];
+
+    nOpacities[n] = soa.opacities[src];
+
+    if (nSh && soa.sh) {
+      const shSrcBase = src * totalShCoeffs;
+      const shDstBase = n * totalShCoeffs;
+      for (let j = 0; j < totalShCoeffs; j++) {
+        nSh[shDstBase + j] = soa.sh[shSrcBase + j];
+      }
+    }
+  }
+
+  return {
+    count,
+    shDegree: soa.shDegree,
+    source: soa.source,
+    positions: nPositions,
+    scales: nScales,
+    rotations: nRotations,
+    colors: nColors,
+    opacities: nOpacities,
+    sh: nSh,
   };
 }
 
