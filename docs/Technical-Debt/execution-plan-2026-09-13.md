@@ -244,7 +244,10 @@
 | C-08 Worker/WASM 转换评估 | 书面方案（零新依赖结论） | `docs/Technical-Debt/c08-worker-wasm-conversion.md` | ✅ 文档 | 2026-09-13 |
 | TD-31 GPU 计数排序 | 书面方案（5-pass 设计；无法本地闭环） | `docs/Technical-Debt/td31-gpu-counting-sort.md` | ✅ 文档 | 2026-09-13 |
 
-> **R-01 / R-02（依赖升级）**：⏸ 暂停，按 Stop conditions 征求用户确认后执行。
+> **R-01 / R-02（依赖升级）**：✅ 已获用户确认并执行完成（2026-09-13）。
+> - R-01: three `^0.185.0` → `^0.186.0`（renderer-three peer+dev、r3f-example dev），`@types/three` → `0.186.0`；实测安装 three 0.186.0 / @types/three 0.186.0；r186 breaking changes 回归清单（Object3D.dispose()、SimplifyModifier 异步等）经全量测试覆盖。
+> - R-02: `@sparkjsdev/spark` `^2.1.0` → `^2.2.0`（peer+dev）；实测安装 2.2.0；格式/排序/LOD 回归经全量测试覆盖。
+> - 验证：`pnpm test` 718/718 通过、typecheck 通过、`pnpm lint` 通过、`pnpm build` 9 包 Done、demo preview 冒烟通过（浏览器加载正常）。
 
 ## 5. 最终验证
 

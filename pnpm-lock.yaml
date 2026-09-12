@@ -77,10 +77,10 @@ importers:
         version: link:../../packages/renderer-three
       '@react-three/fiber':
         specifier: ^9
-        version: 9.7.0(@types/react@19.2.18)(react-dom@19.2.8)(react@19.2.8)(three@0.185.1)
+        version: 9.7.0(@types/react@19.2.18)(react-dom@19.2.8)(react@19.2.8)(three@0.186.0)
       three:
-        specifier: ^0.185.0
-        version: 0.185.1
+        specifier: ^0.186.0
+        version: 0.186.0
     devDependencies:
       '@types/react':
         specifier: ^19.0.0
@@ -165,17 +165,17 @@ importers:
         version: link:../core
     devDependencies:
       '@sparkjsdev/spark':
-        specifier: ^2.1.0
-        version: 2.1.0(three@0.185.1)
+        specifier: ^2.2.0
+        version: 2.2.0(three@0.186.0)
       '@types/three':
-        specifier: ^0.185.0
-        version: 0.185.4
+        specifier: ^0.186.0
+        version: 0.186.0
       '@webgpu/types':
         specifier: ^0.1.71
         version: 0.1.72
       three:
-        specifier: ^0.185.0
-        version: 0.185.1
+        specifier: ^0.186.0
+        version: 0.186.0
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
@@ -1596,7 +1596,7 @@ packages:
     resolution: {integrity: sha512-TUqERXGNTifZ9y2g3wPxQrw3HpHv/02DsW3D90T9x0hhonrL1ZqpSmNrU2XkoIq0fP1N6gZfVQzy2Fw1ZvGBNg==}
     dev: true
 
-  /@react-three/fiber@9.7.0(@types/react@19.2.18)(react-dom@19.2.8)(react@19.2.8)(three@0.185.1):
+  /@react-three/fiber@9.7.0(@types/react@19.2.18)(react-dom@19.2.8)(react@19.2.8)(three@0.186.0):
     resolution: {integrity: sha512-EWm9FwcaOZQu/ExFW5rggoCMM1NJet5YbxVxKaOE+KSncrjU0Wx7017qSyGFvupviK89nMYGCWU3BIK4dI1clw==}
     peerDependencies:
       expo: '>=43.0'
@@ -1631,7 +1631,7 @@ packages:
       react-use-measure: 2.1.7(react-dom@19.2.8)(react@19.2.8)
       scheduler: 0.27.0
       suspend-react: 0.1.3(react@19.2.8)
-      three: 0.185.1
+      three: 0.186.0
       use-sync-external-store: 1.7.0(react@19.2.8)
       zustand: 5.0.15(@types/react@19.2.18)(react@19.2.8)(use-sync-external-store@1.7.0)
     transitivePeerDependencies:
@@ -1895,13 +1895,13 @@ packages:
     resolution: {integrity: sha512-83yeghZ2xxin3Nj8z1NMd/NCuca+gsYXswywDy5bHvwlWL8tpTQmzGeUuHd9FC3E/SBEMvzJRwWEOz5gGes9Qg==}
     dev: true
 
-  /@sparkjsdev/spark@2.1.0(three@0.185.1):
-    resolution: {integrity: sha512-BRw+MuMzx0B3K8fDLQygt2OHEhYUV+41RX7btq9pZ3rCVrq42o57jW34VAIvC7JO/84DJh/1AutACV9ym6BfVg==}
+  /@sparkjsdev/spark@2.2.0(three@0.186.0):
+    resolution: {integrity: sha512-wf5F2YAmPXnjm20/MgXYer9FQTXz2JOCo05HwxFkaD7Guk9rHVPIwdJ6fq0oF9ME0heMvYj+TxS6DTrucvy6KA==}
     peerDependencies:
       three: '>=0.180.0'
     dependencies:
       fflate: 0.8.3
-      three: 0.185.1
+      three: 0.186.0
     dev: true
 
   /@standard-schema/spec@1.1.0:
@@ -2037,8 +2037,8 @@ packages:
     resolution: {integrity: sha512-jIBvWWShCvlBqBNIZt0KAshWpvSjhkwkEu4ZUcASoAvhmrgAUI2t1dXrjSL4xXVLB4FznPrIsX3nKXFl/Dt4vA==}
     dev: true
 
-  /@types/three@0.185.4:
-    resolution: {integrity: sha512-gAsBIC07NIFrxjbf7tH2t71c38uulFfk/RFoC7FNBSjMRAQ8J1x/RBvusX0N5PJouaYFJawXQqfCQ0RKUx/1nA==}
+  /@types/three@0.186.0:
+    resolution: {integrity: sha512-mxYSBpDC+D0pLfSP6sW4WZTcT+nrtmZcimMqnVmy36Hte3XpeYSrvgg4TRdaM1GemGog1AWzI5qL2VoIfMXbJQ==}
     dependencies:
       '@dimforge/rapier3d-compat': 0.12.0
       '@tweenjs/tween.js': 23.1.3
@@ -4122,8 +4122,8 @@ packages:
     engines: {node: '>=8'}
     dev: true
 
-  /three@0.185.1:
-    resolution: {integrity: sha512-5aojFCXKwnjBRZvUnt3WFfEcvUJgkN5LlijRFN95hMy8WVkG4I0QNcJE+OuWvuJ0bOdStrbfXn0pkd6/QyiAlg==}
+  /three@0.186.0:
+    resolution: {integrity: sha512-cr/fIM2ddMSVbYVgkfD4jLJv7Fh/8ZTjvo+7gQeSVGUZHxpx9FDwoL5iC7hUz/LiRA8wMbqfnb90xKfm1/HHkQ==}
 
   /tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}

@@ -12,7 +12,7 @@
     "@3dgs/react": "workspace:*",
     "@3dgs/renderer-three": "workspace:*",
     "@react-three/fiber": "^9",
-    "three": "^0.185.0"
+    "three": "^0.186.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

@@ -53,14 +53,14 @@
     "@3dgs/core": "workspace:*"
   },
   "peerDependencies": {
-    "@sparkjsdev/spark": "^2.1.0",
-    "three": "^0.185.0"
+    "@sparkjsdev/spark": "^2.2.0",
+    "three": "^0.186.0"
   },
   "devDependencies": {
-    "@sparkjsdev/spark": "^2.1.0",
-    "@types/three": "^0.185.0",
+    "@sparkjsdev/spark": "^2.2.0",
+    "@types/three": "^0.186.0",
     "@webgpu/types": "^0.1.71",
-    "three": "^0.185.0",
+    "three": "^0.186.0",
     "typescript": "^5.5.0"
   }
 }
