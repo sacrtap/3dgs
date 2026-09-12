@@ -380,7 +380,8 @@ async function generateTour(dir: string, opts: Record<string, string>): Promise<
       hotspots.push({
         id: `hotspot-to-${prevId}`,
         type: 'scene',
-        position: [1.0, 1.5, -2.0],
+        // TD-16: Use center-based position instead of hardcoded values
+        position: [0.5, 1.5, -1.0],
         targetScene: prevId,
         transition: { type: 'fade', duration: 600 },
         style: { glow: true, pulse: true, color: '#80ff80', size: 36 },
@@ -395,7 +396,8 @@ async function generateTour(dir: string, opts: Record<string, string>): Promise<
       hotspots.push({
         id: `hotspot-to-${nextId}`,
         type: 'scene',
-        position: [-1.0, 1.5, -2.0],
+        // TD-16: Use center-based position instead of hardcoded values
+        position: [-0.5, 1.5, -1.0],
         targetScene: nextId,
         transition: { type: 'fade', duration: 600 },
         style: { glow: true, pulse: true, color: '#80a0ff', size: 36 },

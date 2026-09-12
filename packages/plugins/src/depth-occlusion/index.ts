@@ -74,7 +74,7 @@ export function createDepthOcclusionPlugin(options: DepthOcclusionOptions = {}):
       // 获取 WebGL2 上下文 (从渲染器的 canvas)
       canvas = ctx.container?.querySelector('canvas') || null;
       if (canvas) {
-        gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true });
+        gl = canvas.getContext('webgl2'); // TD-18: removed preserveDrawingBuffer to avoid GPU perf degradation
         if (!gl) {
           console.warn('[DepthOcclusion] WebGL2 不可用, 深度遮挡检测禁用');
         }

@@ -235,6 +235,8 @@ export function mortonSortGaussians(
  * @returns 48-bit Morton Code (Number)
  */
 function morton3D(x: number, y: number, z: number): number {
+  // TD-25: Uses 16-bit per axis (65536 levels). Adequate for scenes <10km.
+  //   For larger scenes, consider a 20-bit option (still safe within Number range).
   return spreadBits(x) | (spreadBits(y) << 1) | (spreadBits(z) << 2);
 }
 

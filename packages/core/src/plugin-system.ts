@@ -45,6 +45,13 @@ export interface TourPlugin {
 export class PluginSystem {
   private plugins: TourPlugin[] = [];
   private contexts = new Map<string, TourPluginContext>();
+  // TD-13: Reuse FrameContext object to eliminate per-frame spread allocation
+  private _reusableFrameCtx: FrameContext = {
+    camera: { x: 0, y: 0, z: 0 },
+    vpMatrix: new Float32Array(16),
+    size: { width: 0, height: 0 },
+    deltaTime: 0,
+  };
 
   /** 注册插件 */
   register(plugin: TourPlugin, player: TourPlayer): void {
@@ -66,10 +73,21 @@ export class PluginSystem {
 
   /** 每帧更新所有插件 */
   update(deltaTime: number, frameData: Omit<FrameContext, 'deltaTime'>): void {
+    // TD-13: Reuse the same FrameContext — only update fields, no per-frame allocation
+    const ctx = this._reusableFrameCtx;
+    ctx.camera.x = frameData.camera.x;
+    ctx.camera.y = frameData.camera.y;
+    ctx.camera.z = frameData.camera.z;
+    ctx.vpMatrix = frameData.vpMatrix;
+    ctx.size.width = frameData.size.width;
+    ctx.size.height = frameData.size.height;
+    ctx.sceneManager = frameData.sceneManager;
+    ctx.deltaTime = deltaTime;
+
     for (const plugin of this.plugins) {
-      const ctx = this.contexts.get(plugin.name);
-      if (!ctx) continue;
-      plugin.update?.({ ...frameData, deltaTime });
+      const pluginCtx = this.contexts.get(plugin.name);
+      if (!pluginCtx) continue;
+      plugin.update?.(ctx);
     }
   }
 

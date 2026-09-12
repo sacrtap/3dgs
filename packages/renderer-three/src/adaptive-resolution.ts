@@ -122,8 +122,13 @@ export class AdaptiveResolution {
         this.onScaleChange?.(this.currentScale);
       }
     } else if (avgFps > this.opts.targetFps && this.currentScale < this.opts.maxScale) {
-      // 帧率充足 — 尝试恢复分辨率
-      const newScale = Math.min(this.opts.maxScale, this.currentScale + this.opts.step);
+      // TD-29: 帧率充足 — 根据帧率余量动态调整恢复速率
+      // 帧率越高，恢复越快；接近目标时恢复越慢，避免震荡
+      const fpsHeadroom = avgFps - this.opts.targetFps;
+      const maxHeadroom = 60 - this.opts.targetFps; // 假设 60fps 为上限
+      const dynamicStep = this.opts.step * (0.5 + 0.5 * Math.min(fpsHeadroom / maxHeadroom, 1));
+
+      const newScale = Math.min(this.opts.maxScale, this.currentScale + dynamicStep);
       if (newScale !== this.currentScale) {
         this.currentScale = newScale;
         this.onScaleChange?.(this.currentScale);

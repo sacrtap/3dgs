@@ -50,6 +50,8 @@ export interface HotspotPopup {
   placement?: 'auto' | 'center';
   /** 是否可点击遮罩/关闭按钮关闭 (默认 true) */
   dismissible?: boolean;
+  /** TD-30: 是否对内容进行 HTML 消毒 (默认 true, 防止 XSS) */
+  sanitize?: boolean;
 }
 
 export interface HotspotConfig {

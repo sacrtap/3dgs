@@ -94,7 +94,8 @@ export class SceneManager {
    * 热点插件可调用此方法预加载相邻场景
    */
   async preloadScenes(sceneIds: string[]): Promise<void> {
-    await Promise.all(sceneIds.map((id) => this.preload(id).catch(() => {})));
+    // TD-14: Use allSettled to express "individual failures are OK" semantics
+    await Promise.allSettled(sceneIds.map((id) => this.preload(id)));
   }
 
   getCurrent(): SceneInstance | null {

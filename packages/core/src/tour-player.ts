@@ -26,6 +26,21 @@ export type TourPlayerEventType =
   | 'load'
   | 'error';
 
+// TD-21: 事件映射类型 — 为已知事件提供类型约束
+export interface TourPlayerEventMap {
+  'hotspot:click': { id: string };
+  'hotspot:hover': { id: string };
+  'scene:switching': { sceneId: string; transition?: unknown };
+  'scene:switched': { sceneId: string; scene?: unknown };
+  'scene:loaded': { sceneId: string };
+  'scene:error': { sceneId: string; error?: string };
+  'scene:progress': { sceneId: string; progress?: number };
+  load: { sceneCount: number };
+  error: { message: string };
+  // 插件自定义事件（允许任意 string，但提供类型提示）
+  [key: string]: unknown;
+}
+
 export type TourPlayerHandler = (data: unknown) => void;
 
 export class TourPlayer {
@@ -150,14 +165,22 @@ export class TourPlayer {
 
   // ─── 事件系统 ────────────────────────────────────────────
 
-  on(type: TourPlayerEventType | string, handler: TourPlayerHandler): () => void {
+  // TD-21: 使用事件映射类型提供类型约束
+  on<K extends keyof TourPlayerEventMap>(
+    type: K,
+    handler: (data: TourPlayerEventMap[K]) => void,
+  ): () => void;
+  on(type: string, handler: TourPlayerHandler): () => void;
+  on(type: string, handler: TourPlayerHandler): () => void {
     const key = String(type);
     if (!this.listeners.has(key)) this.listeners.set(key, new Set());
     this.listeners.get(key)!.add(handler);
     return () => this.listeners.get(key)?.delete(handler);
   }
 
-  /** 触发事件（供插件间通信使用） */
+  // TD-21: 使用事件映射类型提供类型约束
+  emit<K extends keyof TourPlayerEventMap>(type: K, data?: TourPlayerEventMap[K]): void;
+  emit(type: string, data?: unknown): void;
   emit(type: string, data?: unknown): void {
     this.listeners.get(type)?.forEach((h) => {
       try {
