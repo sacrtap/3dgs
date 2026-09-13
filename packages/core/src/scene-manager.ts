@@ -8,6 +8,8 @@ export interface SceneInstance {
   config: SceneConfig & { defaults?: TourDefaults };
   state: SceneLoadState;
   loadError?: string;
+  /** ★ TD-03: 预加载进行中标志 — 防止并发重复调用 renderer.preloadScene */
+  preloading?: boolean;
 }
 
 export type SceneEventType = 'scene:loaded' | 'scene:error' | 'scene:switched' | 'scene:progress';
@@ -101,13 +103,13 @@ export class SceneManager {
     // ★ 预加载去重: preloading 防并发重复调用 renderer.preloadScene
     //   注意: 渲染器 preloadScene 自带缓存去重 (_preloadCache.has), 成功后重复
     //   preload 不会重发网络请求 — 无需持久 preloaded 标记 (LRU 淘汰后还能重新预取)
-    if ((scene as { preloading?: boolean }).preloading) return;
+    if (scene.preloading) return;
 
     // ★ TD-03: 端到端预加载 — 渲染器实现 preloadScene 时真实预取资源 (不切换可见场景);
     //   预取成功后场景仍保持 unloaded, switchTo 时 loadScene 命中渲染器缓存, 不重复下载。
     //   失败静默 — 切换时走正常加载路径兜底。
     if (this.renderer?.preloadScene && scene.config.source) {
-      (scene as { preloading?: boolean }).preloading = true;
+      scene.preloading = true;
       try {
         await this.renderer.preloadScene(scene.config.source, {
           lodSource: scene.config.lodSource,
@@ -116,7 +118,7 @@ export class SceneManager {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[SceneManager] 预加载场景 "${id}" 失败(切换时将重试): ${msg}`);
       } finally {
-        (scene as { preloading?: boolean }).preloading = false;
+        scene.preloading = false;
       }
       return;
     }
