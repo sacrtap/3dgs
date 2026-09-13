@@ -7,7 +7,7 @@
 [![npm version](https://img.shields.io/npm/v/@3dgs/renderer-three?label=%403dgs%2Frenderer-three)](https://www.npmjs.com/package/@3dgs/renderer-three)
 [![npm downloads](https://img.shields.io/npm/dm/@3dgs/core?label=downloads)](https://www.npmjs.com/package/@3dgs/core)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D18-green.svg)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5%2B-blue.svg)](https://www.typescriptlang.org)
 
 [English](README.md) | **中文**
@@ -82,6 +82,9 @@ cd 3dgs && pnpm install && pnpm --filter @3dgs/demo dev
 - **设备分级** — 自动检测硬件能力（CPU 核心数、内存、GPU 型号、触控能力 — iPadOS 正确识别为移动端），动态选择渲染参数
 - **自适应分辨率** — 帧率低于阈值时自动降低渲染分辨率，保障流畅度；场景加载期间暂停采样避免误降，HIGH/ULTRA 档高分屏有限跟随 devicePixelRatio 提升清晰度
 - **省电感知** — 页面隐藏时自动暂停渲染循环（visibilitychange），恢复无帧时间尖峰，移动端切后台不耗电
+- **空间分块视锥裁剪** — `SplatGridCuller` 将位置装入 8³ 单元（不依赖 Morton）；按单元粒度裁剪，可见性掩码未变化时跳过 GPU 索引重传
+- **渲染统计** — `getStats()` 暴露 fps、平滑帧时间、可见 splat 数与缓冲池命中/未命中统计
+- **预加载** — `RendererAdapter.preloadScene()` 预取场景资源而不切换；`SceneManager.preload()` 跟踪句柄，加载时复用缓存数据
 - **DragLookControls** — 拖拽式视角控制，类似全景查看器交互
 - **键盘移动** — WASD 水平移动 + QE 升降，带速度插值平滑
 
@@ -98,8 +101,9 @@ cd 3dgs && pnpm install && pnpm --filter @3dgs/demo dev
 |------|------|--------|
 | **PLY** | 原始 3DGS 训练输出格式 | 1× |
 | **SPLAT** | antimatter15 格式（32 字节/splat） | ~1× |
-| **SPZ** | Niantic SPZ v2 格式（gzip 压缩） | 实测相对 .splat ~2× |
-| **SOG** | Spatially Ordered Gaussians（流式 LOD） | 按需加载 |
+| **SPZ** | Niantic SPZ 格式 — 读取 v1–v4（v4 NGSP + zstd 可注入解压器），写入 v2（gzip） | 实测相对 .splat ~2× |
+| **SOG** | Spatially Ordered Gaussians — v2（流式 LOD），v3 增加尾部 SH overlay | 按需加载 |
+| **压缩 PLY** | SuperSplat 兼容量化 PLY（写入端） | 相对原始 PLY ~10× |
 
 > **基准测试亮点（2026-08-27，5 场景 × 格式全量）**: 248K splat 场景下各格式稳态均 ~60 FPS — SPZ 加载最快（405ms，体积仅为 .splat 的 48%）；大场景（>1M splats）SOG 加载最快（5.8M 场景 1.2s，SPLAT 需 10.9s）且帧率持平。转换吞吐约 12~50 万 splats/秒。详见[完整性能报告](benchmarks/reports/performance-report-full-2026-08-27.md)。
 
@@ -222,7 +226,7 @@ await player.switchScene('kitchen');
 
 ## 数据转换工具
 
-`@3dgs/convert` 包已[发布到 npm](https://www.npmjs.com/package/@3dgs/convert)（v0.2.0）。可以直接通过 `npx` 使用，无需安装；也可以全局安装后使用：
+`@3dgs/convert` 包已[发布到 npm](https://www.npmjs.com/package/@3dgs/convert)（v0.3.0）。可以直接通过 `npx` 使用，无需安装；也可以全局安装后使用：
 
 ```bash
 # 通过 npx 直接使用（无需安装）
@@ -242,14 +246,18 @@ npx 3dgs-convert ply-to-splat input.ply -o output.splat
 # PLY → SPZ (gzip 压缩，实测相对 .splat ~2×)
 npx 3dgs-convert ply-to-spz input.ply -o output.spz --sh-degree 1
 
-# PLY → SOG (流式 LOD，支持渐进式加载)
+# PLY → SOG (流式 LOD，支持渐进式加载；--sog-version 3 追加 SH overlay)
 npx 3dgs-convert ply-to-sog input.ply -o output.sog
+
+# 任意输入 → SuperSplat 兼容的压缩 PLY（量化）
+npx 3dgs-convert to-compressed-ply input.ply -o output.compressed.ply
 
 # .splat → .spz / .sog (反向转换)
 npx 3dgs-convert splat-to-spz input.splat -o output.spz
 npx 3dgs-convert splat-to-sog input.splat -o output.sog
 
-# 批量转换目录下所有 PLY 文件
+# 批量转换目录下所有受支持文件（.ply/.splat/.spz/.sog），
+# 并输出含逐文件结果的 manifest.json
 npx 3dgs-convert batch ./scenes/ --format spz --sh-degree 1
 
 # 生成 tour.json 配置模板
@@ -272,8 +280,10 @@ npx 3dgs-convert info input.ply
 | `--sh-degree <num>` | SH 阶数 0-3（默认自动检测） |
 | `--fractional-bits <num>` | SPZ 位置量化小数位（默认 12） |
 | `--chunk-size <num>` | SOG 每 chunk 的 splat 数（默认 8192） |
-| `--contribution-cutoff <num>` | 贡献度裁剪（0-1=保留比例，>1=保留数量） |
+| `--contribution-cutoff <num>` | 贡献度裁剪（0-1=保留比例，>1=保留数量；使用 quickselect，O(N)） |
+| `--max-splats <num>` | 转换期按贡献度预裁剪到最多 N 个 splat |
 | `--sh-mode <num>` | SOG SH DC 追加模式（0=off, 1=Int8，默认 0） |
+| `--sog-version <num>` | SOG 版本 2 或 3（默认 2；3 = 尾部 SH overlay，完整 SH 0-3 阶） |
 
 </details>
 
@@ -503,7 +513,9 @@ player.use(createMyPlugin());
 | `DeviceTier` | 枚举 | 设备分级 — LOW / MEDIUM / HIGH / ULTRA |
 | `TourConfig` | 类型 | 声明式场景图配置格式 |
 | `TourPlugin` | 接口 | 插件接口 — `init` / `update` / `destroy` |
-| `validateTourConfig` | 函数 | 配置验证 |
+| `validateTourConfig` | 函数 | 配置校验 |
+| `validateTourConfigJson` | 函数 | 完整校验并收集全部错误（基于 JSON Schema） |
+| `RenderStats` | 接口 | 渲染统计 — fps、frameTimeMs、visibleSplats、缓冲池统计 |
 
 ### @3dgs/renderer-three
 
@@ -516,24 +528,34 @@ player.use(createMyPlugin());
 | `createRendererSync` | 函数 | 同步渲染器工厂 — 直接使用 WebGL2 |
 | `detectWebGPU` | 函数 | WebGPU 能力检测 |
 | `detectDeviceTier` | 函数 | 设备分级检测 |
-| `SogStreamer` | 类 | SOG 流式 LOD 客户端 |
+| `SogStreamer` | 类 | SOG 流式 LOD 客户端（v2/v3；v3 通过 HTTP Range 加载 SH overlay） |
 | `FrustumCulling` | 类 | Morton 空间分块视锥裁剪 |
+| `SplatGridCuller` | 类 | 单元分块视锥裁剪器（8³ 桶，不依赖 Morton） |
 | `SplatBufferPool` | 类 | ArrayBuffer 对象池（场景切换复用） |
+| `fetchWithProgress` | 函数 | 流式 fetch（进度回调 + AbortSignal） |
+| `downsampleSplatBytes` / `downsampleSplatData` | 函数 | 共享降采样助手（WebGL 字节 / WebGPU SoA） |
 | `decodeSpzInWorker` | 函数 | SPZ 格式解码器（Worker + 主线程回退） |
 
 ### @3dgs/convert
 
 | 导出 | 说明 |
 |------|------|
-| `loadGaussiansFromPly(buffer, options?)` | 从 PLY 解析高斯数据 |
+| `loadGaussiansFromPly(buffer, options?)` | 从 PLY 解析高斯数据（流式分块，可直出 SoA） |
+| `loadGaussiansFromPlySoA(buffer, options?)` | 直接解析 PLY 为列式 `GaussianCloudSoA`（快路径） |
 | `loadGaussiansFromSplat(buffer, options?)` | 从 `.splat` 反向加载为 GaussianCloud |
-| `writeSplat(cloud)` | 写入 `.splat` 格式 |
-| `writeSpz(cloud, options?)` | 写入 `.spz` 格式（gzip 压缩） |
-| `writeSog(cloud, options?)` | 写入 `.sog` 格式（流式 LOD，v2: gzip + LOD 树 + 位置量化） |
+| `loadGaussiansFromSpz(buffer, options?)` | 读取 SPZ v1–v4 为 GaussianCloud（v4 zstd 经 `zstdDecompress` 注入） |
+| `toSoA(cloud)` / `fromSoA(soa)` | AoS `GaussianCloud` 与列式 SoA 互转 |
+| `writeSplat(cloud)` / `writeSplatSoA(soa)` | 写入 `.splat` 格式 |
+| `writeSpz(cloud, options?)` | 写入 `.spz` 格式（v2，gzip 压缩） |
+| `writeSog(cloud, options?)` | 写入 `.sog` 格式（v2: gzip + LOD 树 + 位置量化；`version: 3` 追加 SH overlay） |
+| `readShOverlaySoA(buffer, metadata)` | 读取 SOG v3 文件尾部的 SH overlay |
+| `writeCompressedPly(cloud, options?)` | 写入 SuperSplat 兼容量化压缩 PLY |
 | `pruneGaussians(cloud, options?)` | 冗余高斯核剔除 |
 | `mortonSortGaussians(cloud, options?)` | Morton Code 空间排序 |
+| `quickselect(array, k)` / `quickselectIndices(indices, scores, k)` | O(N) 第 k 元选择（贡献度裁剪用） |
 | `parsePly(buffer)` | 底层 PLY 解析器 |
-| `parseSogMetadata(buffer)` | 解析 SOG 文件元数据 |
+| `parseSpzHeader(buffer)` | SPZ header 解析器（v1–v4 布局） |
+| `parseSogMetadata(buffer)` | 解析 SOG 元数据（v1/v2/v3 + SH overlay 字段） |
 | `buildLodLevels(numSplats, numLevels, lodBase)` | 构建 LOD 层级边界（Morton 前缀子集） |
 | `serializeLodTree(levels, lodBase)` | 序列化 LOD 树为二进制 |
 | `deserializeLodTree(buffer)` | 从二进制反序列化 LOD 树 |
@@ -563,7 +585,7 @@ player.use(createMyPlugin());
 | 桌面端 / 高带宽 | `.splat` | 无解码开销，加载最简单 |
 | 移动端 / 4G 网络 | `.spz` | 传输量减半，加载更快 |
 | 大场景 (> 1M splats) | `.sog` | 首帧快速渲染 + LOD 效率高 |
-| 需要球谐光照 | `.spz` | 唯一支持 SH 的格式 |
+| 需要球谐光照 | `.spz` / `.sog`（v3） | SPZ v2+ 与 SOG v3（SH overlay）支持 SH 0-3 阶 |
 | 漫游多场景 | `.sog` | Morton 排序提升 LOD 质量 |
 
 ### 按设备分级推荐
@@ -581,11 +603,11 @@ player.use(createMyPlugin());
 | 特性 | .splat | .spz | .sog |
 |------|--------|------|------|
 | **每 splat 字节** | 32 B | ~16 B (压缩前) | 32 B (同 .splat) |
-| **压缩** | 无 | gzip + 量化 | 无 (分块传输) |
-| **SH 球谐系数** | ✗ | ✓ (degree 0-3) | ✗ |
+| **压缩** | 无 | gzip + 量化 | 无 (分块传输)；可选 gzip + 量化 |
+| **SH 球谐系数** | ✗ | ✓ (degree 0-3) | ✓ v3 经尾部 overlay（0-3 阶）；v2 经 `--sh-mode` DC |
 | **流式加载** | ✗ | ✗ | ✓ (HTTP Range) |
 | **Morton 排序** | ✗ | ✗ | ✓ (LOD 友好) |
-| **位置精度** | Float32 | 24bit 定点 | Float32 |
+| **位置精度** | Float32 | 24bit 定点 | Float32（或量化后 24bit） |
 | **网络传输** | 全量 | 全量 (压缩) | 渐进式 |
 | **CPU 解码开销** | 最低 | 中 (解压+反量化) | 低 |
 
@@ -835,7 +857,7 @@ pnpm --filter @3dgs/core dev        # 监听模式
 
 ```bash
 pnpm typecheck       # 类型检查
-pnpm test            # 单元测试 (473 个用例, 无需先构建)
+pnpm test            # 单元测试 (718 个用例, 无需先构建)
 pnpm test:coverage   # 覆盖率报告
 pnpm lint            # ESLint 检查
 pnpm lint:fix        # 自动修复
@@ -883,11 +905,12 @@ GitHub Actions CI 流水线在每次 push / PR 时自动执行 Lint、Type Check
 │   ├── core/              # 框架无关核心 — TourPlayer、SceneManager、PluginSystem
 │   ├── renderer-three/    # Three.js + Spark / WebGPU 渲染器适配层
 │   ├── plugins/           # 插件包 — 热点、相机控制、深度遮挡、触摸、过渡、Shader
-│   ├── convert/           # 数据转换 CLI + 编程 API
+│   ├── convert/           # 数据转换 CLI + 编程 API（SoA 管线）
 │   ├── react/             # React 适配层 — <TourViewer /> 组件
 │   └── vue/               # Vue 3 适配层 — <TourViewer /> 组件
 ├── apps/
-│   └── demo/              # 在线演示应用 (Vite + Vanilla TS)
+│   ├── demo/              # 在线演示应用 (Vite + Vanilla TS)
+│   └── r3f-example/       # React Three Fiber 集成示例 (R-10)
 ├── examples/              # 12 个示例代码
 ├── docs/site/             # VitePress 文档站
 ├── .changeset/            # Changesets 版本管理

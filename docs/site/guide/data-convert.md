@@ -17,8 +17,9 @@ npx @3dgs/convert --help
 | 格式 | 说明 | 特点 |
 |------|------|------|
 | `.splat` | 32 字节/splat 扁平格式 | 兼容性最好, 无压缩 |
-| `.spz` | Niantic SPZ v2 格式 | gzip 压缩, 体积小 |
-| `.sog` | 空间排序分块格式 (v2 支持 gzip 压缩 + LOD 树 + 位置量化) | 流式 LOD, 渐进加载 |
+| `.spz` | Niantic SPZ 格式 — 读取 v1–v4（v4 NGSP + zstd 可注入），写入 v2 | gzip 压缩, 体积小 |
+| `.sog` | 空间排序分块格式（v2 支持 gzip + LOD 树 + 位置量化；v3 增加尾部 SH overlay） | 流式 LOD, 渐进加载 |
+| `.compressed.ply` | SuperSplat 兼容压缩 PLY（写入端） | 量化, 相对原始 PLY ~10× |
 
 ## 命令
 
@@ -38,11 +39,33 @@ npx @3dgs/convert --help
 
 ```bash
 3dgs-convert ply-to-sog input.ply --output output.sog --chunk-size 50000
+
+# SOG v3: 追加尾部 SH overlay（完整 SH 0-3 阶）
+3dgs-convert ply-to-sog input.ply --output output.sog --sog-version 3
+```
+
+### to-compressed-ply — SuperSplat 兼容压缩 PLY
+
+```bash
+3dgs-convert to-compressed-ply input.ply --output output.compressed.ply
+```
+
+> 输入支持 `.ply / .splat / .spz / .sog`；输出量化压缩 PLY（相对原始 PLY ~10×）。
+
+### 转换期预裁剪（所有转换命令通用）
+
+```bash
+# 按贡献度裁剪到最多 500K splats（转换期，独立于 --prune）
+3dgs-convert ply-to-spz input.ply --output output.spz --max-splats 500000
+
+# 按比例保留贡献度前 80%（quickselect O(N)）
+3dgs-convert ply-to-sog input.ply --output output.sog --contribution-cutoff 0.8
 ```
 
 ### 批量转换
 
 ```bash
+# 输入目录支持 .ply/.splat/.spz/.sog 混合；输出 manifest.json（逐文件结果）
 3dgs-convert batch ./scenes/ --format spz --sh-degree 1 --output ./dist/
 ```
 
@@ -66,8 +89,10 @@ npx @3dgs/convert --help
 | SPLAT | 2.2 MB | 1.05x | ✗ | ✗ |
 | SPZ (SH0) | 0.58 MB | 3.85x | ✗ | ✓ (0-3) |
 | SOG v1 | 2.2 MB | 1.05x | ✓ | ✗ |
-| SOG v2 (gzip) | ~1.5 MB | ~1.5x | ✓ | ✗ |
+| SOG v2 (gzip) | ~1.5 MB | ~1.5x | ✓ | ✗（`--sh-mode` 可加 DC） |
 | SOG v2 (gzip + 量化) | ~1.4 MB | ~1.65x | ✓ | ✗ |
+| SOG v3 (SH overlay) | ~1.4 MB + SH | ~1.65x | ✓ | ✓ (0-3) |
+| 压缩 PLY | ~0.3 MB | ~8x | ✗ | ✓ |
 
 ## 格式选择指南
 
@@ -80,7 +105,7 @@ npx @3dgs/convert --help
 | 桌面端 / 高带宽 | `.splat` | 无解码开销，加载最简单 |
 | 移动端 / 4G 网络 | `.spz` | 传输量减半，加载更快 |
 | 大场景 (> 1M splats) | `.sog` | 首帧快速渲染 + LOD 效率高 |
-| 需要球谐光照 | `.spz` | 唯一支持 SH 的格式 |
+| 需要球谐光照 | `.spz` / `.sog`（v3） | SPZ v2+ 与 SOG v3（SH overlay）支持 SH 0-3 阶 |
 | 漫游多场景 | `.sog` | Morton 排序提升 LOD 质量 |
 
 ### 按设备分级推荐
