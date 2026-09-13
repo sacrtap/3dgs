@@ -272,6 +272,30 @@ fn vs_main(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) -
       outB += shCoeffs[base + 11u] * l2a + shCoeffs[base + 14u] * l2b
             + shCoeffs[base + 17u] * l2c + shCoeffs[base + 20u] * l2d
             + shCoeffs[base + 23u] * l2e;
+
+      if (shDim >= 15u) {
+        // L3 (7 系数): 与 Spark evaluatePackedSH 的 degree-3 基函数一致
+        //   [来源: @sparkjsdev/spark — evaluatePackedSH sh3_0..sh3_6]
+        let l3a = -0.5900436 * y * (3.0 * x * x - y * y);
+        let l3b = 2.8906114 * x * y * z;
+        let l3c = -0.4570458 * y * (4.0 * z * z - x * x - y * y);
+        let l3d = 0.3731763 * z * (2.0 * z * z - 3.0 * x * x - 3.0 * y * y);
+        let l3e = -0.4570458 * x * (4.0 * z * z - x * x - y * y);
+        let l3f = 1.4453057 * z * (x * x - y * y);
+        let l3g = -0.5900436 * x * (x * x - 3.0 * y * y);
+        outR += shCoeffs[base + 24u] * l3a + shCoeffs[base + 27u] * l3b
+              + shCoeffs[base + 30u] * l3c + shCoeffs[base + 33u] * l3d
+              + shCoeffs[base + 36u] * l3e + shCoeffs[base + 39u] * l3f
+              + shCoeffs[base + 42u] * l3g;
+        outG += shCoeffs[base + 25u] * l3a + shCoeffs[base + 28u] * l3b
+              + shCoeffs[base + 31u] * l3c + shCoeffs[base + 34u] * l3d
+              + shCoeffs[base + 37u] * l3e + shCoeffs[base + 40u] * l3f
+              + shCoeffs[base + 43u] * l3g;
+        outB += shCoeffs[base + 26u] * l3a + shCoeffs[base + 29u] * l3b
+              + shCoeffs[base + 32u] * l3c + shCoeffs[base + 35u] * l3d
+              + shCoeffs[base + 38u] * l3e + shCoeffs[base + 41u] * l3f
+              + shCoeffs[base + 44u] * l3g;
+      }
     }
   }
   output.color = vec4<f32>(clamp(outR, 0.0, 1.0), clamp(outG, 0.0, 1.0), clamp(outB, 0.0, 1.0), dcA);

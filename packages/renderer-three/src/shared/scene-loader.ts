@@ -100,8 +100,15 @@ export function downsampleSplatData(data: SplatData, maxCount: number): SplatDat
   const colors = new Uint8Array(newCount * 4);
   const rotations = new Uint8Array(newCount * 4);
   // ★ TD-01: SH 系数随降采样同步 (每 splat shDim*3 个)
-  const shDim = data.sh ? Math.floor(data.sh.length / data.count / 3) : 0;
-  const sh = data.sh ? new Float32Array(newCount * shDim * 3) : null;
+  // ★ 一致性: 用 data.shDegree 推导 (SplatData 权威字段), 而非从 sh.length 反推
+  //   — 数据截断/异常时反推可能错误; 未知 degree 时保持原反推行为 (容错)
+  const shDim =
+    data.shDegree !== undefined
+      ? (({ 0: 0, 1: 3, 2: 8, 3: 15 } as Record<number, number>)[data.shDegree] ?? 0)
+      : data.sh
+        ? Math.floor(data.sh.length / data.count / 3)
+        : 0;
+  const sh = data.sh && shDim > 0 ? new Float32Array(newCount * shDim * 3) : null;
 
   for (let i = 0; i < newCount; i++) {
     const src = Math.floor(i * step);
@@ -127,6 +134,11 @@ export interface SogChunkHandlers {
   onChunkLoaded?: (chunkIndex: number, data: ArrayBuffer) => void;
   /** chunk 加载错误回调 */
   onError?: (error: Error) => void;
+  /**
+   * streamer 创建回调 — SogStreamer 实例就绪后立即调用 (start 前),
+   * 调用方借此提前持有引用以便在 await start() 期间 abort 加载
+   */
+  onStreamer?: (streamer: SogStreamer) => void;
 }
 
 /** SOG chunk 收集结果 */
@@ -175,6 +187,9 @@ export async function loadSogChunks(
       handlers.onError?.(error);
     },
   });
+
+  // ★ 立即暴露 streamer: 调用方在 await start() 期间即可 abort (早于原返回时机)
+  handlers.onStreamer?.(streamer);
 
   const metadata = await streamer.start();
 

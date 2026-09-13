@@ -726,6 +726,10 @@ export class WebGPURenderManager implements RendererAdapter {
         onError: (error) => {
           console.error('[WebGPURenderManager] SOG chunk 加载错误:', error.message);
         },
+        // ★ 提前持有 streamer: await start() 期间新 loadScene/destroy 可 abort 本次加载
+        onStreamer: (streamer) => {
+          this._sogStreamer = streamer;
+        },
       },
     );
     this._sogStreamer = streamer;

@@ -606,10 +606,13 @@ export function parseSogMetadata(buffer: ArrayBuffer): SogMetadata {
     const oh = buffer.byteLength - SOG_V3_OVERLAY_HEADER_SIZE;
     shOverlayOffset = view.getUint32(oh, true);
     shOverlaySize = view.getUint32(oh + 4, true);
+    // ★ overlay header shDegree (byte 8) 必须与主 header 声明一致, 不一致视为损坏
+    const overlayShDegree = view.getUint8(oh + 8);
     // ★ 双向边界校验: 下界 (非负, 不落在 header 之前的数据区起点之前) + 上界 (不越过 overlay header)
     const MIN_OVERLAY_OFFSET = SOG_HEADER_SIZE; // overlay 数据区必须在文件头之后
     if (
       shOverlaySize > 0 &&
+      overlayShDegree === shDegree &&
       shOverlayOffset >= MIN_OVERLAY_OFFSET &&
       shOverlayOffset + shOverlaySize <= oh
     ) {

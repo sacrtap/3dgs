@@ -29,4 +29,19 @@ describe('SPLAT_RENDER_SHADER — SH DC 归一', () => {
     // SH_C0 常量仍存在 (DC 存储时用于归一, 保持语义文档)
     expect(shader).toContain('const SH_C0 = 0.28209479177387814');
   });
+
+  it('★ L3 (degree-3, shDim=15) 系数被完整求值 — 与 Spark evaluatePackedSH 基函数一致', () => {
+    // 回归锚点: shader 曾只求值到 L2, degree-3 数据上传 45 系数却只用 24 个 (静默降级)
+    expect(shader).toContain('if (shDim >= 15u)');
+    // 7 个 L3 基函数 (Spark 权威常量)
+    expect(shader).toContain('-0.5900436 * y * (3.0 * x * x - y * y)'); // sh3_0
+    expect(shader).toContain('2.8906114 * x * y * z'); // sh3_1
+    expect(shader).toContain('-0.4570458 * y * (4.0 * z * z - x * x - y * y)'); // sh3_2
+    expect(shader).toContain('0.3731763 * z * (2.0 * z * z - 3.0 * x * x - 3.0 * y * y)'); // sh3_3
+    expect(shader).toContain('1.4453057 * z * (x * x - y * y)'); // sh3_5
+    expect(shader).toContain('-0.5900436 * x * (x * x - 3.0 * y * y)'); // sh3_6
+    // 每 splat 45 系数 (shDim=15) 全部被索引
+    expect(shader).toContain('shCoeffs[base + 42u]');
+    expect(shader).toContain('shCoeffs[base + 44u]');
+  });
 });

@@ -80,7 +80,8 @@ export function writeCompressedPlySoA(
   const header =
     'ply\n' +
     'format binary_little_endian 1.0\n' +
-    `comment ${String(options.source ?? '3dgs-convert')}\n` +
+    // ★ security: source 可能含换行, 注入 PLY header 会截断/产生非法行 — 替换为空格
+    `comment ${String(options.source ?? '3dgs-convert').replace(/[\r\n]+/g, ' ')}\n` +
     `element vertex ${count}\n` +
     'property uint packed_position\n' +
     'property uint packed_rotation\n' +

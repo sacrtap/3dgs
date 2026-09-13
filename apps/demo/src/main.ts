@@ -973,10 +973,11 @@ async function main() {
       ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}` : 'N/A';
     return {
       backend: backend.toUpperCase(),
-      deviceTier: tierNames[renderer.getDeviceTier()],
+      // ★ renderer 可能为 null (初始/回退失败) — 守卫避免 TypeError
+      deviceTier: renderer ? tierNames[renderer.getDeviceTier()] : 'N/A',
       gpu: gpuInfo,
       sab: RenderManager.isCrossOriginIsolated(),
-      resolutionScale: renderer.getResolutionScale ? renderer.getResolutionScale() : 1.0,
+      resolutionScale: renderer && renderer.getResolutionScale ? renderer.getResolutionScale() : 1.0,
       userAgent: navigator.userAgent,
     };
   };
@@ -1061,7 +1062,7 @@ async function main() {
             scene: scene.title, format: format.toUpperCase(),
             splatCount: scene.splatCount, error: 'N/A (无源文件)',
           });
-          if (onProgress) onProgress(results.length, 18, scene.title, format, 'skipped');
+          if (onProgress) onProgress(results.length, sceneIds.length * formats.length, scene.title, format, 'skipped');
           continue;
         }
 
@@ -1069,7 +1070,7 @@ async function main() {
           await switchFormat(format);
           await new Promise(r => setTimeout(r, 3000));
 
-          if (onProgress) onProgress(results.length, 18, scene.title, format, 'running');
+          if (onProgress) onProgress(results.length, sceneIds.length * formats.length, scene.title, format, 'running');
 
           const result = await new Promise((resolve) => {
             bench.frameTimes = [];
@@ -1091,14 +1092,14 @@ async function main() {
 
           if (result) {
             results.push(result);
-            if (onProgress) onProgress(results.length, 18, scene.title, format, 'done');
+            if (onProgress) onProgress(results.length, sceneIds.length * formats.length, scene.title, format, 'done');
           }
         } catch (err) {
           results.push({
             scene: scene.title, format: format.toUpperCase(),
             splatCount: scene.splatCount, error: err.message,
           });
-          if (onProgress) onProgress(results.length, 18, scene.title, format, 'error');
+          if (onProgress) onProgress(results.length, sceneIds.length * formats.length, scene.title, format, 'error');
         }
       }
     }

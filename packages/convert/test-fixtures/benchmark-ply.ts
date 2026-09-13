@@ -110,11 +110,9 @@ export function generateBenchmarkPly(
     'property float f_dc_0',
     'property float f_dc_1',
     'property float f_dc_2',
-    'property float f_rest_0',
   ];
-  // 展开全部 f_rest
+  // 展开全部 f_rest (shDegree=0 时 restCount=0, 不声明任何 f_rest 属性)
   for (let j = 0; j < restCount; j++) {
-    if (j === 0) continue;
     props.push(`property float f_rest_${j}`);
   }
   props.push('property float opacity');

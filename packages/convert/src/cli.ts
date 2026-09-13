@@ -147,8 +147,11 @@ program
   .option('--prune', '启用冗余剔除')
   .option('--contribution-cutoff <num>', '★ M3: 贡献度裁剪 (0-1=保留比例, >1=保留数量)')
   .action(async (input: string, opts: Record<string, string>) => {
+    // ★ security: 默认输出名 — 已知扩展名替换为 .compressed.ply,
+    //   未知/无扩展名时追加后缀, 避免 output === input 覆盖原始文件
+    const defaultOut = input.replace(/\.(ply|splat|spz|sog)$/i, '.compressed.ply');
     const output = String(
-      opts.output || input.replace(/\.(ply|splat|spz|sog)$/i, '.compressed.ply'),
+      opts.output || (defaultOut === input ? `${input}.compressed.ply` : defaultOut),
     );
     const startTime = Date.now();
     const buffer = await readFile(input);
@@ -249,8 +252,8 @@ async function convertPly(
   console.log(`   高斯核数: ${cloud.vertexCount.toLocaleString()}`);
   console.log(`   SH 阶数: ${cloud.shDegree}`);
 
-  await convertCloud(cloud, opts, format, input, plySize, startTime);
-  return cloud.vertexCount;
+  const splatCount = await convertCloud(cloud, opts, format, input, plySize, startTime);
+  return splatCount;
 }
 
 /**
@@ -274,8 +277,8 @@ async function convertSplat(
   console.log(`   高斯核数: ${cloud.vertexCount.toLocaleString()}`);
   console.log(`   SH 阶数: ${cloud.shDegree} (.splat 不含 SH)`);
 
-  await convertCloud(cloud, opts, format, input, splatSize, startTime);
-  return cloud.vertexCount;
+  const splatCount = await convertCloud(cloud, opts, format, input, splatSize, startTime);
+  return splatCount;
 }
 
 /**
@@ -288,7 +291,7 @@ async function convertCloud(
   input: string,
   inputSize: number,
   startTime: number,
-): Promise<void> {
+): Promise<number> {
   // 冗余剔除
   if (opts.prune) {
     const minOpacity = parseFloat(String(opts.minOpacity || '0.01'));
@@ -387,6 +390,9 @@ async function convertCloud(
   console.log(`   大小: ${(outputSize / 1024 / 1024).toFixed(2)} MB`);
   console.log(`   压缩比: ${compressionRatio.toFixed(2)}×`);
   console.log(`   耗时: ${elapsed}ms\n`);
+
+  // ★ 返回裁剪后实际 splat 数 (prune/max-splats 可能已重赋 cloud)
+  return cloud.splats.length;
 }
 
 /**
@@ -414,9 +420,11 @@ function decodeSogToCloud(
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
     // ★ M1: 检测 chunk local bbox 前缀 (24 bytes = 6 × Float32)
-    // 紧凑格式写入时总是附带 bbox (writeCompactSplatChunkSoA includeBbox=true)
+    // 紧凑格式写入时总是附带 bbox (writeCompactSplatChunkSoA includeBbox=true);
+    // 用 `>= 主体+24B` 判定, 而非 `> 主体` — 当 compact + shMode=1 (SH DC 尾部 +3B/splat)
+    // 时数据天然多出 3N 字节, `>` 会把无 bbox 的 chunk 误判为有 bbox 导致 24B 错位
     const expectedDataSize = chunk.count * bytesPerSplat;
-    const hasChunkBbox = compact && data.byteLength > expectedDataSize;
+    const hasChunkBbox = compact && data.byteLength >= expectedDataSize + 24;
     const bboxHeaderSize = hasChunkBbox ? 24 : 0;
 
     let bboxMin: [number, number, number] = meta.bboxMin;
@@ -570,15 +578,27 @@ async function batchConvert(dir: string, opts: Record<string, string | boolean>)
         const cloud = await loadGaussiansFromSpz(new Uint8Array(toArrayBuffer(spzBuf)), {
           source: inputPath,
         });
-        splatCount = cloud.splats.length;
-        await convertCloud(cloud, inputOpts, format, inputPath, spzBuf.byteLength, startTime);
+        splatCount = await convertCloud(
+          cloud,
+          inputOpts,
+          format,
+          inputPath,
+          spzBuf.byteLength,
+          startTime,
+        );
       } else if (inputExt === '.sog') {
         // SOG → 目标格式: 通过 parseSogMetadata 读取数量, 逐 chunk 解码重建 (简化: 仅支持损格式→无损)
         const sogBuf = await readFile(inputPath);
         const meta = parseSogMetadata(toArrayBuffer(sogBuf));
-        splatCount = meta.numSplats;
         const cloud = decodeSogToCloud(sogBuf, meta);
-        await convertCloud(cloud, inputOpts, format, inputPath, sogBuf.byteLength, startTime);
+        splatCount = await convertCloud(
+          cloud,
+          inputOpts,
+          format,
+          inputPath,
+          sogBuf.byteLength,
+          startTime,
+        );
       } else {
         throw new Error(`不支持的输入格式: ${inputExt}`);
       }
