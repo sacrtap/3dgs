@@ -1042,6 +1042,7 @@ async function main() {
   window.__autoBench = async function(onProgress) {
     const sceneIds = ['kitchen', 'demo1', 'storysplat', 'demo2', 'garden'];
     const formats = ['ply', 'splat', 'spz', 'sog'];
+    const total = sceneIds.length * formats.length;
     const results = [];
 
     for (const sceneId of sceneIds) {
@@ -1062,7 +1063,7 @@ async function main() {
             scene: scene.title, format: format.toUpperCase(),
             splatCount: scene.splatCount, error: 'N/A (无源文件)',
           });
-          if (onProgress) onProgress(results.length, sceneIds.length * formats.length, scene.title, format, 'skipped');
+          if (onProgress) onProgress(results.length, total, scene.title, format, 'skipped');
           continue;
         }
 
@@ -1070,7 +1071,7 @@ async function main() {
           await switchFormat(format);
           await new Promise(r => setTimeout(r, 3000));
 
-          if (onProgress) onProgress(results.length, sceneIds.length * formats.length, scene.title, format, 'running');
+          if (onProgress) onProgress(results.length, total, scene.title, format, 'running');
 
           const result = await new Promise((resolve) => {
             bench.frameTimes = [];
@@ -1092,14 +1093,14 @@ async function main() {
 
           if (result) {
             results.push(result);
-            if (onProgress) onProgress(results.length, sceneIds.length * formats.length, scene.title, format, 'done');
+            if (onProgress) onProgress(results.length, total, scene.title, format, 'done');
           }
         } catch (err) {
           results.push({
             scene: scene.title, format: format.toUpperCase(),
             splatCount: scene.splatCount, error: err.message,
           });
-          if (onProgress) onProgress(results.length, sceneIds.length * formats.length, scene.title, format, 'error');
+          if (onProgress) onProgress(results.length, total, scene.title, format, 'error');
         }
       }
     }
@@ -1111,7 +1112,8 @@ async function main() {
   window.__currentSceneId = currentSceneId; // 当前场景 id (供外部/测试读取)
   // 调试探针 (供验证脚本定位媒体投影)
   window.__cameraForwardPoint = cameraForwardPoint;
-  window.__getMediaPose = () => extractCameraPose(renderer.getViewProjectionMatrix());
+  window.__getMediaPose = () =>
+    renderer ? extractCameraPose(renderer.getViewProjectionMatrix()) : null;
   window.__getMediaOverlaySize = () => {
     const ov = document.querySelector('[class*="3dgs-media-overlay"]');
     return ov ? { w: ov.clientWidth, h: ov.clientHeight, perspective: ov.style.perspective } : null;

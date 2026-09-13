@@ -716,23 +716,19 @@ export class WebGPURenderManager implements RendererAdapter {
    */
   private async loadSceneWithSog(source: string, options?: LoadOptions): Promise<void> {
     // ★ TD-08: 统一使用共享 loadSogChunks (SogStreamer + concatChunksInWorker)
-    const { fullData, metadata, streamer } = await loadSogChunks(
-      source,
-      this.tierSettings.maxSplats,
-      {
-        onProgress: (loaded, total) => {
-          options?.onProgress?.(loaded, total);
-        },
-        onError: (error) => {
-          console.error('[WebGPURenderManager] SOG chunk 加载错误:', error.message);
-        },
-        // ★ 提前持有 streamer: await start() 期间新 loadScene/destroy 可 abort 本次加载
-        onStreamer: (streamer) => {
-          this._sogStreamer = streamer;
-        },
+    const { fullData, metadata } = await loadSogChunks(source, this.tierSettings.maxSplats, {
+      onProgress: (loaded, total) => {
+        options?.onProgress?.(loaded, total);
       },
-    );
-    this._sogStreamer = streamer;
+      onError: (error) => {
+        console.error('[WebGPURenderManager] SOG chunk 加载错误:', error.message);
+      },
+      // ★ 提前持有 streamer: await start() 期间新 loadScene/destroy 可 abort 本次加载
+      //   (注意: 不可在 await 返回后再次赋值 — 新场景可能已替换 _sogStreamer)
+      onStreamer: (streamer) => {
+        this._sogStreamer = streamer;
+      },
+    });
 
     // 缓存 LOD 元数据
     if (metadata.lodLevels && metadata.lodLevels.length > 0) {

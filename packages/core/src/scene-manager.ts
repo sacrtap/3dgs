@@ -96,31 +96,27 @@ export class SceneManager {
   /** 预加载场景（后台静默加载） */
   async preload(id: string): Promise<void> {
     const scene = this.scenes.get(id);
-    const meta = scene as {
-      preloading?: boolean;
-      preloaded?: boolean;
-    } | null;
     if (!scene || scene.state === 'loaded') return;
 
-    // ★ 预加载去重: preloading 防并发重复, preloaded 防成功后重复 (渲染器缓存可能被 LRU 淘汰)
-    if (meta?.preloading || meta?.preloaded) return;
+    // ★ 预加载去重: preloading 防并发重复调用 renderer.preloadScene
+    //   注意: 渲染器 preloadScene 自带缓存去重 (_preloadCache.has), 成功后重复
+    //   preload 不会重发网络请求 — 无需持久 preloaded 标记 (LRU 淘汰后还能重新预取)
+    if ((scene as { preloading?: boolean }).preloading) return;
 
     // ★ TD-03: 端到端预加载 — 渲染器实现 preloadScene 时真实预取资源 (不切换可见场景);
     //   预取成功后场景仍保持 unloaded, switchTo 时 loadScene 命中渲染器缓存, 不重复下载。
     //   失败静默 — 切换时走正常加载路径兜底。
     if (this.renderer?.preloadScene && scene.config.source) {
-      meta!.preloading = true;
+      (scene as { preloading?: boolean }).preloading = true;
       try {
         await this.renderer.preloadScene(scene.config.source, {
           lodSource: scene.config.lodSource,
         });
-        // ★ 预取成功: 置持久标记, 后续 preload 调用直接跳过 (同场景不会重复下载)
-        meta!.preloaded = true;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[SceneManager] 预加载场景 "${id}" 失败(切换时将重试): ${msg}`);
       } finally {
-        meta!.preloading = false;
+        (scene as { preloading?: boolean }).preloading = false;
       }
       return;
     }

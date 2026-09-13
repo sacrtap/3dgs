@@ -836,48 +836,44 @@ export class RenderManager implements RendererAdapter {
     // ★ TD-08: 统一使用共享 loadSogChunks (SogStreamer + concatChunksInWorker)
     let firstMeshReady = false;
 
-    const { fullData, metadata, streamer } = await loadSogChunks(
-      lodSource,
-      this.tierSettings.maxSplats,
-      {
-        onProgress: (loaded, total) => {
-          options?.onProgress?.(loaded, total);
-        },
-        onChunkLoaded: (chunkIndex, data) => {
-          if (!firstMeshReady && chunkIndex === 0) {
-            firstMeshReady = true;
-            options?.onFirstFrame?.();
-            new SplatMesh({
-              fileBytes: new Uint8Array(data),
-              fileType: SplatFileType.SPLAT,
-              maxSplats: this.tierSettings.maxSplats,
-              onLoad: async (loadedMesh: SplatMesh) => {
-                // ★ 完整 mesh 已就绪或已销毁: 丢弃临时 mesh, 避免覆盖 currentSplat
-                if (this._destroyed || (this.currentSplat && this.currentSplat !== loadedMesh)) {
-                  loadedMesh.dispose();
-                  return;
-                }
-                if (this._autoOrient) {
-                  loadedMesh.rotation.x = Math.PI;
-                }
-                this.scene!.add(loadedMesh);
-                this.currentSplat = loadedMesh;
-                this.positionCameraToBounds(loadedMesh);
-                this.applyInjectionsToMaterial();
-              },
-            });
-          }
-        },
-        onError: (error) => {
-          console.error('[RenderManager] SOG chunk 加载错误:', error.message);
-        },
-        // ★ 提前持有 streamer: await start() 期间新 loadScene/destroy 可 abort 本次加载
-        onStreamer: (streamer) => {
-          this._sogStreamer = streamer;
-        },
+    const { fullData, metadata } = await loadSogChunks(lodSource, this.tierSettings.maxSplats, {
+      onProgress: (loaded, total) => {
+        options?.onProgress?.(loaded, total);
       },
-    );
-    this._sogStreamer = streamer;
+      onChunkLoaded: (chunkIndex, data) => {
+        if (!firstMeshReady && chunkIndex === 0) {
+          firstMeshReady = true;
+          options?.onFirstFrame?.();
+          new SplatMesh({
+            fileBytes: new Uint8Array(data),
+            fileType: SplatFileType.SPLAT,
+            maxSplats: this.tierSettings.maxSplats,
+            onLoad: async (loadedMesh: SplatMesh) => {
+              // ★ 完整 mesh 已就绪或已销毁: 丢弃临时 mesh, 避免覆盖 currentSplat
+              if (this._destroyed || (this.currentSplat && this.currentSplat !== loadedMesh)) {
+                loadedMesh.dispose();
+                return;
+              }
+              if (this._autoOrient) {
+                loadedMesh.rotation.x = Math.PI;
+              }
+              this.scene!.add(loadedMesh);
+              this.currentSplat = loadedMesh;
+              this.positionCameraToBounds(loadedMesh);
+              this.applyInjectionsToMaterial();
+            },
+          });
+        }
+      },
+      onError: (error) => {
+        console.error('[RenderManager] SOG chunk 加载错误:', error.message);
+      },
+      // ★ 提前持有 streamer: await start() 期间新 loadScene/destroy 可 abort 本次加载
+      //   (注意: 不可在 await 返回后再次赋值 — 新场景可能已替换 _sogStreamer)
+      onStreamer: (streamer) => {
+        this._sogStreamer = streamer;
+      },
+    });
 
     if (this.currentSplat) {
       this.scene!.remove(this.currentSplat);
