@@ -98,10 +98,14 @@ export class SceneManager {
     const scene = this.scenes.get(id);
     if (!scene || scene.state === 'loaded') return;
 
+    // ★ 预加载去重: 使用 preloading 标记防止重复触发 renderer.preloadScene (冗余网络请求)
+    if ((scene as { preloading?: boolean }).preloading) return;
+
     // ★ TD-03: 端到端预加载 — 渲染器实现 preloadScene 时真实预取资源 (不切换可见场景);
     //   预取成功后场景仍保持 unloaded, switchTo 时 loadScene 命中渲染器缓存, 不重复下载。
     //   失败静默 — 切换时走正常加载路径兜底。
     if (this.renderer?.preloadScene && scene.config.source) {
+      (scene as { preloading?: boolean }).preloading = true;
       try {
         await this.renderer.preloadScene(scene.config.source, {
           lodSource: scene.config.lodSource,
@@ -109,6 +113,8 @@ export class SceneManager {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[SceneManager] 预加载场景 "${id}" 失败(切换时将重试): ${msg}`);
+      } finally {
+        (scene as { preloading?: boolean }).preloading = false;
       }
       return;
     }
@@ -180,5 +186,7 @@ export class SceneManager {
     this.listeners.clear();
     this.scenes.clear();
     this.currentSceneId = null;
+    // ★ 清除 renderer 引用: 避免销毁后异步回调 (preload catch 路径) 操作已销毁对象
+    this.renderer = undefined;
   }
 }

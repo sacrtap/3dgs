@@ -5,86 +5,182 @@
   "description": "3DGS 漫游配置 — 声明式场景图配置格式 (TourPlayer.load 输入)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "scenes"],
+  "required": [
+    "version",
+    "scenes"
+  ],
   "properties": {
     "version": {
       "type": "string",
-      "enum": ["1.0"],
+      "enum": [
+        "1.0"
+      ],
       "description": "配置版本 (当前仅支持 1.0)"
     },
     "meta": {
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "description": { "type": "string" },
-        "author": { "type": "string" },
-        "previewImage": { "type": "string" }
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "previewImage": {
+          "type": "string"
+        }
       }
     },
     "defaults": {
       "type": "object",
       "properties": {
-        "camera": { "$ref": "#/definitions/CameraSettings" },
-        "transition": { "$ref": "#/definitions/SceneTransition" },
-        "quality": { "$ref": "#/definitions/QualitySettings" }
+        "camera": {
+          "$ref": "#/definitions/CameraSettings"
+        },
+        "transition": {
+          "$ref": "#/definitions/SceneTransition"
+        },
+        "quality": {
+          "$ref": "#/definitions/QualitySettings"
+        }
       }
     },
     "scenes": {
       "type": "object",
       "minProperties": 1,
-      "additionalProperties": { "$ref": "#/definitions/SceneConfig" }
+      "additionalProperties": {
+        "$ref": "#/definitions/SceneConfig"
+      }
     }
   },
   "definitions": {
     "CameraSettings": {
       "type": "object",
-      "required": ["fov", "minFov", "maxFov", "limitPitch"],
+      "required": [
+        "fov",
+        "minFov",
+        "maxFov",
+        "limitPitch"
+      ],
       "properties": {
-        "fov": { "type": "number", "minimum": 1, "maximum": 179 },
-        "minFov": { "type": "number", "minimum": 1, "maximum": 179 },
-        "maxFov": { "type": "number", "minimum": 1, "maximum": 179 },
+        "fov": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 179
+        },
+        "minFov": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 179
+        },
+        "maxFov": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 179
+        },
         "limitPitch": {
           "type": "array",
-          "items": { "type": "number" },
+          "items": {
+            "type": "number"
+          },
           "minItems": 2,
           "maxItems": 2
         }
-      }
+      },
+      "additionalProperties": false
     },
     "SceneTransition": {
       "type": "object",
       "properties": {
-        "type": { "type": "string", "enum": ["fade", "fly", "instant"] },
-        "duration": { "type": "number", "minimum": 0 },
-        "targetYaw": { "type": "number" },
-        "targetPitch": { "type": "number" },
-        "targetFov": { "type": "number", "minimum": 1, "maximum": 179 }
-      }
+        "type": {
+          "type": "string",
+          "enum": [
+            "fade",
+            "fly",
+            "instant"
+          ]
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0
+        },
+        "targetYaw": {
+          "type": "number"
+        },
+        "targetPitch": {
+          "type": "number"
+        },
+        "targetFov": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 179
+        }
+      },
+      "additionalProperties": false
     },
     "QualitySettings": {
       "type": "object",
       "properties": {
-        "maxSplats": { "type": "number", "minimum": 1 },
-        "shDegree": { "type": "number", "minimum": 0, "maximum": 3 },
-        "resolution": { "type": "number", "minimum": 0.1, "maximum": 1 },
-        "antialias": { "type": "boolean" },
-        "pixelRatio": { "type": "number", "minimum": 0.1, "maximum": 4 }
-      }
+        "maxSplats": {
+          "type": "number",
+          "minimum": 1
+        },
+        "shDegree": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "resolution": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 1
+        },
+        "antialias": {
+          "type": "boolean"
+        },
+        "pixelRatio": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 4
+        }
+      },
+      "additionalProperties": false
     },
     "SceneConfig": {
       "type": "object",
-      "required": ["source"],
+      "required": [
+        "source"
+      ],
       "properties": {
-        "title": { "type": "string" },
-        "source": { "type": "string", "minLength": 1 },
-        "lodSource": { "type": "string" },
+        "title": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lodSource": {
+          "type": "string"
+        },
         "initialView": {
           "type": "object",
           "properties": {
-            "yaw": { "type": "number" },
-            "pitch": { "type": "number" },
-            "fov": { "type": "number", "minimum": 1, "maximum": 179 }
-          }
+            "yaw": {
+              "type": "number"
+            },
+            "pitch": {
+              "type": "number"
+            },
+            "fov": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 179
+            }
+          },
+          "additionalProperties": false
         },
         "extensions": {
           "type": "object",
@@ -93,19 +189,35 @@
         "overrides": {
           "type": "object",
           "properties": {
-            "camera": { "$ref": "#/definitions/CameraSettings" },
-            "quality": { "$ref": "#/definitions/QualitySettings" }
-          }
+            "camera": {
+              "$ref": "#/definitions/CameraSettings"
+            },
+            "quality": {
+              "$ref": "#/definitions/QualitySettings"
+            }
+          },
+          "additionalProperties": false
         },
         "info": {
           "type": "object",
           "properties": {
-            "description": { "type": "string" },
-            "tags": { "type": "array", "items": { "type": "string" } },
-            "thumbnail": { "type": "string" }
-          }
+            "description": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "thumbnail": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
         }
-      }
+      },
+      "additionalProperties": false
     }
   }
 }

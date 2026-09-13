@@ -81,7 +81,7 @@ export type LoadSpzOptions = SpzReadOptions;
  *
  * legacy gzip 文件需要整体解压后才能读到 16B header；
  * ngsp (v4) 文件 header 为 32B 明文。
- * 同步解析 gzip 文件的调用方请使用 {@link parseSpzHeaderDecompressed}。
+ * 同步解析 gzip 文件的调用方请使用 {@link parseLegacyHeader} (解压后调用)。
  *
  * @param data SPZ 文件字节
  * @returns 头信息 (v4 需要解压器))
@@ -468,7 +468,8 @@ function unpackQuaternionSmallestThree(
   const iLargest = (comp >>> 30) & 0x3;
   let c = comp;
   let sumSquares = 0;
-  // 从低位块开始读取, 顺序与包写 (i 升序跳过 iLargest) 对称
+  // 降序读取低位块, 与包写对称: 打包端升序循环 comp=(comp<<10)|x,
+  // 使最高索引分量落在最低 10 位, 故解码须从高索引向低索引读
   for (let i = 3; i >= 0; i--) {
     if (i !== iLargest) {
       const mag = c & 0x1ff;

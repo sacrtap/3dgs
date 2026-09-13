@@ -159,6 +159,7 @@ describe('C-07 CLI --max-splats', () => {
 
 import { writeSplat, writeSpz, writeSog } from './index.js';
 import { loadGaussiansFromPly } from './gaussian-loader.js';
+import { loadGaussiansFromSplat } from './splat-reader.js';
 
 describe('C-10 batch CLI 多格式 + manifest', () => {
   it('混合格式目录 batch: 扫描 PLY/SPLAT/SPZ/SOG 并输出 manifest', async () => {
@@ -217,6 +218,62 @@ describe('C-10 batch CLI 多格式 + manifest', () => {
     expect(b1.count).toBe(12);
     expect(b1.format).toBe('splat');
   });
+
+  it('★ 紧凑 SOG (positionQuantization=1) → splat: 29B 布局 + chunk bbox 反量化 round-trip', async () => {
+    // critical 回归: decodeSogToCloud 曾固定 32B 步长导致紧凑文件从第 2 个 splat 起字段错位
+    const batchDir = join(tmpDir, 'c10-compact');
+    const outDir = join(tmpDir, 'c10-compact-out');
+    mkdirSync(batchDir, { recursive: true });
+
+    // 构造紧凑 SOG (29B/splat: 3×Uint24 量化位置 + chunk 内嵌 24B bbox)
+    // 源 PLY 放在 batch 目录之外, 避免 batch 扫描到它 (batch 处理目录内所有格式文件)
+    const plyPath = join(tmpDir, 'c10-compact-src.ply');
+    mkdirSync(batchDir, { recursive: true });
+    make3dgsPlyFile(plyPath, 16);
+    const plyBuf = readFileSync(plyPath);
+    const cloud = loadGaussiansFromPly(
+      plyBuf.buffer.slice(plyBuf.byteOffset, plyBuf.byteOffset + plyBuf.byteLength) as ArrayBuffer,
+    );
+    const sogBytes = writeSog(cloud, {
+      version: 2,
+      compression: false,
+      positionQuantization: true,
+      buildLodTree: false,
+      spatialSort: false, // 保持源顶点顺序, 便于按索引对比 (默认 Morton 排序会重排)
+    });
+    writeFileSync(join(batchDir, 'compact.sog'), Buffer.from(sogBytes));
+
+    // 紧凑 SOG → splat 转换 (走 decodeSogToCloud)
+    runCli(['batch', batchDir, '-o', outDir, '-f', 'splat']);
+
+    const manifest = JSON.parse(readFileSync(join(outDir, 'manifest.json'), 'utf8'));
+    expect(manifest.successCount).toBe(1);
+    expect(manifest.files[0].count).toBe(16);
+
+    // 读回 splat 产物并与源 cloud 对比 (字段顺序必须正确, 而非仅数量)
+    const splatOut = readFileSync(manifest.files[0].output);
+    const readBack = loadGaussiansFromSplat(
+      splatOut.buffer.slice(
+        splatOut.byteOffset,
+        splatOut.byteOffset + splatOut.byteLength,
+      ) as ArrayBuffer,
+    );
+    expect(readBack.vertexCount).toBe(16);
+    // 抽查顶点 0 与顶点 8 (跨 chunk 边界): 量化容差内一致
+    const s0 = readBack.splats[0];
+    const src0 = cloud.splats[0];
+    expect(Math.abs(s0.x - src0.x)).toBeLessThan(1e-3);
+    expect(Math.abs(s0.y - src0.y)).toBeLessThan(1e-3);
+    expect(Math.abs(s0.scaleX - src0.scaleX)).toBeLessThan(1e-4);
+    expect(Math.abs(s0.rotW - src0.rotW)).toBeLessThan(1e-2);
+    expect(Math.abs(s0.colorR - src0.colorR)).toBeLessThan(1 / 255 + 1e-6);
+    const s8 = readBack.splats[8];
+    const src8 = cloud.splats[8];
+    expect(Math.abs(s8.x - src8.x)).toBeLessThan(1e-3);
+    expect(Math.abs(s8.y - src8.y)).toBeLessThan(1e-3);
+    expect(Math.abs(s8.scaleZ - src8.scaleZ)).toBeLessThan(1e-4);
+    expect(Math.abs(s8.opacity - src8.opacity)).toBeLessThan(1 / 255 + 1e-6);
+  });
 });
 
 // ── C-05: to-compressed-ply CLI ──────────────────────────
@@ -250,5 +307,43 @@ describe('C-05 to-compressed-ply CLI', () => {
     const buf = readFileSync(out);
     const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
     expect(loadGaussiansFromPly(ab).vertexCount).toBe(12);
+  });
+
+  it('★ to-compressed-ply --max-splats 预裁剪生效 (产物 splats ≤ N)', () => {
+    const ply = join(tmpDir, 'c05c.ply');
+    const out = join(tmpDir, 'c05c-out.ply');
+    make3dgsPlyFile(ply, 60);
+
+    // 裁剪到 20: 回执应显示预裁剪 + 产物读回 = 20
+    const stdout = runCli(['to-compressed-ply', ply, '-o', out, '--max-splats', '20']);
+    expect(stdout).toMatch(/预裁剪 \(--max-splats 20\)/);
+    expect(stdout).toMatch(/压缩 PLY: 20 splats/);
+
+    const buf = readFileSync(out);
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    expect(loadGaussiansFromPly(ab).vertexCount).toBe(20);
+  });
+
+  it('★ to-compressed-ply --prune + --contribution-cutoff 组合生效', () => {
+    const ply = join(tmpDir, 'c05d.ply');
+    const out = join(tmpDir, 'c05d-out.ply');
+    make3dgsPlyFile(ply, 30);
+
+    const stdout = runCli([
+      'to-compressed-ply',
+      ply,
+      '-o',
+      out,
+      '--prune',
+      '--contribution-cutoff',
+      '0.5', // 保留贡献度前 50% (按数量 ≈ 15)
+    ]);
+    expect(stdout).toMatch(/冗余剔除/);
+    // 产物数量 < 输入 (裁剪生效)
+    const buf = readFileSync(out);
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    const read = loadGaussiansFromPly(ab);
+    expect(read.vertexCount).toBeLessThan(30);
+    expect(read.vertexCount).toBeGreaterThan(0);
   });
 });

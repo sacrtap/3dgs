@@ -74,13 +74,13 @@ export function writeCompressedPlySoA(
   soa: GaussianCloudSoA,
   options: CompressedPlyWriterOptions = {},
 ): ArrayBuffer {
-  void options; // C-05: source 透传暂未消费 (与 SoA 模型 tone-mapped 无关)
   const count = soa.count;
   const numChunks = count === 0 ? 0 : Math.ceil(count / SS_PLY_VERTICES_PER_CHUNK);
 
   const header =
     'ply\n' +
     'format binary_little_endian 1.0\n' +
+    `comment ${String(options.source ?? '3dgs-convert')}\n` +
     `element vertex ${count}\n` +
     'property uint packed_position\n' +
     'property uint packed_rotation\n' +
@@ -172,6 +172,8 @@ export function writeCompressedPlySoA(
     const cb = chunkBase + c * chunkStride;
     const set = (name: string, value: number) => {
       const idx = SS_CHUNK_PROPS.indexOf(name as (typeof SS_CHUNK_PROPS)[number]);
+      // ★ 防御: 属性名不在 SS_CHUNK_PROPS 时静默跳过, 避免 idx=-1 时写越界
+      if (idx === -1) return;
       view.setFloat32(cb + idx * 4, value, true);
     };
     set('min_x', minX);
@@ -223,9 +225,9 @@ export function writeCompressedPlySoA(
       // packed_color: RGBA (R 最高 8 位), RGB 按范围, A = opacity/255
       const cr = quantize8(soa.colors[i3], minR, maxR);
       const cg = quantize8(soa.colors[i3 + 1], minG, maxG);
-      const cb2 = quantize8(soa.colors[i3 + 2], minB, maxB);
+      const cb = quantize8(soa.colors[i3 + 2], minB, maxB);
       const ca = Math.max(0, Math.min(255, Math.round(soa.opacities[i] * 255)));
-      view.setUint32(row + 12, (cr << 24) | (cg << 16) | (cb2 << 8) | ca, true);
+      view.setUint32(row + 12, (cr << 24) | (cg << 16) | (cb << 8) | ca, true);
     }
   }
 

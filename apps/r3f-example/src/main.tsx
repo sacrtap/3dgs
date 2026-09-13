@@ -14,7 +14,7 @@ import { createRoot } from 'react-dom/client';
 import { Canvas } from '@react-three/fiber';
 import { TourViewer } from '@3dgs/react';
 import { createRendererSync } from '@3dgs/renderer-three';
-import { R3FOverlay } from './overlay.tsx';
+import { R3FOverlay } from './overlay';
 
 // 示例场景 — 使用 demo 的 kitchen 资产 (也可替换为任意 .splat/.spz/.ply URL)
 const demoConfig = {

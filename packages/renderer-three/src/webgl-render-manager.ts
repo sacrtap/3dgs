@@ -300,6 +300,12 @@ export class RenderManager implements RendererAdapter {
       e.preventDefault();
       console.warn('[RenderManager] WebGL context lost — GPU 资源已释放, 等待 restore...');
       this._running = false;
+      // ★ 显式取消 RAF 并重置 rafId: 若 context lost 后帧回调不被调度,
+      //   _startRenderLoop 的 "rafId !== 0 直接返回" 会阻止 restore 后循环重启
+      if (this.rafId !== 0) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = 0;
+      }
     };
     this._contextRestoredHandler = () => {
       console.info('[RenderManager] WebGL context restored — 重新加载场景');
@@ -430,6 +436,13 @@ export class RenderManager implements RendererAdapter {
     if (this._preloadCache.has(source) || source.endsWith('.sog')) return;
     const data = await fetchWithProgress(source);
     this._preloadCache.set(source, data);
+    // ★ 缓存上限: 避免长期会话累积内存 (LRU 淘汰最旧条目)
+    const MAX_PRELOAD_ENTRIES = 16;
+    while (this._preloadCache.size > MAX_PRELOAD_ENTRIES) {
+      const oldest = this._preloadCache.keys().next().value;
+      if (oldest === undefined) break;
+      this._preloadCache.delete(oldest);
+    }
   }
 
   async loadScene(source: string, options?: LoadOptions): Promise<void> {
@@ -508,52 +521,55 @@ export class RenderManager implements RendererAdapter {
       // ★ D-06: URL 直加载路径加超时保护, 并在超时后忽略迟到的 onLoad,
       //   避免 onLoad 永不触发时 Promise 永久挂起、超时与成功竞态时状态不一致
       let settled = false;
-      await this._withTimeout(
-        new Promise<void>((resolve) => {
-          new SplatMesh({
-            url: source,
-            maxSplats: this.tierSettings.maxSplats,
-            onProgress: (e: ProgressEvent) => {
-              if (e.lengthComputable && options?.onProgress) {
-                options.onProgress(e.loaded, e.total);
-              }
-            },
-            onLoad: async (loadedMesh: SplatMesh) => {
-              // 超时后迟到的 onLoad: 丢弃网格, 不再修改场景状态
-              if (settled) {
-                loadedMesh.dispose();
-                return;
-              }
-              settled = true;
+      try {
+        await this._withTimeout(
+          new Promise<void>((resolve) => {
+            new SplatMesh({
+              url: source,
+              maxSplats: this.tierSettings.maxSplats,
+              onProgress: (e: ProgressEvent) => {
+                if (e.lengthComputable && options?.onProgress) {
+                  options.onProgress(e.loaded, e.total);
+                }
+              },
+              onLoad: async (loadedMesh: SplatMesh) => {
+                // 超时/destroy 后迟到的 onLoad: 丢弃网格, 不再修改场景状态
+                if (settled || this._destroyed) {
+                  loadedMesh.dispose();
+                  return;
+                }
+                settled = true;
 
-              // ★ Bug 1 修复: 无条件垂直翻转 (Y-down → Y-up)
-              if (this._autoOrient) {
-                loadedMesh.rotation.x = Math.PI;
-              }
+                // ★ Bug 1 修复: 无条件垂直翻转 (Y-down → Y-up)
+                if (this._autoOrient) {
+                  loadedMesh.rotation.x = Math.PI;
+                }
 
-              this.scene!.add(loadedMesh);
-              this.currentSplat = loadedMesh;
+                this.scene!.add(loadedMesh);
+                this.currentSplat = loadedMesh;
 
-              // ★ Bug 2 修复: 基于包围盒自动定位摄像机
-              this.positionCameraToBounds(loadedMesh);
+                // ★ Bug 2 修复: 基于包围盒自动定位摄像机
+                this.positionCameraToBounds(loadedMesh);
 
-              // ★ Bug 4 修复: 构建 LOD 树 (P0: 根据设备分级选择质量)
-              if (this._enableLod) {
-                this.buildLod(loadedMesh);
-              }
+                // ★ Bug 4 修复: 构建 LOD 树 (P0: 根据设备分级选择质量)
+                if (this._enableLod) {
+                  this.buildLod(loadedMesh);
+                }
 
-              // ★ 应用 Shader 注入
-              this.applyInjectionsToMaterial();
+                // ★ 应用 Shader 注入
+                this.applyInjectionsToMaterial();
 
-              resolve();
-            },
-          });
-        }),
-        30_000,
-        `loadScene 超时 (30s): ${source}`,
-      );
-      // 标记已结算, 后续迟到的 onLoad 一律忽略 (含超时后异常路径)
-      settled = true;
+                resolve();
+              },
+            });
+          }),
+          30_000,
+          `loadScene 超时 (30s): ${source}`,
+        );
+      } finally {
+        // 标记已结算: 超时 reject 后任何迟到的 onLoad 一律忽略 (含异常路径)
+        settled = true;
+      }
     } finally {
       this.adaptive?.resume();
     }
@@ -638,11 +654,18 @@ export class RenderManager implements RendererAdapter {
    * 从 .splat 字节数据创建 SplatMesh 并添加到场景
    */
   private async createSplatMeshFromBytes(data: Uint8Array, _options?: LoadOptions): Promise<void> {
+    let settled = false;
     await new Promise<void>((resolve, reject) => {
       new SplatMesh({
         fileBytes: data,
         fileType: SplatFileType.SPLAT,
         onLoad: async (loadedMesh: SplatMesh) => {
+          // ★ 超时/destroy 后迟到的 onLoad: 丢弃网格, 不再修改场景状态
+          if (settled || this._destroyed) {
+            loadedMesh.dispose();
+            return;
+          }
+          settled = true;
           if (this._autoOrient) {
             loadedMesh.rotation.x = Math.PI;
           }
@@ -664,6 +687,9 @@ export class RenderManager implements RendererAdapter {
       });
 
       setTimeout(() => reject(new Error('SplatMesh 创建超时')), 30000);
+    }).finally(() => {
+      // ★ 标记已结算: 超时 reject 后迟到的 onLoad 一律忽略
+      settled = true;
     });
   }
 
@@ -727,12 +753,19 @@ export class RenderManager implements RendererAdapter {
     }
 
     // 3. ★ C1 核心修复: 直接将 SPZ 字节传给 Spark, 保留 SH 数据
+    let settled = false;
     await new Promise<void>((resolve, reject) => {
       new SplatMesh({
         fileBytes: spzData,
         fileType: SplatFileType.SPZ,
         maxSplats: this.tierSettings.maxSplats,
         onLoad: async (loadedMesh: SplatMesh) => {
+          // ★ 超时/destroy 后迟到的 onLoad: 丢弃网格, 不再修改场景状态
+          if (settled || this._destroyed) {
+            loadedMesh.dispose();
+            return;
+          }
+          settled = true;
           if (this._autoOrient) {
             loadedMesh.rotation.x = Math.PI;
           }
@@ -748,6 +781,9 @@ export class RenderManager implements RendererAdapter {
       });
 
       setTimeout(() => reject(new Error('SplatMesh (SPZ 原生) 创建超时')), 30000);
+    }).finally(() => {
+      // ★ 标记已结算: 超时 reject 后迟到的 onLoad 一律忽略
+      settled = true;
     });
   }
 
@@ -816,6 +852,11 @@ export class RenderManager implements RendererAdapter {
               fileType: SplatFileType.SPLAT,
               maxSplats: this.tierSettings.maxSplats,
               onLoad: async (loadedMesh: SplatMesh) => {
+                // ★ 完整 mesh 已就绪或已销毁: 丢弃临时 mesh, 避免覆盖 currentSplat
+                if (this._destroyed || (this.currentSplat && this.currentSplat !== loadedMesh)) {
+                  loadedMesh.dispose();
+                  return;
+                }
                 if (this._autoOrient) {
                   loadedMesh.rotation.x = Math.PI;
                 }
@@ -858,12 +899,19 @@ export class RenderManager implements RendererAdapter {
       loadedSplats > maxSplats ? 'SOG 降采样' : undefined,
     );
 
+    let settled = false;
     await new Promise<void>((resolve, reject) => {
       new SplatMesh({
         fileBytes: meshData,
         fileType: SplatFileType.SPLAT,
         maxSplats: this.tierSettings.maxSplats,
         onLoad: async (loadedMesh: SplatMesh) => {
+          // ★ 超时/destroy 后迟到的 onLoad: 丢弃网格, 不再修改场景状态
+          if (settled || this._destroyed) {
+            loadedMesh.dispose();
+            return;
+          }
+          settled = true;
           if (this._autoOrient) {
             loadedMesh.rotation.x = Math.PI;
           }
@@ -881,6 +929,9 @@ export class RenderManager implements RendererAdapter {
       setTimeout(() => {
         reject(new Error('SOG 完整 mesh 创建超时'));
       }, 10000);
+    }).finally(() => {
+      // ★ 标记已结算: 超时 reject 后迟到的 onLoad 一律忽略
+      settled = true;
     });
 
     const compressionStr = metadata.compression === 1 ? 'gzip' : 'none';
@@ -905,7 +956,9 @@ export class RenderManager implements RendererAdapter {
   }
 
   getDeviceTier(): DeviceTier {
-    return this.deviceProfile.tier;
+    // ★ 返回实际生效的 tier (构造时 options.deviceTier 覆盖的检测值),
+    //   而非 deviceProfile.tier (仅反映检测结果, 可能被覆盖)
+    return this._deviceTier;
   }
 
   setResolutionScale(scale: number): void {
@@ -1259,22 +1312,31 @@ export class RenderManager implements RendererAdapter {
   private setupDprListener(): void {
     if (typeof window === 'undefined' || !window.matchMedia || this._dprQuery) return;
 
-    const query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
-    const onChange = (): void => {
-      // N-02 语义: pixelRatio = min(dpr, cap) — 重算保留原始设备分级
-      const next = getTierSettings(this._deviceTier);
-      this.tierSettings = next;
-      this._pixelRatio = next.pixelRatio;
-      this.renderer?.setPixelRatio(next.pixelRatio);
-      this.updateRenderSize();
-      console.info(
-        `[RenderManager] DPR 变化 → pixelRatio=${next.pixelRatio} (tier=${this._deviceTier})`,
-      );
+    // ★ N-05: 变化后必须重建 matchMedia 查询 — 分辨率查询只匹配创建时的 DPR,
+    //   若复用同一 query, 下一次 DPR 变化不再触发 (精确匹配无区间)
+    const attach = (): void => {
+      const query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+      const onChange = (): void => {
+        // N-02 语义: pixelRatio = min(dpr, cap) — 重算保留原始设备分级
+        const next = getTierSettings(this._deviceTier);
+        this.tierSettings = next;
+        this._pixelRatio = next.pixelRatio;
+        this.renderer?.setPixelRatio(next.pixelRatio);
+        this.updateRenderSize();
+        console.info(
+          `[RenderManager] DPR 变化 → pixelRatio=${next.pixelRatio} (tier=${this._deviceTier})`,
+        );
+        // ★ 重建查询以捕获后续 DPR 变化
+        this.teardownDprListener();
+        this.setupDprListener();
+      };
+
+      query.addEventListener('change', onChange);
+      this._dprQuery = query;
+      this._dprListener = onChange;
     };
 
-    query.addEventListener('change', onChange);
-    this._dprQuery = query;
-    this._dprListener = onChange;
+    attach();
   }
 
   private teardownDprListener(): void {

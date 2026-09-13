@@ -152,7 +152,37 @@ program
     );
     const startTime = Date.now();
     const buffer = await readFile(input);
-    const cloud = await loadCloudFromAny(input, buffer);
+    let cloud = await loadCloudFromAny(input, buffer);
+
+    // ★ 复用 convertCloud 的预裁剪契约 (--prune + --contribution-cutoff + --max-splats)
+    if (opts.prune) {
+      const minOpacity = parseFloat(String(opts.minOpacity || '0.01'));
+      const before = cloud.splats.length;
+      const pruneOpts: import('./processing.js').PruneOptions = { minOpacity };
+      if (opts.contributionCutoff !== undefined) {
+        const cutoff = parseFloat(String(opts.contributionCutoff));
+        if (!isNaN(cutoff) && cutoff > 0) pruneOpts.contributionCutoff = cutoff;
+      }
+      cloud = pruneGaussians(cloud, pruneOpts);
+      const removed = before - cloud.splats.length;
+      console.log(
+        `🗑️  冗余剔除: 移除 ${removed.toLocaleString()} 个 (${((removed / before) * 100).toFixed(1)}%)`,
+      );
+    }
+    if (opts.maxSplats !== undefined) {
+      const maxSplats = parseInt(String(opts.maxSplats), 10);
+      if (!isNaN(maxSplats) && maxSplats > 0 && cloud.splats.length > maxSplats) {
+        const before = cloud.splats.length;
+        cloud = pruneGaussians(cloud, { contributionCutoff: maxSplats, minOpacity: 0 });
+        const after = cloud.splats.length;
+        console.log(
+          `✂️  预裁剪 (--max-splats ${maxSplats.toLocaleString()}): ` +
+            `${before.toLocaleString()} → ${after.toLocaleString()} 个 ` +
+            `(保留 ${((after / before) * 100).toFixed(1)}%)`,
+        );
+      }
+    }
+
     const plyBytes = writeCompressedPly(cloud, { source: input });
     await writeFile(output, Buffer.from(plyBytes));
     const elapsed = Date.now() - startTime;
@@ -205,7 +235,7 @@ async function convertPly(
   input: string,
   opts: Record<string, string | boolean>,
   format: 'splat' | 'spz' | 'sog',
-): Promise<void> {
+): Promise<number> {
   const startTime = Date.now();
   console.log(`\n📋 读取 PLY: ${input}`);
 
@@ -220,6 +250,7 @@ async function convertPly(
   console.log(`   SH 阶数: ${cloud.shDegree}`);
 
   await convertCloud(cloud, opts, format, input, plySize, startTime);
+  return cloud.vertexCount;
 }
 
 /**
@@ -229,7 +260,7 @@ async function convertSplat(
   input: string,
   opts: Record<string, string | boolean>,
   format: 'splat' | 'spz' | 'sog',
-): Promise<void> {
+): Promise<number> {
   const startTime = Date.now();
   console.log(`\n📋 读取 SPLAT: ${input}`);
 
@@ -244,6 +275,7 @@ async function convertSplat(
   console.log(`   SH 阶数: ${cloud.shDegree} (.splat 不含 SH)`);
 
   await convertCloud(cloud, opts, format, input, splatSize, startTime);
+  return cloud.vertexCount;
 }
 
 /**
@@ -360,14 +392,19 @@ async function convertCloud(
 /**
  * ★ C-10: 解码 SOG 为 GaussianCloud (供 batch 的 SOG → 目标格式转换)
  *
- * 逐 chunk 读取 splat 数据 (32B/个, 支持 gzip 与位置量化), 拼装为 AoS。
- * 注意: SOG 语义上的 SH 数据仅 v3 overlay 中有, 此处不恢复 SH (与 .splat 源一致)。
+ * 逐 chunk 读取 splat 数据, 拼装为 AoS。支持:
+ *   - 标准 32B .splat 布局 (Position/Scale/Color/Rotation)
+ *   - ★ P2-3: 紧凑 29B 布局 (3×Uint24 量化位置 + 可选 24B chunk local bbox 前缀)
+ *   - ★ H2: shMode=1 时 chunk 末尾追加 SH DC (每 splat 3B, 解码时跳过 —
+ *     SOG 语义上的 SH 数据仅 v3 overlay 中有, 此处不恢复 SH, 与 .splat 源一致)
  */
 function decodeSogToCloud(
   buffer: Buffer,
   meta: import('./sog-writer.js').SogMetadata,
 ): GaussianCloud {
   const { numSplats } = meta;
+  const compact = meta.positionQuantization === 1;
+  const bytesPerSplat = compact ? 29 : SPLAT_BYTES_PER_SPLAT;
   const splats: GaussianSplat[] = new Array(numSplats);
   let splatCursor = 0;
 
@@ -376,23 +413,76 @@ function decodeSogToCloud(
     const data = meta.compression === 1 ? new Uint8Array(gunzipSync(raw)) : raw;
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
+    // ★ M1: 检测 chunk local bbox 前缀 (24 bytes = 6 × Float32)
+    // 紧凑格式写入时总是附带 bbox (writeCompactSplatChunkSoA includeBbox=true)
+    const expectedDataSize = chunk.count * bytesPerSplat;
+    const hasChunkBbox = compact && data.byteLength > expectedDataSize;
+    const bboxHeaderSize = hasChunkBbox ? 24 : 0;
+
+    let bboxMin: [number, number, number] = meta.bboxMin;
+    let bboxMax: [number, number, number] = meta.bboxMax;
+    if (hasChunkBbox) {
+      bboxMin = [view.getFloat32(0, true), view.getFloat32(4, true), view.getFloat32(8, true)];
+      bboxMax = [view.getFloat32(12, true), view.getFloat32(16, true), view.getFloat32(20, true)];
+    }
+    const rangeX = bboxMax[0] - bboxMin[0] || 1;
+    const rangeY = bboxMax[1] - bboxMin[1] || 1;
+    const rangeZ = bboxMax[2] - bboxMin[2] || 1;
+
     for (let n = 0; n < chunk.count && splatCursor < numSplats; n++, splatCursor++) {
-      const base = n * SPLAT_BYTES_PER_SPLAT;
+      const base = bboxHeaderSize + n * bytesPerSplat;
+      let x: number, y: number, z: number;
+      let scaleX: number, scaleY: number, scaleZ: number;
+      let rotBase: number, colorBase: number;
+
+      if (compact) {
+        // 紧凑 29B: Position 3×Uint24 (0-8), Scale 3×Float32 (9-20),
+        //   Color RGBA (21-24), Rotation IJKL (25-28)
+        const qx =
+          view.getUint8(base) | (view.getUint8(base + 1) << 8) | (view.getUint8(base + 2) << 16);
+        const qy =
+          view.getUint8(base + 3) |
+          (view.getUint8(base + 4) << 8) |
+          (view.getUint8(base + 5) << 16);
+        const qz =
+          view.getUint8(base + 6) |
+          (view.getUint8(base + 7) << 8) |
+          (view.getUint8(base + 8) << 16);
+        x = (qx / 0xffffff) * rangeX + bboxMin[0];
+        y = (qy / 0xffffff) * rangeY + bboxMin[1];
+        z = (qz / 0xffffff) * rangeZ + bboxMin[2];
+        scaleX = view.getFloat32(base + 9, true);
+        scaleY = view.getFloat32(base + 13, true);
+        scaleZ = view.getFloat32(base + 17, true);
+        colorBase = base + 21;
+        rotBase = base + 25;
+      } else {
+        // 标准 32B .splat: Position (0-11), Scale (12-23), Color RGBA (24-27), Rotation (28-31)
+        x = view.getFloat32(base + 0, true);
+        y = view.getFloat32(base + 4, true);
+        z = view.getFloat32(base + 8, true);
+        scaleX = view.getFloat32(base + 12, true);
+        scaleY = view.getFloat32(base + 16, true);
+        scaleZ = view.getFloat32(base + 20, true);
+        colorBase = base + 24;
+        rotBase = base + 28;
+      }
+
       const s: GaussianSplat = {
-        x: view.getFloat32(base + 0, true),
-        y: view.getFloat32(base + 4, true),
-        z: view.getFloat32(base + 8, true),
-        scaleX: view.getFloat32(base + 12, true),
-        scaleY: view.getFloat32(base + 16, true),
-        scaleZ: view.getFloat32(base + 20, true),
-        rotW: view.getUint8(base + 24) / 128 - 1,
-        rotX: view.getUint8(base + 25) / 128 - 1,
-        rotY: view.getUint8(base + 26) / 128 - 1,
-        rotZ: view.getUint8(base + 27) / 128 - 1,
-        colorR: view.getUint8(base + 28) / 255,
-        colorG: view.getUint8(base + 29) / 255,
-        colorB: view.getUint8(base + 30) / 255,
-        opacity: view.getUint8(base + 31) / 255,
+        x,
+        y,
+        z,
+        scaleX,
+        scaleY,
+        scaleZ,
+        rotW: view.getUint8(rotBase + 0) / 128 - 1,
+        rotX: view.getUint8(rotBase + 1) / 128 - 1,
+        rotY: view.getUint8(rotBase + 2) / 128 - 1,
+        rotZ: view.getUint8(rotBase + 3) / 128 - 1,
+        colorR: view.getUint8(colorBase + 0) / 255,
+        colorG: view.getUint8(colorBase + 1) / 255,
+        colorB: view.getUint8(colorBase + 2) / 255,
+        opacity: view.getUint8(colorBase + 3) / 255,
         shDegree: 0,
       };
       splats[splatCursor] = s;
@@ -470,15 +560,10 @@ async function batchConvert(dir: string, opts: Record<string, string | boolean>)
       // ★ C-10: 按输入扩展名路由到对应加载器
       const inputOpts = { ...opts, output: outputPath };
       if (inputExt === '.ply') {
-        await convertPly(inputPath, inputOpts, format);
-        const plyBuf = await readFile(inputPath);
-        splatCount = loadGaussiansFromPly(toArrayBuffer(plyBuf), { source: inputPath }).splats
-          .length;
+        // ★ 复用返回值, 避免二次 readFile + 解析
+        splatCount = await convertPly(inputPath, inputOpts, format);
       } else if (inputExt === '.splat') {
-        await convertSplat(inputPath, inputOpts, format);
-        const splatBuf = await readFile(inputPath);
-        splatCount = loadGaussiansFromSplat(toArrayBuffer(splatBuf), { source: inputPath }).splats
-          .length;
+        splatCount = await convertSplat(inputPath, inputOpts, format);
       } else if (inputExt === '.spz') {
         // SPZ → 目标格式: 解压读取后走通用转换
         const spzBuf = await readFile(inputPath);

@@ -122,6 +122,7 @@ export class TourPlayer {
    */
   async preloadScenes(sceneIds: string[]): Promise<void> {
     if (!this.sceneManager) throw new Error('TourPlayer 未加载');
+    if (this._destroyed) throw new Error('TourPlayer 已销毁, 无法预加载场景');
     await this.sceneManager.preloadScenes(sceneIds);
   }
 

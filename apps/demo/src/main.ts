@@ -259,7 +259,7 @@ async function main() {
     md += `**测试时间**: ${new Date().toISOString()}\n`;
     md += `**后端**: ${backend.toUpperCase()}\n`;
     md += `**设备分级**: ${['LOW','MEDIUM','HIGH','ULTRA'][renderer.getDeviceTier()]}\n`;
-    const gpuInfo = webgpuCapability.adapterInfo
+    const gpuInfo = webgpuCapability?.adapterInfo
       ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}` : 'N/A';
     md += `**GPU**: ${gpuInfo}\n`;
     md += `**SAB**: ${RenderManager.isCrossOriginIsolated() ? '✓' : '✗'}\n\n`;
@@ -902,6 +902,11 @@ async function main() {
         showInfo('已自动回退到 WebGL2 后端');
       } catch (fallbackErr) {
         console.error('WebGL2 回退也失败:', fallbackErr);
+        // ★ renderer 已销毁且重建失败 → 置 null, 避免后续操作已销毁对象
+        renderer = null;
+        webgpuCapability = null;
+        errorEl.textContent = `❌ 渲染器初始化失败: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)} (请刷新页面重试)`;
+        errorEl.style.display = 'block';
       }
       updateBackendPanel();
     } finally {
@@ -964,8 +969,7 @@ async function main() {
   window.__webgpuCapability = webgpuCapability;
 
   window.__getDeviceInfo = function() {
-    const tierNames = ['LOW', 'MEDIUM', 'HIGH', 'ULTRA'];
-    const gpuInfo = webgpuCapability.adapterInfo
+    const gpuInfo = webgpuCapability?.adapterInfo
       ? `${webgpuCapability.adapterInfo.vendor} ${webgpuCapability.adapterInfo.architecture}` : 'N/A';
     return {
       backend: backend.toUpperCase(),

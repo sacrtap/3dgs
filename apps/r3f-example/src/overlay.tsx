@@ -12,11 +12,13 @@ import * as THREE from 'three';
 export function R3FOverlay() {
   const groupRef = useRef<THREE.Group>(null);
 
+  // ★ 复用临时向量: 避免 useFrame 每帧 new Vector3 分配 (GC 压力)
+  const _dir = new THREE.Vector3();
+
   useFrame(({ camera }) => {
     // 箭头始终悬浮在相机前方 2 单位处
-    const dir = new THREE.Vector3();
-    camera.getWorldDirection(dir);
-    groupRef.current?.position.copy(camera.position).add(dir.multiplyScalar(2));
+    camera.getWorldDirection(_dir);
+    groupRef.current?.position.copy(camera.position).add(_dir.multiplyScalar(2));
     groupRef.current?.lookAt(camera.position);
   });
 

@@ -237,7 +237,8 @@ fn vs_main(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) -
 
   // ★ TD-01: 球谐着色 — 视角依赖颜色 (与 three.js SphericalHarmonics3 基函数约定一致)
   //   SH 系数布局: 每 splat shDim×3 个 (系数主序, 每系数 R/G/B 三通道, 同 f_rest_* 顺序)
-  //   final = SH_C0 * dc + Σ coeff_k * basis_k(viewDir)
+  //   colors 流存的是最终 DC 颜色 (SH_C0*f_dc+0.5, 已含 C0 归一), SH 项直接加系数×基函数
+  //   final = dc + Σ coeff_k * basis_k(viewDir)
   var outR = dcR;
   var outG = dcG;
   var outB = dcB;
@@ -252,9 +253,9 @@ fn vs_main(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) -
     let l1y = SH_C1 * y;
     let l1z = SH_C1 * z;
     let l1x = SH_C1 * x;
-    outR = SH_C0 * dcR + shCoeffs[base] * l1y + shCoeffs[base + 3u] * l1z + shCoeffs[base + 6u] * l1x;
-    outG = SH_C0 * dcG + shCoeffs[base + 1u] * l1y + shCoeffs[base + 4u] * l1z + shCoeffs[base + 7u] * l1x;
-    outB = SH_C0 * dcB + shCoeffs[base + 2u] * l1y + shCoeffs[base + 5u] * l1z + shCoeffs[base + 8u] * l1x;
+    outR = dcR + shCoeffs[base] * l1y + shCoeffs[base + 3u] * l1z + shCoeffs[base + 6u] * l1x;
+    outG = dcG + shCoeffs[base + 1u] * l1y + shCoeffs[base + 4u] * l1z + shCoeffs[base + 7u] * l1x;
+    outB = dcB + shCoeffs[base + 2u] * l1y + shCoeffs[base + 5u] * l1z + shCoeffs[base + 8u] * l1x;
     if (shDim >= 8u) {
       // L2 (5 系数): basis = [SH_C2*xy, SH_C3*(3z²-1), SH_C2*yz, SH_C2*xz, SH_C4*(x²-y²)]
       let l2a = SH_C2 * x * y;

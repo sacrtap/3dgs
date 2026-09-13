@@ -663,9 +663,13 @@ export function buildCloudFromFastPath(
     // SH 系数
     let sh: Float32Array | undefined;
     if (shDegree > 0 && hasShRest && fastData.shRest) {
-      sh = new Float32Array(totalShCoeffs);
-      for (let j = 0; j < totalShCoeffs; j++) {
-        sh[j] = fastData.shRest[i * totalShCoeffs + j] || 0;
+      // ★ 用实际 shRestCount 做源索引 (非标准 f_rest_ 数量时避免错位)
+      const shRestCount = fastData.shRest.length / count;
+      const srcBase = i * shRestCount;
+      const copyCount = Math.min(shRestCount, totalShCoeffs);
+      sh = new Float32Array(copyCount);
+      for (let j = 0; j < copyCount; j++) {
+        sh[j] = fastData.shRest[srcBase + j] || 0;
       }
     }
 
@@ -797,9 +801,14 @@ export function buildCloudSoAFromFastPath(
 
     // SH 系数
     if (sh && hasShRest && fastData.shRest) {
+      // ★ 用实际 shRestCount 做源索引 (PLY f_rest_* 属性数可能非标准数量,
+      //   目标布局按推断的 shDegree 分配, 多出部分截断, 避免越界)
+      const shRestCount = fastData.shRest.length / count;
       const shBase = i * totalShCoeffs;
-      for (let j = 0; j < totalShCoeffs; j++) {
-        sh[shBase + j] = fastData.shRest[i * totalShCoeffs + j] || 0;
+      const copyCount = Math.min(shRestCount, totalShCoeffs);
+      const srcBase = i * shRestCount;
+      for (let j = 0; j < copyCount; j++) {
+        sh[shBase + j] = fastData.shRest[srcBase + j] || 0;
       }
     }
   }

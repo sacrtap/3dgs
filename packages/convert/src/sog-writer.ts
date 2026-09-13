@@ -108,6 +108,7 @@ const QUANT_MAX = 0xffffff; // 16777215
 /** ★ H2: SH DC 追加模式 */
 export const SOG_SH_MODE_OFF = 0; // 不追加 SH DC
 export const SOG_SH_MODE_DC_INT8 = 1; // 追加 SH DC 3 bytes (Int8 量化)
+export const SOG_SH_MODE_FULL_INT8 = 2; // v3 overlay: 完整 SH 系数 (shDim×3 bytes, Int8 量化)
 
 /** ★ H2: SH DC 追加后每 splat 额外字节数 (3 bytes: R, G, B 各 1 byte) */
 const SH_DC_EXTRA_BYTES = 3;
@@ -495,7 +496,7 @@ export function writeSogSoA(soa: GaussianCloudSoA, options: SogWriterOptions = {
     view.setUint32(oh, overlayDataOffset, true); // overlayOffset
     view.setUint32(oh + 4, overlayDataSize, true); // overlaySize
     view.setUint8(oh + 8, soa.shDegree); // shDegree
-    view.setUint8(oh + 9, SOG_SH_MODE_DC_INT8); // shMode: 1 = Int8 量化 overlay
+    view.setUint8(oh + 9, SOG_SH_MODE_FULL_INT8); // shMode: 2 = 完整 SH overlay (Int8 量化)
     // 10-11 reserved, 已为零
   }
 
@@ -605,7 +606,13 @@ export function parseSogMetadata(buffer: ArrayBuffer): SogMetadata {
     const oh = buffer.byteLength - SOG_V3_OVERLAY_HEADER_SIZE;
     shOverlayOffset = view.getUint32(oh, true);
     shOverlaySize = view.getUint32(oh + 4, true);
-    if (shOverlaySize > 0 && shOverlayOffset + shOverlaySize <= oh) {
+    // ★ 双向边界校验: 下界 (非负, 不落在 header 之前的数据区起点之前) + 上界 (不越过 overlay header)
+    const MIN_OVERLAY_OFFSET = SOG_HEADER_SIZE; // overlay 数据区必须在文件头之后
+    if (
+      shOverlaySize > 0 &&
+      shOverlayOffset >= MIN_OVERLAY_OFFSET &&
+      shOverlayOffset + shOverlaySize <= oh
+    ) {
       shOverlayHeaderOffset = oh;
     } else {
       shOverlayOffset = undefined;

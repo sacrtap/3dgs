@@ -585,6 +585,13 @@ export class WebGPURenderManager implements RendererAdapter {
     if (this._preloadCache.has(source) || source.endsWith('.sog')) return;
     const data = await fetchWithProgress(source);
     this._preloadCache.set(source, data);
+    // ★ 缓存上限: 避免长期会话累积内存 (LRU 淘汰最旧条目)
+    const MAX_PRELOAD_ENTRIES = 16;
+    while (this._preloadCache.size > MAX_PRELOAD_ENTRIES) {
+      const oldest = this._preloadCache.keys().next().value;
+      if (oldest === undefined) break;
+      this._preloadCache.delete(oldest);
+    }
   }
 
   async loadScene(source: string, options?: LoadOptions): Promise<void> {
@@ -1207,13 +1214,35 @@ export class WebGPURenderManager implements RendererAdapter {
     this._gridCuller.cull(this._frustum, mask);
 
     // ★ TD-09: mask 变更检测 — 未变化时跳过 index buffer 回写 (消除每 3 帧 N×4B 上传)
+    // ★ 性能: 用 Uint32 视图批量比较 (4 字节/次), 尾部余数单独处理
     const last = this._lastVisibleMask;
     let changed = !last || last.length !== mask.length;
-    if (!changed) {
-      for (let i = 0; i < mask.length; i++) {
-        if (mask[i] !== last![i]) {
-          changed = true;
-          break;
+    if (!changed && mask.length > 0) {
+      // 尽量 4 字节对齐比较; 非对齐时退回逐字节 (byteOffset 由 Uint8Array 决定)
+      if (mask.byteOffset % 4 === 0 && last!.byteOffset % 4 === 0) {
+        const wordCount = mask.length >> 2;
+        const maskWords = new Uint32Array(mask.buffer, mask.byteOffset, wordCount);
+        const lastWords = new Uint32Array(last!.buffer, last!.byteOffset, wordCount);
+        for (let w = 0; w < wordCount; w++) {
+          if (maskWords[w] !== lastWords[w]) {
+            changed = true;
+            break;
+          }
+        }
+        if (!changed) {
+          for (let i = wordCount * 4; i < mask.length; i++) {
+            if (mask[i] !== last![i]) {
+              changed = true;
+              break;
+            }
+          }
+        }
+      } else {
+        for (let i = 0; i < mask.length; i++) {
+          if (mask[i] !== last![i]) {
+            changed = true;
+            break;
+          }
         }
       }
     }

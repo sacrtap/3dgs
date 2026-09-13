@@ -407,4 +407,22 @@ describe('TD-15 quickselect 贡献度裁剪', () => {
     // 宽松上限: quickselect O(N) 在 100K 上应 < 500ms (全排序路径约 2-4x 更慢)
     expect(elapsed).toBeLessThan(500);
   });
+
+  it('TD-15 性能: 升序/降序输入不退化 (median-of-three pivot 防护 O(N²) 退化)', () => {
+    // 回归锚点: 旧实现固定末尾 pivot, 已排序输入触发 Lomuto O(N²) 递归爆栈/超时
+    for (const order of ['asc', 'desc'] as const) {
+      const splats: Array<Partial<import('./gaussian-loader.js').GaussianSplat>> = [];
+      for (let i = 0; i < 50_000; i++) {
+        const opacity = order === 'asc' ? 0.01 + i * 1e-5 : 0.51 - i * 1e-5;
+        splats.push({ opacity, scaleX: 1, scaleY: 1, scaleZ: 1 });
+      }
+      const cloud = makeCloud(splats);
+      const start = performance.now();
+      const result = pruneGaussians(cloud, { contributionCutoff: 10_000 });
+      const elapsed = performance.now() - start;
+      expect(result.splats).toHaveLength(10_000);
+      // 60K 已排序输入在旧实现下会超秒级/爆栈; median-of-three 应 < 500ms
+      expect(elapsed).toBeLessThan(500);
+    }
+  });
 });

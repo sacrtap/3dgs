@@ -34,6 +34,12 @@
  *     5. Rotations   N × 3 bytes  (uint8 × 3, xyz stored; w = sqrt(1-x²-y²-z²))
  *     6. SH          N × shDim×3 bytes (uint8, quantized) — 解码为 .splat 时跳过
  *
+ * ★ SH 布局约定: 本项目管线为 coefficient-major (每系数 3 通道连续:
+ *   R0,G0,B0, R1,G1,B1, ...), 与 PLY f_rest 输入透传一致, 亦与
+ *   splat-render-shader.ts 的索引一致 (shCoeffs[base]=R1y, [base+3]=R2z, [base+6]=R3x)。
+ *   Niantic 参考实现为 channel-major (每通道全部系数连续), 读取外部 SPZ 时
+ *   需在解码层重排为 coefficient-major (当前未实现, 见 TD-01 备注)。
+ *
  * .splat 格式 (32 bytes/splat):
  *     Position XYZ  3 × Float32  (12 bytes)
  *     Scale XYZ     3 × Float32  (12 bytes)
@@ -284,6 +290,15 @@ export async function decodeSpzToSplatData(data: ArrayBuffer): Promise<SplatData
   const scalesOffset = colorsOffset + colorsSize;
   const rotationsOffset = scalesOffset + scalesSize;
   const shOffset = rotationsOffset + rotationsSize;
+
+  // ★ 解压数据长度校验: 损坏/截断 SPZ 会静默产生 NaN (undefined 参与运算)
+  const shSize = shDim > 0 ? numSplats * shDim * 3 : 0;
+  const expectedSize = shOffset + shSize;
+  if (decompressed.byteLength < expectedSize) {
+    throw new Error(
+      `SPZ 数据不完整: 需要 ${expectedSize} 字节, 实际 ${decompressed.byteLength} 字节 (文件可能截断或损坏)`,
+    );
+  }
 
   // 分配 SoA 输出
   const positions = new Float32Array(numSplats * 3);

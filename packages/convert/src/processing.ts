@@ -180,20 +180,29 @@ export function quickselect(array: Float64Array | number[], k: number): number {
   let low = 0;
   let high = n - 1;
   while (low < high) {
-    const pivot = array[high];
+    // ★ 中位数-of-3 pivot: 避免已排序输入退化为 O(N²) (Lomuto 固定末尾 pivot 的缺陷)
+    const mid = low + ((high - low) >> 1);
+    const a = array[low];
+    const b = array[mid];
+    const c = array[high];
+    const pivot = a < b ? (b < c ? b : a < c ? c : a) : a < c ? a : b < c ? c : b;
     let i = low;
-    for (let j = low; j < high; j++) {
-      if (array[j] < pivot) {
+    let j = high;
+    while (i <= j) {
+      while (array[i] < pivot) i++;
+      while (array[j] > pivot) j--;
+      if (i <= j) {
         swapValues(array, i, j);
         i++;
+        j--;
       }
     }
-    swapValues(array, i, high);
-    if (i === k) break;
-    if (i < k) {
-      low = i + 1;
+    if (k <= j) {
+      high = j;
+    } else if (k >= i) {
+      low = i;
     } else {
-      high = i - 1;
+      break;
     }
   }
   return array[k];
@@ -223,21 +232,29 @@ export function quickselectIndices(indices: Uint32Array, scores: Float64Array, k
   let low = 0;
   let high = n - 1;
   while (low < high) {
-    const pivotIdx = indices[high];
-    const pivot = scores[pivotIdx];
+    // ★ 中位数-of-3 pivot: 避免已排序输入退化为 O(N²)
+    const mid = low + ((high - low) >> 1);
+    const a = scores[indices[low]];
+    const b = scores[indices[mid]];
+    const c = scores[indices[high]];
+    const pivot = a < b ? (b < c ? b : a < c ? c : a) : a < c ? a : b < c ? c : b;
     let i = low;
-    for (let j = low; j < high; j++) {
-      if (scores[indices[j]] < pivot) {
+    let j = high;
+    while (i <= j) {
+      while (scores[indices[i]] < pivot) i++;
+      while (scores[indices[j]] > pivot) j--;
+      if (i <= j) {
         swapIndices(indices, i, j);
         i++;
+        j--;
       }
     }
-    swapIndices(indices, i, high);
-    if (i === k) break;
-    if (i < k) {
-      low = i + 1;
+    if (k <= j) {
+      high = j;
+    } else if (k >= i) {
+      low = i;
     } else {
-      high = i - 1;
+      break;
     }
   }
   return indices[k];

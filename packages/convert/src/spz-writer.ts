@@ -178,10 +178,11 @@ export async function writeSpzSoA(
 
   // ── 6. SH (N × shDim × 3 bytes) ──
   if (shDim > 0) {
+    const shPerSplat = shDim * 3; // ★ 每 splat SH 系数总数, 循环外求值
     for (let i = 0; i < numSplats; i++) {
-      const base = offset + i * shDim * 3;
-      const shBase = i * shDim * 3;
-      for (let j = 0; j < shDim * 3; j++) {
+      const base = offset + i * shPerSplat;
+      const shBase = i * shPerSplat;
+      for (let j = 0; j < shPerSplat; j++) {
         // Determine bits: degree 1 uses 5 bits, degree 2+ uses 4 bits
         const bits = j < 9 ? 5 : 4;
         const v = soa.sh ? soa.sh[shBase + j] : 0;

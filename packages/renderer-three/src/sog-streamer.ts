@@ -258,7 +258,8 @@ export class SogStreamer {
   /**
    * ★ C-04/TD-19: 加载 SOG v3 SH overlay (视角依赖着色系数)
    *
-   * 通过两次 Range 请求: 文件尾 12B overlay header → overlay 数据区。
+   * 优先复用 start() 中 attachShOverlayMetadata 已缓存的 offset/size (含 shDegree 校验),
+   * 未缓存时兜底做一次文件尾 12B Range 请求; 随后一次 Range 请求读取 overlay 数据区。
    * 返回反量化后的 Float32Array (长度 = numSplats × shDim × 3), 无 overlay 时返回 undefined。
    *
    * @returns SH 系数 (uint8 反量化 (v-128)/128, 系数主序 × RGB 通道)
@@ -266,25 +267,39 @@ export class SogStreamer {
   async loadShOverlay(): Promise<Float32Array | undefined> {
     if (!this.metadata || this.metadata.version < 3 || !this.options.url) return undefined;
 
-    // 1. 文件尾 12B overlay header (Range 请求尾部, 不依赖文件总大小)
-    const tailSize = 12;
-    const headRes = await fetch(this.options.url, {
-      headers: { Range: `bytes=-${tailSize}` },
-      signal: this._abortController?.signal,
-    });
-    if (!headRes.ok && headRes.status !== 206) return undefined;
-    const headBuf = new Uint8Array(await headRes.arrayBuffer());
-    if (headBuf.length < tailSize) return undefined;
+    // 1. 复用已缓存 overlay 元数据 (attachShOverlayMetadata 已做 shDegree 校验);
+    //    未缓存 (start 未调或失败) 时兜底读取文件尾 12B header
+    let overlayOffset = this.metadata.shOverlayOffset;
+    let overlaySize = this.metadata.shOverlaySize;
+    if (overlayOffset === undefined || overlaySize === undefined || overlaySize === 0) {
+      const tailSize = 12;
+      const headRes = await fetch(this.options.url, {
+        headers: { Range: `bytes=-${tailSize}` },
+        signal: this._abortController?.signal,
+      });
+      if (!headRes.ok && headRes.status !== 206) return undefined;
+      const headBuf = new Uint8Array(await headRes.arrayBuffer());
+      if (headBuf.length < tailSize) return undefined;
 
-    const headView = new DataView(headBuf.buffer, headBuf.byteOffset, headBuf.byteLength);
-    const overlayOffset = headView.getUint32(0, true);
-    const overlaySize = headView.getUint32(4, true);
+      const headView = new DataView(headBuf.buffer, headBuf.byteOffset, headBuf.byteLength);
+      overlayOffset = headView.getUint32(0, true);
+      overlaySize = headView.getUint32(4, true);
+      // ★ shDegree 校验: 文件尾声明的 degree 必须与 header 一致, 不一致视为损坏
+      if (overlaySize > 0 && headView.getUint8(8) !== this.metadata.shDegree) {
+        return undefined;
+      }
+    }
     if (overlaySize === 0) return undefined;
 
     const shDim = this.shDimForDegree(this.metadata.shDegree);
     if (shDim === 0) return undefined;
     const expected = this.metadata.numSplats * shDim * 3;
-    if (overlaySize !== expected) return undefined;
+    if (overlaySize !== expected) {
+      console.warn(
+        `[SogStreamer] SH overlay 大小不匹配: overlay=${overlaySize}B, 期望=${expected}B (文件损坏或 shDegree 声明不一致)`,
+      );
+      return undefined;
+    }
 
     // 2. 读取 overlay 数据区
     const dataRes = await fetch(this.options.url, {
@@ -293,7 +308,12 @@ export class SogStreamer {
     });
     if (!dataRes.ok && dataRes.status !== 206) return undefined;
     const dataBuf = new Uint8Array(await dataRes.arrayBuffer());
-    if (dataBuf.length !== overlaySize) return undefined;
+    if (dataBuf.length !== overlaySize) {
+      console.warn(
+        `[SogStreamer] SH overlay 数据区不完整: 收到 ${dataBuf.length}B, 期望 ${overlaySize}B`,
+      );
+      return undefined;
+    }
 
     const out = new Float32Array(expected);
     for (let i = 0; i < expected; i++) {

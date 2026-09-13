@@ -94,6 +94,9 @@ importers:
       react-dom:
         specifier: ^19.2.8
         version: 19.2.8(react@19.2.8)
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
       vite:
         specifier: ^6
         version: 6.4.3(tsx@4.23.12)

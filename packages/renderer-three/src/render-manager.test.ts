@@ -39,6 +39,9 @@ function mockFetchResponse(data: Uint8Array): Response {
 
 // ── Spark mock (工厂内联定义, vi.mock 提升后仍可用) ───────
 let lastSplatMeshOptions: Record<string, unknown> | undefined;
+let lastSplatMeshInstance: { _manualOnLoad?: () => void; dispose: () => void } | undefined;
+/** 全局手动触发模式: 置 true 后 SplatMesh 构造不自动触发 onLoad, 由测试手动调用 */
+let manualOnLoadMode = false;
 
 vi.mock('@sparkjsdev/spark', async (importOriginal) => {
   const actual = await importOriginal<{
@@ -54,7 +57,7 @@ vi.mock('@sparkjsdev/spark', async (importOriginal) => {
         }),
       }),
     };
-    dispose = () => {};
+    dispose = vi.fn();
     updateMatrixWorld = () => {};
     createLodSplats = async () => {};
     getBoundingBox = () => ({
@@ -67,10 +70,16 @@ vi.mock('@sparkjsdev/spark', async (importOriginal) => {
     });
     constructor(options: Record<string, unknown>) {
       lastSplatMeshOptions = options;
-      // 构造后 microtask 触发 onLoad, 让 loadScene 的 Promise 放行
+      lastSplatMeshInstance = this;
       const onLoad = options.onLoad as ((mesh: MockSplatMesh) => void) | undefined;
       if (onLoad) {
-        queueMicrotask(() => onLoad(this));
+        if (manualOnLoadMode) {
+          // 延迟触发模式: 由测试手动调用 (验证超时/destroy 后迟到 onLoad 被丢弃)
+          (this as unknown as { _manualOnLoad: () => void })._manualOnLoad = () => onLoad(this);
+        } else {
+          // 构造后 microtask 触发 onLoad, 让 loadScene 的 Promise 放行
+          queueMicrotask(() => onLoad(this));
+        }
       }
     }
   }
@@ -190,6 +199,8 @@ function makeContainer(): HTMLElement {
 describe('TD-11 RenderManager 主流程', () => {
   beforeEach(() => {
     lastSplatMeshOptions = undefined;
+    lastSplatMeshInstance = undefined;
+    manualOnLoadMode = false;
     vi.restoreAllMocks();
   });
 
@@ -291,6 +302,69 @@ describe('TD-11 RenderManager 主流程', () => {
     // 预取 1 次, 加载命中缓存 (不重复)
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(rm.getStats().visibleSplats).toBe(8);
+    rm.destroy();
+  });
+
+  it('★ createSplatMeshFromBytes 超时后迟到的 onLoad: 丢弃网格 (settled 守卫)', async () => {
+    // 回归锚点: 原实现 settled 仅 onLoad 内置 true, 超时 reject 后迟到 onLoad
+    //   仍会执行 scene.add/currentSplat 赋值 → 场景状态被超时后的网格污染
+    const splatData = makeSplatData(16);
+    const fetchMock = vi.fn().mockResolvedValue(mockFetchResponse(splatData));
+    vi.stubGlobal('fetch', fetchMock);
+
+    vi.useFakeTimers();
+    try {
+      const rm = new RenderManager();
+      rm.mount(makeContainer());
+      rm.start();
+
+      // manualOnLoadMode: 网格构造后不自动触发 onLoad, 模拟 onLoad 永不触发场景
+      manualOnLoadMode = true;
+      const pending = rm.loadScene('http://test/hang.splat');
+      // 提前挂 rejection 处理器, 避免未捕获 reject (loadScene 最终超时 reject)
+      const rejection = pending.catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(0); // flush fetch + SplatMesh 构造 microtask
+      const mesh = lastSplatMeshInstance!;
+      expect(mesh).toBeDefined();
+      expect(mesh._manualOnLoad).toBeDefined();
+
+      // 推进 61s: 截断加载 30s 超时 → 回退 URL 直加载 → 再 30s 超时, loadScene 整体 reject
+      await vi.advanceTimersByTimeAsync(61_000);
+      const err = await rejection;
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(/超时/);
+
+      // 迟到的 onLoad 触发: settled 已置 true → 丢弃网格 (dispose 被调用, 不再修改场景)
+      const disposeSpy = vi.spyOn(mesh, 'dispose');
+      mesh._manualOnLoad!();
+      expect(disposeSpy).toHaveBeenCalled();
+      rm.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('★ context lost: 显式取消 RAF 并重置 rafId (允许 restore 后重启循环)', async () => {
+    // 回归锚点: 原实现丢失 RAF 句柄, context lost 后 _startRenderLoop 的
+    //   "rafId !== 0 直接返回" 阻止 restore 后循环重启 (移动端黑屏)
+    const cancelSpy = vi.fn();
+    vi.stubGlobal('cancelAnimationFrame', cancelSpy);
+
+    const rm = new RenderManager();
+    rm.mount(makeContainer());
+    rm.start();
+    // 测试专用: 访问 private 成员验证 RAF 句柄状态
+    const internals = rm as unknown as {
+      rafId: number;
+      renderer: { domElement: HTMLCanvasElement };
+    };
+    expect(internals.rafId).not.toBe(0); // 循环已启动 (jest/jsdom rAF 返回非 0 id)
+
+    // 触发 context lost 事件 → handler 应取消 RAF 并重置 rafId
+    const canvas = internals.renderer.domElement;
+    canvas.dispatchEvent(new Event('webglcontextlost'));
+    expect(cancelSpy).toHaveBeenCalled();
+    expect(internals.rafId).toBe(0);
     rm.destroy();
   });
 

@@ -203,6 +203,22 @@ export function validateTourConfigJson(json: unknown): TourConfigValidationResul
       (typeof s.initialView !== 'object' || s.initialView === null)
     ) {
       errors.push(`场景 "${id}" initialView 必须是对象`);
+    } else if (s.initialView !== undefined) {
+      // ★ 子字段校验: 与 JSON Schema 约束一致 (yaw/pitch 数值, fov 数值且 1-179)
+      const iv = s.initialView as Record<string, unknown>;
+      if (iv.yaw !== undefined && typeof iv.yaw !== 'number') {
+        errors.push(`场景 "${id}" initialView.yaw 必须是数字`);
+      }
+      if (iv.pitch !== undefined && typeof iv.pitch !== 'number') {
+        errors.push(`场景 "${id}" initialView.pitch 必须是数字`);
+      }
+      if (iv.fov !== undefined) {
+        if (typeof iv.fov !== 'number' || Number.isNaN(iv.fov)) {
+          errors.push(`场景 "${id}" initialView.fov 必须是数字`);
+        } else if (iv.fov < 1 || iv.fov > 179) {
+          errors.push(`场景 "${id}" initialView.fov 必须在 1-179 范围`);
+        }
+      }
     }
   }
 

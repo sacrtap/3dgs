@@ -95,9 +95,15 @@ export class SplatGridCuller {
     const cellCounts = new Uint32Array(cellCount);
     const { positions, bbox, cellSize } = this;
     const min = bbox.min;
+    const maxCell = resolution - 1;
 
+    // ★ 内联 cell 索引计算: 避免 cellIndexFor 每 splat 重复解引用 positions 3 次
     for (let i = 0; i < count; i++) {
-      const cellIndex = this.cellIndexFor(i, min, cellSize);
+      const i3 = i * 3;
+      const gx = Math.min(maxCell, Math.floor((positions[i3] - min.x) / cellSize.x));
+      const gy = Math.min(maxCell, Math.floor((positions[i3 + 1] - min.y) / cellSize.y));
+      const gz = Math.min(maxCell, Math.floor((positions[i3 + 2] - min.z) / cellSize.z));
+      const cellIndex = (gx * resolution + gy) * resolution + gz;
       cellCounts[cellIndex]++;
     }
 
@@ -122,12 +128,16 @@ export class SplatGridCuller {
     const cellMaxZ = new Float64Array(cellCount).fill(-Infinity);
 
     for (let i = 0; i < count; i++) {
-      const cellIndex = this.cellIndexFor(i, min, cellSize);
+      const i3 = i * 3;
+      const gx = Math.min(maxCell, Math.floor((positions[i3] - min.x) / cellSize.x));
+      const gy = Math.min(maxCell, Math.floor((positions[i3 + 1] - min.y) / cellSize.y));
+      const gz = Math.min(maxCell, Math.floor((positions[i3 + 2] - min.z) / cellSize.z));
+      const cellIndex = (gx * resolution + gy) * resolution + gz;
       this.cells[cellIndex].members[cellCursor[cellIndex]++] = i;
 
-      const x = positions[i * 3];
-      const y = positions[i * 3 + 1];
-      const z = positions[i * 3 + 2];
+      const x = positions[i3];
+      const y = positions[i3 + 1];
+      const z = positions[i3 + 2];
       if (x < cellMinX[cellIndex]) cellMinX[cellIndex] = x;
       if (x > cellMaxX[cellIndex]) cellMaxX[cellIndex] = x;
       if (y < cellMinY[cellIndex]) cellMinY[cellIndex] = y;

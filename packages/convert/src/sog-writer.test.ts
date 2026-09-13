@@ -948,6 +948,7 @@ describe('writeSog — C-04/TD-19 SOG v3 SH overlay', () => {
     expect(view.getUint32(oh, true)).toBe(meta.shOverlayOffset);
     expect(view.getUint32(oh + 4, true)).toBe(10 * 9);
     expect(view.getUint8(oh + 8)).toBe(1); // shDegree
+    expect(view.getUint8(oh + 9)).toBe(2); // shMode = SOG_SH_MODE_FULL_INT8 (完整 SH overlay)
   });
 
   it('★ v3 SH overlay round-trip: 系数在量化误差内一致', () => {
@@ -1016,5 +1017,38 @@ describe('writeSog — C-04/TD-19 SOG v3 SH overlay', () => {
     const lodEnd = meta.lodTreeOffset + (meta.lodTreeSize ?? 0);
     expect(meta.shOverlayOffset!).toBeGreaterThanOrEqual(lodEnd);
     expect(meta.shOverlayOffset! + meta.shOverlaySize!).toBeLessThanOrEqual(buf.byteLength - 12);
+  });
+
+  it('★ v3 损坏 overlay header (偏移越界/负值) → 元数据字段置 undefined (下界防护)', () => {
+    const splats = Array.from({ length: 5 }, (_, i) => {
+      const sh = new Float32Array(9);
+      for (let j = 0; j < 9; j++) sh[j] = 0.01;
+      return { x: i, y: i, z: i, shDegree: 1, sh };
+    });
+    const cloud = makeCloud(splats);
+    const buf = writeSog(cloud, { version: 3, buildLodTree: false });
+
+    // 篡改文件尾 12B overlay header: offset 指向文件头之前 (下界越界)
+    const corrupted = buf.slice(0);
+    const view = new DataView(corrupted);
+    const oh = corrupted.byteLength - 12;
+    view.setUint32(oh, 8, true); // offset=8 (< SOG_HEADER_SIZE=64)
+    view.setUint32(oh + 4, 100, true); // size=100
+
+    const meta = parseSogMetadata(corrupted);
+    expect(meta.shOverlayOffset).toBeUndefined();
+    expect(meta.shOverlaySize).toBeUndefined();
+    expect(meta.shOverlayHeaderOffset).toBeUndefined();
+
+    // 篡改: offset+size 越过 header 起点 (上界越界)
+    const corrupted2 = buf.slice(0);
+    const view2 = new DataView(corrupted2);
+    const oh2 = corrupted2.byteLength - 12;
+    view2.setUint32(oh2, oh2 - 5, true); // 数据区起始越界
+    view2.setUint32(oh2 + 4, 100, true);
+
+    const meta2 = parseSogMetadata(corrupted2);
+    expect(meta2.shOverlayOffset).toBeUndefined();
+    expect(meta2.shOverlaySize).toBeUndefined();
   });
 });
