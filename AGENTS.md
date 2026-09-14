@@ -92,7 +92,10 @@ dormant 状态 (文件存在于 working tree 但未 tracked, 机械 review 触�
 
 ## Do Not Touch
 
-- `dist/`, `coverage/`, `.changeset/` — generated or managed by tooling.
+- `dist/`, `coverage/` — generated or managed by tooling.
+- `.changeset/` — 仅 tooling 产物禁止手改; 手写 changeset 文件
+  (`*.md`, 声明 bump 类型) 是 release 流程合法输入, 允许入库
+  (guard-paths.mjs 已豁免 .md)。
 - `benchmarks/reports/` — gitignored benchmark output.
 - `*.ply`, `*.sog`, `*.splat`, `*.spz` — large data files, gitignored except
   `apps/demo/public/kitchen.*` demo assets.

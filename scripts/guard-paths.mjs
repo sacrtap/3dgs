@@ -4,7 +4,11 @@
 const FORBIDDEN = [
   { pattern: /^dist\//, label: 'dist/ (build output)' },
   { pattern: /^coverage\//, label: 'coverage/ (test coverage)' },
-  { pattern: /^\.changeset\//, label: '.changeset/ (managed by changesets tooling)' },
+  // .changeset/: 版本 PR 的 tooling 产物禁止手改; 但 changeset 声明文件
+  // (*.md)、配置 (config.json) 与 README 是 release 流程的仓库资产, 必须
+  // 允许入库 — 否则无法触发 changesets 版本 PR (发布链路断裂)。
+  // 仅拦截 tooling 生成的临时产物 (如 .changeset 内非 .md/.json 文件)。
+  { pattern: /^\.changeset\/(?!.*\.(md|json)$)/, label: '.changeset/ 临时产物 (managed by changesets tooling)' },
   { pattern: /^benchmarks\/reports\//, label: 'benchmarks/reports/ (benchmark output)' },
   { pattern: /^banks\//, label: 'banks/ (internal database)' },
   { pattern: /\.ply$/, label: '*.ply (large data file)' },
