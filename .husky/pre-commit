@@ -1,8 +1,11 @@
 # 1. Path guard — blocks forbidden paths (AGENTS.md Do Not Touch)
 node scripts/guard-paths.mjs
 
-# 2. Affected tests — only run tests for packages with staged changes
+# 2. Agent asset inventory — nested AGENTS.md + hooks tracked (agent-asset-inventory-gap)
+node scripts/check-agent-assets.mjs
+
+# 3. Affected tests — only run tests for packages with staged changes
 node scripts/affected-test.mjs --staged
 
-# 3. Lint & format staged files
+# 4. Lint & format staged files
 pnpm exec lint-staged

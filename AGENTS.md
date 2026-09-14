@@ -18,6 +18,10 @@ Node version policy (R-13): 单一版本策略 — 根 engines `>=22` 是唯一�
 - `packages/core/AGENTS.md` — 漫游核心 (tour-player/scene-manager/renderer-adapter)
 - `packages/plugins/AGENTS.md` — 插件 (hotspot/media-embed/scene-transition)
 
+Agent 资产盘点 (嵌套 AGENTS.md 与 `.husky/pre-commit` hook) 由
+`node scripts/check-agent-assets.mjs` 校验: 新增嵌套 AGENTS.md 必须在本段
+登记, 删除文件必须同步移除引用, 否则本地 pre-commit 与 CI 均失败。
+
 ## Commands
 
 ```sh
