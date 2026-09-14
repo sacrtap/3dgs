@@ -44,6 +44,12 @@ jobs:
         #   会导致标记契约静默失效 — 纯 node 脚本, 无浏览器依赖
         run: node scripts/check-agents-refs.mjs
 
+      - name: Agent asset inventory check
+        # ★ agent-asset-inventory-gap: 资产盘点遗漏嵌套 AGENTS.md 与
+        #   .husky/pre-commit hook — 规则与门禁资产必须进入确定性扫描,
+        #   双向核对根段引用与文件系统, 断言 rules=5 / hooks=1
+        run: node scripts/check-agent-assets.mjs
+
       - name: Build
         run: pnpm build
 
