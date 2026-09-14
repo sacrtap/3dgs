@@ -38,6 +38,12 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      - name: AGENTS.md refs check
+        # ★ agents-crossref-no-automated-check: root AGENTS.md Internal Markers
+        #   段的 D-xx/R-xx 文档引用必须有确定性检查, 断链 (文件改名/移动)
+        #   会导致标记契约静默失效 — 纯 node 脚本, 无浏览器依赖
+        run: node scripts/check-agents-refs.mjs
+
       - name: Build
         run: pnpm build
 

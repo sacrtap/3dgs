@@ -51,7 +51,7 @@ pnpm clean            # remove all dist/ dirs
   `dist/`, vitest 无法直接解析源码; `vitest.config.ts` 的 `@3dgs/* → src`
   别名是修复的一部分, 改别名前必须理解该债务背景。定义全文:
   `docs/technical-debt-plan.md` §D-15。别名落在 `vitest.config.ts`。
-- **R-07 — 基准测试纳入 CI 门禁**。`ci.yml` benchmark job 的 `--gate` 门禁:
+- **R-07 — 基准测试纳入 CI 门禁**。`.github/workflows/ci.yml` benchmark job 的 `--gate` 门禁:
   任一场景 P50 < 30fps 时 CI 失败。定义全文:
   `docs/Technical-Debt/execution-plan-2026-09-13.md` §R-07。
 - **R-13 — Node 版本单一策略**。见本文件 "Node version policy" 段
@@ -97,3 +97,5 @@ dormant 状态 (文件存在于 working tree 但未 tracked, 机械 review 触�
 - `*.ply`, `*.sog`, `*.splat`, `*.spz` — large data files, gitignored except
   `apps/demo/public/kitchen.*` demo assets.
 - `banks/` — internal database, gitignored.
+- `docs/better-reports/` — Better Harness 报告 artifacts（R-16），gitignored
+  不入库（已写入 .gitignore，避免报告/evidence 计入 git diff 与 churn 统计）。

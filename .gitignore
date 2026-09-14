@@ -65,6 +65,9 @@ docs/party-mode-memories
 docs/party-mode-report
 docs/plan/
 
+# Better Harness report artifacts (R-16: 报告不入库, 避免污染 git diff/churn 统计)
+docs/better-reports/
+
 # Local debug scripts (hardcoded paths, do not publish to remote)
 check_sog.py
 

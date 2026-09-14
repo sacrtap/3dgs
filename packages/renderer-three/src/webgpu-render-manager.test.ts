@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { DeviceTier, ShaderHookPoint } from '@3dgs/core';
 import { WebGPURenderManager } from './webgpu-render-manager.js';
 import type { WebGPURenderManagerOptions } from './webgpu-render-manager.js';
@@ -461,5 +461,74 @@ describe('WGSL Shader Utils — 导出验证', () => {
     expect(module.injectWgslBeforeMainEnd).toBeDefined();
     expect(module.injectWgslBeforePattern).toBeDefined();
     expect(module.inferWgslType).toBeDefined();
+  });
+});
+
+// ── ★ 失败路径观测 (webgpu-failure-branches-unasserted) ──
+
+describe('WebGPURenderManager — 失败路径观测', () => {
+  it('★ constructor experimental 触发 warn (稳定事件标识)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const renderer = new WebGPURenderManager();
+      expect(renderer).toBeDefined();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[WebGPURenderManager:constructor:experimental]'),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('★ init 时 gpu-device-lost 分支触发 error (mock device.lost reject)', async () => {
+    // mock navigator.gpu: adapter + device (lost 为可控 deferred)
+    let resolveLost!: (info: { message: string }) => void;
+    const lostPromise = new Promise<{ message: string }>((resolve) => {
+      resolveLost = resolve;
+    });
+    const deviceMock = {
+      lost: lostPromise,
+      limits: {
+        maxBufferSize: 128 * 1024 * 1024,
+        maxStorageBufferBindingSize: 128 * 1024 * 1024,
+      },
+    };
+    const adapterMock = {
+      isFallbackAdapter: false,
+      info: { vendor: 'MockVendor', architecture: 'mock' },
+      requestDevice: vi.fn().mockResolvedValue(deviceMock),
+    };
+    const gpuMock = {
+      requestAdapter: vi.fn().mockResolvedValue(adapterMock),
+      getPreferredCanvasFormat: vi.fn().mockReturnValue('bgra8unorm'),
+    };
+
+    const origGpu = Object.getOwnPropertyDescriptor(navigator, 'gpu');
+    Object.defineProperty(navigator, 'gpu', {
+      value: gpuMock,
+      configurable: true,
+      writable: true,
+    });
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const renderer = new WebGPURenderManager({ enableGpuSort: false });
+      await renderer.init();
+      // 触发 device.lost: init 中注册的 .then 回调与 await lostPromise
+      // 都挂在这个 promise 上, await 它即可确定性等待回调执行完毕
+      resolveLost({ message: '模拟 GPU 设备丢失' });
+      await lostPromise;
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[WebGPURenderManager:init:gpu-device-lost]'),
+        '模拟 GPU 设备丢失',
+      );
+    } finally {
+      errorSpy.mockRestore();
+      if (origGpu) {
+        Object.defineProperty(navigator, 'gpu', origGpu);
+      } else {
+        delete (navigator as unknown as { gpu?: unknown }).gpu;
+      }
+    }
   });
 });
