@@ -17,6 +17,8 @@ Node version policy (R-13): 单一版本策略 — 根 engines `>=22` 是唯一�
 - `packages/renderer-three/AGENTS.md` — 渲染器 (index/webgpu-render-manager)
 - `packages/core/AGENTS.md` — 漫游核心 (tour-player/scene-manager/renderer-adapter)
 - `packages/plugins/AGENTS.md` — 插件 (hotspot/media-embed/scene-transition)
+- `benchmarks/AGENTS.md` — 性能基准与 R-07/R-14 门禁入口
+- `scripts/AGENTS.md` — 机械门禁工具集 (R-15/R-16 关键组件)
 
 Agent 资产盘点 (嵌套 AGENTS.md 与 `.husky/pre-commit` hook) 由
 `node scripts/check-agent-assets.mjs` 校验: 新增嵌套 AGENTS.md 必须在本段
