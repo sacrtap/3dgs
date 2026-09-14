@@ -439,13 +439,25 @@ function generateReport(
 
   // 达标判定 (使用 P50 代替 Avg, 避免移动模式极端值干扰)
   console.log('\n达标判定 (目标: P50 ≥ 30fps):');
+  let allPass = true;
   for (const r of results) {
     const idlePass = r.idle.p50Fps >= 30;
+    if (!idlePass) allPass = false;
     console.log(`  ${r.scene} [静止]: ${idlePass ? '✅ 通过' : '❌ 未达标'} (P50 ${r.idle.p50Fps}, Avg ${r.idle.avgFps})`);
     if (r.moving) {
       const movePass = r.moving.p50Fps >= 30;
+      if (!movePass) allPass = false;
       console.log(`  ${r.scene} [移动]: ${movePass ? '✅ 通过' : '❌ 未达标'} (P50 ${r.moving.p50Fps}, Avg ${r.moving.avgFps})`);
     }
+  }
+
+  // ★ R-07: --gate 门禁 — 任一场景未达标则 CI 失败
+  if (process.argv.includes('--gate')) {
+    if (!allPass) {
+      console.error('\n[门禁] 基准未达标 (P50 < 30fps), CI 失败。');
+      process.exit(1);
+    }
+    console.log('\n[门禁] 全部场景达标 ✅');
   }
 
   console.log('\n' + '='.repeat(70));

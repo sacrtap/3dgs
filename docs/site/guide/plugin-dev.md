@@ -211,3 +211,46 @@ renderer.removeShaderInjection(presetId('sepia')); // 'preset-sepia'
 | `pulse` / `scanline` | 动画 | `intensity`, `speed` |
 
 完整示例见 `examples/13-spatial-extensions.ts`，交互演示见 `apps/demo`（"空间扩展" 面板）。
+
+## 事件命名规范 (★ R-11)
+
+插件间通信与对外事件统一通过 `player.emit()` / `player.on()`：
+
+- **命名**: `plugin:<领域>:<动作>` — 如 `plugin:hotspot:click`、`plugin:media:open`。
+- **保留前缀**: `scene:`、`camera:`、`hotspot:`、`load`、`error` 为 TourPlayer 内置事件, 插件不得占用。
+- **事件数据**: 一律为扁平对象 `{ 字段: 值 }`, 不得传 class 实例 (序列化/消费边界)。
+- **注销**: 插件在 `destroy()` 中必须移除自身注册的监听, 避免泄漏 (参考 `player.on()` 返回的取消函数)。
+
+## 性能合约 (★ R-11)
+
+插件运行在渲染器的单一 RAF 循环内, **每帧预算 < 0.5ms**:
+
+- `update(ctx)` 中禁止: 同步 fetch、大数组分配、DOM 重排 (强制 reflow)、`console.log`。
+- 热点投影等高频计算: 复用临时对象, 避免每帧 `new Vector3()`; 参考内置插件 `hotspot` 的可见性计算。
+- 需要异步操作的插件 (媒体加载等): 在 `init()` 中启动, 通过事件回调更新, 不在 `update()` 中等待。
+- 销毁路径: `destroy()` 必须同步清理 DOM/监听器/计时器, 禁止留下定时器。
+
+## 错误契约 (★ R-11)
+
+- 插件内部错误**不得抛出到渲染循环**: 用 `try/catch` 包裹, 通过 `player.emit('error', { message })` 上报。
+- 配置错误在 `init()` 阶段用明确消息抛出 (`throw new Error('plugin X: 缺少 Y 配置')`), 让使用方在加载期发现。
+- 异步操作失败: 发出 `plugin:<领域>:error` 事件 (数据含 `{ message }`), 不静默吞掉。
+
+## 接入 DragLookControls (★ R-11)
+
+键盘控制 (WASD/方向键) 由渲染器的 `KeyboardControls` 管理, 插件可通过 `renderer.getActiveMoveKeys()` 查询当前按键 (参考 `camera-controls` 插件实现)。
+
+## 贡献模板 (★ R-11)
+
+新插件建议文件结构:
+
+```
+packages/plugins/src/my-plugin/
+  index.ts        # 工厂函数 + 类型导出
+  my-plugin.ts    # 实现 (TourPlugin)
+  my-plugin.test.ts  # 单元测试 (注册/事件/销毁)
+```
+
+工厂函数命名 `createXxx()`; 在 `packages/plugins/src/index.ts` 追加子路径导出 (参考已有 10 个子路径)。
+
+发布独立插件包时参考 §发布插件, 并在文档站点 `docs/site/guide/plugins.md` 登记。

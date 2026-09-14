@@ -17,11 +17,17 @@ import {
   parsePlyHeader,
   tryFastPathParsePly,
   buildCloudFromFastPath,
+  buildCloudSoAFromFastPath,
   DATA_TYPE_SIZE,
 } from './ply-parser.js';
 import type { PlyHeader } from './ply-parser.js';
 
-/** 单个高斯核的完整属性 (归一化后) */
+/**
+ * 单个高斯核的完整属性 (归一化后)
+ *
+ * @deprecated ★ C-01/TD-06: 请使用 {@link GaussianCloudSoA} 列式布局。
+ *   AoS 保留仅为兼容旧调用方, 生产写入路径已切换至 SoA。
+ */
 export interface GaussianSplat {
   // 位置
   x: number;
@@ -55,7 +61,13 @@ export interface GaussianSplat {
   shDegree: number;
 }
 
-/** 高斯核集合 */
+/**
+ * 高斯核集合 (AoS — Array of Structs)
+ *
+ * @deprecated ★ C-01/TD-06: 请使用 {@link GaussianCloudSoA} 列式布局。
+ *   AoS 是公开包 API, 保留仅为外部调用方兼容 (迁移窗口期内)。
+ *   包内生产写入路径已切换至 SoA (writeSplat/writeSpz/writeSog 内部均先 toSoA)。
+ */
 export interface GaussianCloud {
   splats: GaussianSplat[];
   shDegree: number;
@@ -280,6 +292,52 @@ export function loadGaussiansFromPly(
     vertexCount: vertices.length,
     source,
   };
+}
+
+/**
+ * ★ C-01/TD-06: 从 PLY 数据加载并归一化为 GaussianCloudSoA (列式, 直出 SoA)
+ *
+ * 与 loadGaussiansFromPly 归一化逻辑一致, 但:
+ *   - 二进制快路径直接构建 SoA TypedArray (跳过 AoS 对象)
+ *   - SuperSplat / ASCII / list 属性等边缘路径回退到 AoS 再 toSoA
+ *
+ * @param buffer PLY 文件的 ArrayBuffer
+ * @param options 加载选项
+ * @returns GaussianCloudSoA
+ */
+export function loadGaussiansFromPlySoA(
+  buffer: ArrayBuffer,
+  options: LoadGaussianOptions = {},
+): GaussianCloudSoA {
+  const { defaultScale = 0.01, source = 'unknown' } = options;
+
+  // ★ C-01: 快路径直出 SoA (二进制 PLY → 列式 TypedArray)
+  try {
+    const headerResult = parsePlyHeader(buffer);
+    const vertexEl = headerResult.header.elements.find((e) => e.name === 'vertex');
+    const vertexPropNames = vertexEl?.properties.map((p) => p.name) ?? [];
+    const isSuperSplatHeader = vertexPropNames.includes('packed_position');
+
+    if (isSuperSplatHeader) {
+      // SuperSplat 快路径暂无 SoA 直出, 先走 AoS 再 toSoA (边缘路径)
+      const fast = loadSuperSplatFastPath(
+        buffer,
+        headerResult.header,
+        headerResult.headerEnd,
+        source,
+      );
+      if (fast) return toSoA(fast);
+    } else {
+      const fastData = tryFastPathParsePly(buffer, headerResult.header, headerResult.headerEnd);
+      if (fastData) {
+        return buildCloudSoAFromFastPath(fastData, { defaultScale, source });
+      }
+    }
+  } catch {
+    // 快路径失败, 回退到标准解析
+  }
+
+  return toSoA(loadGaussiansFromPly(buffer, options));
 }
 
 // ─── SuperSplat 打包格式支持 ───────────────────────────────

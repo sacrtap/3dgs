@@ -26,8 +26,6 @@ export const TourViewer = defineComponent({
     const containerRef = ref<HTMLElement | null>(null);
     const errorMessage = ref<string | null>(null);
     let player: TourPlayer | null = null;
-    // TD-17: guard against double-load on first mount
-    const isFirstMount = ref(true);
 
     function loadConfig(cfg: string | TourConfig) {
       if (!player) return;
@@ -95,11 +93,9 @@ export const TourViewer = defineComponent({
     watch(
       () => props.config,
       (cfg) => {
-        // TD-17: skip first -- onMounted handles initial load
-        if (isFirstMount.value) {
-          isFirstMount.value = false;
-          return;
-        }
+        // ★ TD-10: 移除 isFirstMount guard — watch 无 immediate, 挂载时不会
+        //   额外触发; 旧 guard 反而吞掉第一次 config 变化 (后续变化正常, 首
+        //   次被误跳过)。挂载加载由 onMounted 负责, 不存在双加载。
         loadConfig(cfg);
       },
     );

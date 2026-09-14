@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   writeSog,
   parseSogMetadata,
+  readShOverlaySoA,
   buildLodLevels,
   serializeLodTree,
   deserializeLodTree,
@@ -24,6 +25,8 @@ import type { GaussianCloud } from './gaussian-loader.js';
 function makeCloud(
   splats: Array<Partial<import('./gaussian-loader.js').GaussianSplat>>,
 ): GaussianCloud {
+  // C-04: 透传 splat 的 shDegree/sh (若任一 splat 声明 SH 则提升 cloud 级 shDegree)
+  const cloudShDegree = splats.some((s) => (s.shDegree ?? 0) > 0) ? 1 : 0;
   return {
     splats: splats.map((s) => ({
       x: s.x ?? 0,
@@ -40,9 +43,10 @@ function makeCloud(
       colorG: s.colorG ?? 0.8,
       colorB: s.colorB ?? 0.8,
       opacity: s.opacity ?? 1,
-      shDegree: 0,
+      shDegree: s.shDegree ?? 0,
+      sh: s.sh,
     })),
-    shDegree: 0,
+    shDegree: cloudShDegree,
     vertexCount: splats.length,
     source: 'test',
   };
@@ -460,7 +464,9 @@ describe('writeSog — P2-3 位置量化', () => {
     expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 21)).toBe(Math.round(0.8 * 255)); // 204
     expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 22)).toBe(Math.round(0.4 * 255)); // 102
     expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 23)).toBe(Math.round(0.2 * 255)); // 51
-    expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 24)).toBe(Math.round(0.9 * 255)); // 230
+    expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 24)).toBe(
+      Math.round(Math.fround(0.9) * 255),
+    ); // ★ C-01: f32 列式精度下 0.9 → 229
 
     // Rotation IJKL at offset 25-28 (4 × Uint8), after bbox header
     expect(view.getUint8(chunkOffset + BBOX_HEADER_SIZE + 25)).toBe(Math.round(0.7 * 128) + 128);
@@ -898,5 +904,151 @@ describe('serializeLodTree / deserializeLodTree — 序列化 round-trip', () =>
     view2.setUint32(0, 200, true);
     view2.setFloat32(4, 1.5, true);
     expect(deserializeLodTree(hugeBuffer)).toBeNull();
+  });
+});
+
+// ── C-04/TD-19: SOG v3 SH overlay ──────────────────────────
+
+describe('writeSog — C-04/TD-19 SOG v3 SH overlay', () => {
+  it('★ v3 格式: magic = "SOG3", version = 3', () => {
+    const cloud = makeCloud([
+      { x: 1, y: 2, z: 3, shDegree: 1, sh: new Float32Array(9).fill(0.01) },
+    ]);
+    const buf = writeSog(cloud, { version: 3 });
+    const view = new DataView(buf);
+    expect(view.getUint32(0, true)).toBe(0x33474f53); // "SOG3"
+    expect(view.getUint16(4, true)).toBe(3);
+  });
+
+  it('★ v3 带 SH: 尾部 12B overlay header + 数据区可解析', () => {
+    const splats = Array.from({ length: 10 }, (_, i) => {
+      const sh = new Float32Array(9);
+      for (let j = 0; j < 9; j++) sh[j] = (Math.sin(i * 0.7 + j) * 0.5) / 128;
+      return {
+        x: i * 0.5,
+        y: i * 0.25,
+        z: Math.cos(i),
+        shDegree: 1,
+        sh,
+        opacity: 0.8,
+      };
+    });
+    const cloud = makeCloud(splats);
+    const buf = writeSog(cloud, { version: 3 });
+    const meta = parseSogMetadata(buf);
+
+    expect(meta.version).toBe(3);
+    expect(meta.shOverlayOffset).toBeDefined();
+    expect(meta.shOverlaySize).toBe(10 * 9); // 10 splats × 9 SH coeffs
+    expect(meta.shOverlayHeaderOffset).toBe(buf.byteLength - 12);
+
+    // overlay header 字段
+    const view = new DataView(buf);
+    const oh = buf.byteLength - 12;
+    expect(view.getUint32(oh, true)).toBe(meta.shOverlayOffset);
+    expect(view.getUint32(oh + 4, true)).toBe(10 * 9);
+    expect(view.getUint8(oh + 8)).toBe(1); // shDegree
+    expect(view.getUint8(oh + 9)).toBe(2); // shMode = SOG_SH_MODE_FULL_INT8 (完整 SH overlay)
+  });
+
+  it('★ v3 SH overlay round-trip: 系数在量化误差内一致', () => {
+    const splats = Array.from({ length: 8 }, (_, i) => {
+      const sh = new Float32Array(9);
+      for (let j = 0; j < 9; j++) sh[j] = (Math.sin(i * 1.1 + j * 0.3) * 0.5) / 128;
+      return {
+        x: i * 0.3,
+        y: i * 2,
+        z: -i * 0.1,
+        shDegree: 1,
+        sh,
+        opacity: 0.9,
+      };
+    });
+    const cloud = makeCloud(splats);
+    const buf = writeSog(cloud, { version: 3 });
+    const meta = parseSogMetadata(buf);
+    const readSh = readShOverlaySoA(buf, meta);
+
+    expect(readSh).toBeDefined();
+    expect(readSh!.length).toBe(8 * 9);
+    for (let i = 0; i < 8 * 9; i++) {
+      // 量化误差 ≤ 0.5/128 (round)
+      expect(Math.abs(readSh![i] - cloud.splats[Math.floor(i / 9)].sh![i % 9])).toBeLessThanOrEqual(
+        0.5 / 128 + 1e-6,
+      );
+    }
+  });
+
+  it('★ v3 无 SH (shDegree=0): 无 overlay, parseSogMetadata 正常', () => {
+    const cloud = makeCloud([{ x: 1, y: 2, z: 3 }]);
+    const buf = writeSog(cloud, { version: 3 });
+    const meta = parseSogMetadata(buf);
+    expect(meta.version).toBe(3);
+    expect(meta.shOverlaySize).toBeUndefined();
+    expect(meta.shOverlayOffset).toBeUndefined();
+  });
+
+  it('★ v3 默认关闭 (version 缺省 → v2)', () => {
+    const cloud = makeCloud([{ x: 1, y: 2, z: 3 }]);
+    const buf = writeSog(cloud);
+    const view = new DataView(buf);
+    expect(view.getUint32(0, true)).toBe(SOG_MAGIC_V2);
+  });
+
+  it('★ v2 文件 parseSogMetadata 仍正常 (无 overlay 字段)', () => {
+    const cloud = makeCloud([{ x: 1, y: 2, z: 3 }]);
+    const buf = writeSog(cloud, { version: 2 });
+    const meta = parseSogMetadata(buf);
+    expect(meta.version).toBe(2);
+    expect(meta.shOverlayOffset).toBeUndefined();
+  });
+
+  it('★ v3 SH overlay 数据区不与 LOD 树重叠 (偏移正确)', () => {
+    const splats = Array.from({ length: 5 }, (_, i) => {
+      const sh = new Float32Array(9);
+      for (let j = 0; j < 9; j++) sh[j] = 0.01;
+      return { x: i, y: i, z: i, shDegree: 1, sh };
+    });
+    const cloud = makeCloud(splats);
+    const buf = writeSog(cloud, { version: 3, buildLodTree: true, lodLevels: 3 });
+    const meta = parseSogMetadata(buf);
+
+    // overlay 数据区在 LOD 树之后
+    const lodEnd = meta.lodTreeOffset + (meta.lodTreeSize ?? 0);
+    expect(meta.shOverlayOffset!).toBeGreaterThanOrEqual(lodEnd);
+    expect(meta.shOverlayOffset! + meta.shOverlaySize!).toBeLessThanOrEqual(buf.byteLength - 12);
+  });
+
+  it('★ v3 损坏 overlay header (偏移越界/负值) → 元数据字段置 undefined (下界防护)', () => {
+    const splats = Array.from({ length: 5 }, (_, i) => {
+      const sh = new Float32Array(9);
+      for (let j = 0; j < 9; j++) sh[j] = 0.01;
+      return { x: i, y: i, z: i, shDegree: 1, sh };
+    });
+    const cloud = makeCloud(splats);
+    const buf = writeSog(cloud, { version: 3, buildLodTree: false });
+
+    // 篡改文件尾 12B overlay header: offset 指向文件头之前 (下界越界)
+    const corrupted = buf.slice(0);
+    const view = new DataView(corrupted);
+    const oh = corrupted.byteLength - 12;
+    view.setUint32(oh, 8, true); // offset=8 (< SOG_HEADER_SIZE=64)
+    view.setUint32(oh + 4, 100, true); // size=100
+
+    const meta = parseSogMetadata(corrupted);
+    expect(meta.shOverlayOffset).toBeUndefined();
+    expect(meta.shOverlaySize).toBeUndefined();
+    expect(meta.shOverlayHeaderOffset).toBeUndefined();
+
+    // 篡改: offset+size 越过 header 起点 (上界越界)
+    const corrupted2 = buf.slice(0);
+    const view2 = new DataView(corrupted2);
+    const oh2 = corrupted2.byteLength - 12;
+    view2.setUint32(oh2, oh2 - 5, true); // 数据区起始越界
+    view2.setUint32(oh2 + 4, 100, true);
+
+    const meta2 = parseSogMetadata(corrupted2);
+    expect(meta2.shOverlayOffset).toBeUndefined();
+    expect(meta2.shOverlaySize).toBeUndefined();
   });
 });

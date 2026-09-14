@@ -34,6 +34,12 @@
  *     5. Rotations   N × 3 bytes  (uint8 × 3, xyz stored; w = sqrt(1-x²-y²-z²))
  *     6. SH          N × shDim×3 bytes (uint8, quantized) — 解码为 .splat 时跳过
  *
+ * ★ SH 布局约定: 本项目管线为 coefficient-major (每系数 3 通道连续:
+ *   R0,G0,B0, R1,G1,B1, ...), 与 PLY f_rest 输入透传一致, 亦与
+ *   splat-render-shader.ts 的索引一致 (shCoeffs[base]=R1y, [base+3]=R2z, [base+6]=R3x)。
+ *   Niantic 参考实现为 channel-major (每通道全部系数连续), 读取外部 SPZ 时
+ *   需在解码层重排为 coefficient-major (当前未实现, 见 TD-01 备注)。
+ *
  * .splat 格式 (32 bytes/splat):
  *     Position XYZ  3 × Float32  (12 bytes)
  *     Scale XYZ     3 × Float32  (12 bytes)
@@ -49,11 +55,17 @@
 /** SPZ 魔数 = 0x5053474E ("NGSP" LE, Niantic SPZ 官方魔数) */
 export const SPZ_MAGIC = 1347635022;
 
+// ★ TD-01: 共享 SoA 类型 (仅类型, 无运行时依赖)
+import type { SplatData } from './shared/types.js';
+
 /** SPZ 版本 */
 export const SPZ_VERSION = 2;
 
 /** SH C0 常数 (球谐函数第 0 阶) */
 const SH_C0 = 0.28209479177387814;
+
+/** SH degree → 每通道非 DC 系数数 (L1:3, L2:5, L3:7 之和) */
+const SH_DIM: Record<number, number> = { 0: 0, 1: 3, 2: 8, 3: 15 };
 
 /** SPZ 颜色缩放常数 */
 const SPZ_COLOR_SCALE = 0.15;
@@ -233,6 +245,114 @@ export async function decodeSpz(data: ArrayBuffer): Promise<Uint8Array> {
   }
 
   return splatData;
+}
+
+// ─── Worker 解码 ────────────────────────────────────────────
+
+/**
+ * ★ TD-01: 将 SPZ 解码为 SoA SplatData (保留 SH 球谐系数)
+ *
+ * 与 decodeSpz (→ .splat 32B/splat, 丢 SH) 不同, 本函数直接输出
+ * WebGPU 渲染管线的 SoA 结构, 并读取 SPZ 第 6 节 SH 属性流反量化:
+ *
+ *   sh[i] = (byte - 128) / 128
+ *
+ * 该公式是 packages/convert/src/spz-writer.ts `quantizeSh` 的逆运算
+ * (编码: round(sh*128)+128 → bucket 量化; 解码取 bucket 底, round-trip
+ * 误差 ≤ bucketSize/2/128, degree1 用 5bit、degree≥2 系数用 4bit)。
+ *
+ * 注意: 仅在主线程执行 (数据量大时可后续扩展 Worker 版)。
+ *
+ * @param data SPZ 文件完整字节 (权威布局整文件 gzip / 旧布局 header+gzip body 均兼容)
+ */
+export async function decodeSpzToSplatData(data: ArrayBuffer): Promise<SplatData> {
+  const full = await spzDecompressWhole(new Uint8Array(data));
+
+  const header = parseSpzHeader(full);
+  validateSpzHeader(header);
+
+  const { numSplats, fractionalBits, shDegree } = header;
+  const fraction = 1 << fractionalBits;
+  const decompressed = full.subarray(SPZ_HEADER_SIZE);
+
+  const shDim = SH_DIM[shDegree] ?? 0;
+
+  // 各属性流偏移 (布局与 spz-writer.ts 一致: position → alpha → color → scale → rotation → sh)
+  const positionsSize = numSplats * 9;
+  const alphasSize = numSplats * 1;
+  const colorsSize = numSplats * 3;
+  const scalesSize = numSplats * 3;
+  const rotationsSize = numSplats * 3;
+
+  const positionsOffset = 0;
+  const alphasOffset = positionsOffset + positionsSize;
+  const colorsOffset = alphasOffset + alphasSize;
+  const scalesOffset = colorsOffset + colorsSize;
+  const rotationsOffset = scalesOffset + scalesSize;
+  const shOffset = rotationsOffset + rotationsSize;
+
+  // ★ 解压数据长度校验: 损坏/截断 SPZ 会静默产生 NaN (undefined 参与运算)
+  const shSize = shDim > 0 ? numSplats * shDim * 3 : 0;
+  const expectedSize = shOffset + shSize;
+  if (decompressed.byteLength < expectedSize) {
+    throw new Error(
+      `SPZ 数据不完整: 需要 ${expectedSize} 字节, 实际 ${decompressed.byteLength} 字节 (文件可能截断或损坏)`,
+    );
+  }
+
+  // 分配 SoA 输出
+  const positions = new Float32Array(numSplats * 3);
+  const scales = new Float32Array(numSplats * 3);
+  const colors = new Uint8Array(numSplats * 4);
+  const rotations = new Uint8Array(numSplats * 4);
+  const sh = shDim > 0 ? new Float32Array(numSplats * shDim * 3) : null;
+
+  for (let i = 0; i < numSplats; i++) {
+    // ── Position (24-bit signed int → Float32) ──
+    positions[i * 3] = readInt24LE(decompressed, positionsOffset + i * 9) / fraction;
+    positions[i * 3 + 1] = readInt24LE(decompressed, positionsOffset + i * 9 + 3) / fraction;
+    positions[i * 3 + 2] = readInt24LE(decompressed, positionsOffset + i * 9 + 6) / fraction;
+
+    // ── Scale (log-scale encoded → Float32): scale = exp((byte / 16) - 10) ──
+    scales[i * 3] = Math.exp(decompressed[scalesOffset + i * 3] / 16 - 10);
+    scales[i * 3 + 1] = Math.exp(decompressed[scalesOffset + i * 3 + 1] / 16 - 10);
+    scales[i * 3 + 2] = Math.exp(decompressed[scalesOffset + i * 3 + 2] / 16 - 10);
+
+    // ── Color RGBA (SPZ 颜色编码反量化 → 0-1, 再转 .splat 的 round(c*255)) ──
+    const colorR = (decompressed[colorsOffset + i * 3] / 255 - 0.5) * COLOR_SCALE + 0.5;
+    const colorG = (decompressed[colorsOffset + i * 3 + 1] / 255 - 0.5) * COLOR_SCALE + 0.5;
+    const colorB = (decompressed[colorsOffset + i * 3 + 2] / 255 - 0.5) * COLOR_SCALE + 0.5;
+    const alpha = decompressed[alphasOffset + i];
+
+    const colorBase = i * 4;
+    colors[colorBase] = clampU8(colorR * 255);
+    colors[colorBase + 1] = clampU8(colorG * 255);
+    colors[colorBase + 2] = clampU8(colorB * 255);
+    colors[colorBase + 3] = alpha;
+
+    // ── Rotation (SPZ: byte/127.5-1, w 由 xyz 推; 输出与 .splat 一致的 IJKL 编码) ──
+    const rx = decompressed[rotationsOffset + i * 3] / 127.5 - 1;
+    const ry = decompressed[rotationsOffset + i * 3 + 1] / 127.5 - 1;
+    const rz = decompressed[rotationsOffset + i * 3 + 2] / 127.5 - 1;
+    const rw = Math.sqrt(Math.max(0, 1 - rx * rx - ry * ry - rz * rz));
+
+    const rotBase = i * 4;
+    rotations[rotBase] = clampU8(Math.round(rw * 128) + 128);
+    rotations[rotBase + 1] = clampU8(Math.round(rx * 128) + 128);
+    rotations[rotBase + 2] = clampU8(Math.round(ry * 128) + 128);
+    rotations[rotBase + 3] = clampU8(Math.round(rz * 128) + 128);
+
+    // ── SH 反量化: sh = (byte - 128) / 128 (quantizeSh 逆运算) ──
+    if (sh) {
+      const base = shOffset + i * shDim * 3;
+      const outBase = i * shDim * 3;
+      for (let j = 0; j < shDim * 3; j++) {
+        sh[outBase + j] = (decompressed[base + j] - 128) / 128;
+      }
+    }
+  }
+
+  return { positions, scales, colors, rotations, sh, shDegree, count: numSplats };
 }
 
 // ─── Worker 解码 ────────────────────────────────────────────

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { validateTourConfig, TourConfigValidationError } from './tour-config.js';
+import {
+  validateTourConfig,
+  validateTourConfigJson,
+  TourConfigValidationError,
+} from './tour-config.js';
 
 describe('validateTourConfig', () => {
   it('通过验证有效的配置', () => {
@@ -65,5 +69,50 @@ describe('validateTourConfig', () => {
       },
     };
     expect(validateTourConfig(config)).toBe(true);
+  });
+});
+
+// ── ★ TD-28: validateTourConfigJson ─────────────────────────
+
+describe('validateTourConfigJson — TD-28', () => {
+  it('合法配置返回 valid=true', () => {
+    const result = validateTourConfigJson({
+      version: '1.0',
+      scenes: { room: { source: '/a.splat' } },
+    });
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it('缺少 version 返回错误', () => {
+    const result = validateTourConfigJson({ scenes: { room: { source: '/a.splat' } } });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('version'))).toBe(true);
+  });
+
+  it('缺少 scenes 返回错误', () => {
+    const result = validateTourConfigJson({ version: '1.0' });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('scenes'))).toBe(true);
+  });
+
+  it('场景缺少 source 返回错误 (逐场景收集)', () => {
+    const result = validateTourConfigJson({
+      version: '1.0',
+      scenes: { a: {}, b: { source: '/b.splat' } },
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('"a"') && e.includes('source'))).toBe(true);
+  });
+
+  it('空 scenes 返回错误', () => {
+    const result = validateTourConfigJson({ version: '1.0', scenes: {} });
+    expect(result.valid).toBe(false);
+  });
+
+  it('非对象输入返回错误', () => {
+    expect(validateTourConfigJson(null).valid).toBe(false);
+    expect(validateTourConfigJson('x').valid).toBe(false);
+    expect(validateTourConfigJson([1]).valid).toBe(false);
   });
 });

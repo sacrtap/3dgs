@@ -18,6 +18,8 @@
  * [来源: DecompressionStream — developer.mozilla.org/en-US/docs/Web/API/DecompressionStream]
  */
 
+import { traceEvent } from './trace-log.js';
+
 /** SOG chunk 索引条目 (本地定义, 避免 cross-package 依赖) */
 export interface SogChunkEntry {
   /** chunk 在文件中的字节偏移 */
@@ -51,6 +53,12 @@ export interface SogMetadata {
   shMode: number;
   /** ★ 格式版本 */
   version: number;
+  /** ★ C-04/TD-19: v3 SH overlay 数据偏移 (v3 且含 overlay 时 > 0) */
+  shOverlayOffset?: number;
+  /** ★ C-04/TD-19: v3 SH overlay 数据大小 (字节) */
+  shOverlaySize?: number;
+  /** ★ C-04/TD-19: v3 SH overlay header 文件偏移 (文件尾 12B) */
+  shOverlayHeaderOffset?: number;
   /**
    * ★ M2: 预构建 LOD 层级 (累计 splat 数)
    *
@@ -164,6 +172,15 @@ export class SogStreamer {
     const indexBuffer = await this.fetchRange(SOG_HEADER_SIZE, SOG_HEADER_SIZE + indexSize);
     this.parseChunkIndex(indexBuffer, this.metadata);
 
+    // ★ C-04/TD-19: v3 — 预取文件尾 12B overlay header (失败静默, loadShOverlay 会重试)
+    if (this.metadata.version >= 3) {
+      try {
+        this.metadata = await this.attachShOverlayMetadata(this.metadata);
+      } catch {
+        // overlay 元数据获取失败不阻断主加载
+      }
+    }
+
     // ★ M2: 获取预构建 LOD 树数据 (如果存在)
     if (this.metadata.lodTreeOffset > 0 && this.metadata.lodTreeSize > 0) {
       try {
@@ -174,7 +191,14 @@ export class SogStreamer {
         this.parseLodTree(lodTreeBuffer, this.metadata);
       } catch (err) {
         // LOD 树获取失败不阻断加载, 回退到运行时构建
-        console.warn('[SogStreamer] LOD 树数据获取失败, 回退到运行时构建:', err);
+        traceEvent(
+          'SogStreamer',
+          'start',
+          'lod-fetch-fallback',
+          'warn',
+          'LOD 树数据获取失败, 回退到运行时构建:',
+          err,
+        );
       }
     }
 
@@ -240,6 +264,116 @@ export class SogStreamer {
     return this.loadedChunks.size;
   }
 
+  /**
+   * ★ C-04/TD-19: 加载 SOG v3 SH overlay (视角依赖着色系数)
+   *
+   * 优先复用 start() 中 attachShOverlayMetadata 已缓存的 offset/size (含 shDegree 校验),
+   * 未缓存时兜底做一次文件尾 12B Range 请求; 随后一次 Range 请求读取 overlay 数据区。
+   * 返回反量化后的 Float32Array (长度 = numSplats × shDim × 3), 无 overlay 时返回 undefined。
+   *
+   * @returns SH 系数 (uint8 反量化 (v-128)/128, 系数主序 × RGB 通道)
+   */
+  async loadShOverlay(): Promise<Float32Array | undefined> {
+    if (!this.metadata || this.metadata.version < 3 || !this.options.url) return undefined;
+
+    // 1. 复用已缓存 overlay 元数据 (attachShOverlayMetadata 已做 shDegree 校验);
+    //    未缓存 (start 未调或失败) 时兜底读取文件尾 12B header
+    let overlayOffset = this.metadata.shOverlayOffset;
+    let overlaySize = this.metadata.shOverlaySize;
+    if (overlayOffset === undefined || overlaySize === undefined || overlaySize === 0) {
+      const tailSize = 12;
+      const headRes = await fetch(this.options.url, {
+        headers: { Range: `bytes=-${tailSize}` },
+        signal: this._abortController?.signal,
+      });
+      if (!headRes.ok && headRes.status !== 206) return undefined;
+      const headBuf = new Uint8Array(await headRes.arrayBuffer());
+      if (headBuf.length < tailSize) return undefined;
+
+      const headView = new DataView(headBuf.buffer, headBuf.byteOffset, headBuf.byteLength);
+      overlayOffset = headView.getUint32(0, true);
+      overlaySize = headView.getUint32(4, true);
+      // ★ shDegree 校验: 文件尾声明的 degree 必须与 header 一致, 不一致视为损坏
+      if (overlaySize > 0 && headView.getUint8(8) !== this.metadata.shDegree) {
+        return undefined;
+      }
+    }
+    if (overlaySize === 0) return undefined;
+
+    const shDim = this.shDimForDegree(this.metadata.shDegree);
+    if (shDim === 0) return undefined;
+    const expected = this.metadata.numSplats * shDim * 3;
+    if (overlaySize !== expected) {
+      traceEvent(
+        'SogStreamer',
+        'loadShOverlay',
+        'sh-overlay-size-mismatch',
+        'warn',
+        `SH overlay 大小不匹配: overlay=${overlaySize}B, 期望=${expected}B (文件损坏或 shDegree 声明不一致)`,
+      );
+      return undefined;
+    }
+
+    // 2. 读取 overlay 数据区
+    const dataRes = await fetch(this.options.url, {
+      headers: { Range: `bytes=${overlayOffset}-${overlayOffset + overlaySize - 1}` },
+      signal: this._abortController?.signal,
+    });
+    if (!dataRes.ok && dataRes.status !== 206) return undefined;
+    const dataBuf = new Uint8Array(await dataRes.arrayBuffer());
+    if (dataBuf.length !== overlaySize) {
+      traceEvent(
+        'SogStreamer',
+        'loadShOverlay',
+        'sh-overlay-data-incomplete',
+        'warn',
+        `SH overlay 数据区不完整: 收到 ${dataBuf.length}B, 期望 ${overlaySize}B`,
+      );
+      return undefined;
+    }
+
+    const out = new Float32Array(expected);
+    for (let i = 0; i < expected; i++) {
+      out[i] = (dataBuf[i] - 128) / 128;
+    }
+    return out;
+  }
+
+  /** SH degree → 每通道系数数 */
+  private shDimForDegree(degree: number): number {
+    switch (degree) {
+      case 1:
+        return 3;
+      case 2:
+        return 8;
+      case 3:
+        return 15;
+      default:
+        return 0;
+    }
+  }
+
+  /** ★ C-04/TD-19: 从文件尾 12B overlay header 填充元数据 (v3) */
+  private async attachShOverlayMetadata(meta: SogMetadata): Promise<SogMetadata> {
+    const headRes = await fetch(this.options.url, {
+      headers: { Range: 'bytes=-12' },
+      signal: this._abortController?.signal,
+    });
+    if (!headRes.ok && headRes.status !== 206) return meta;
+    const headBuf = new Uint8Array(await headRes.arrayBuffer());
+    if (headBuf.length < 12) return meta;
+
+    const headView = new DataView(headBuf.buffer, headBuf.byteOffset, headBuf.byteLength);
+    const overlayOffset = headView.getUint32(0, true);
+    const overlaySize = headView.getUint32(4, true);
+    if (overlaySize > 0 && headView.getUint8(8) === meta.shDegree) {
+      meta.shOverlayOffset = overlayOffset;
+      meta.shOverlaySize = overlaySize;
+      meta.shOverlayHeaderOffset = -1; // 未知文件总大小, 仅数据区定位有意义
+    }
+    return meta;
+  }
+
   // ── 内部方法 ──
 
   /**
@@ -271,7 +405,14 @@ export class SogStreamer {
     let positionQuantization = POSITION_QUANT_OFF;
     let shMode = 0;
 
-    if (magic === SOG_MAGIC_V2) {
+    if (magic === SOG_MAGIC_V3) {
+      // ★ C-04/TD-19: SOG v3 — v2 字段 + 尾部 SH overlay
+      version = 3;
+      compression = view.getUint8(7);
+      lodQuality = view.getUint8(52);
+      positionQuantization = view.getUint8(53);
+      shMode = view.getUint8(54);
+    } else if (magic === SOG_MAGIC_V2) {
       // ★ SOG v2
       version = 2;
       compression = view.getUint8(7);
@@ -284,11 +425,7 @@ export class SogStreamer {
       // ★ SOG v1 (向后兼容)
       version = 1;
     } else {
-      if (magic === SOG_MAGIC_V3) {
-        throw new Error('SOG v3 (SH overlay) 尚不支持读取端, 请使用 v2 格式');
-      } else {
-        throw new Error(`无效的 SOG 文件: magic 不匹配 (0x${magic.toString(16)})`);
-      }
+      throw new Error(`无效的 SOG 文件: magic 不匹配 (0x${magic.toString(16)})`);
     }
 
     const versionField = view.getUint16(4, true);
@@ -325,10 +462,10 @@ export class SogStreamer {
       );
     }
 
-    // ★ M2: 读取 LOD 树偏移和大小
+    // ★ M2: 读取 LOD 树偏移和大小 (v2/v3 均含此字段)
     let lodTreeOffset = 0;
     let lodTreeSize = 0;
-    if (magic === SOG_MAGIC_V2) {
+    if (magic === SOG_MAGIC_V2 || magic === SOG_MAGIC_V3) {
       lodTreeOffset = view.getUint32(44, true);
       lodTreeSize = view.getUint32(48, true);
     }
@@ -385,7 +522,13 @@ export class SogStreamer {
    */
   private parseLodTree(buffer: ArrayBuffer, meta: SogMetadata): void {
     if (buffer.byteLength < LOD_TREE_HEADER_SIZE) {
-      console.warn('[SogStreamer] LOD 树数据过小, 跳过');
+      traceEvent(
+        'SogStreamer',
+        'parseLodTree',
+        'lod-tree-too-small',
+        'warn',
+        'LOD 树数据过小, 跳过',
+      );
       return;
     }
 
@@ -394,14 +537,24 @@ export class SogStreamer {
     const lodBase = view.getFloat32(4, true);
 
     if (numLevels === 0 || numLevels > 100) {
-      console.warn(`[SogStreamer] LOD 树 numLevels 异常: ${numLevels}, 跳过`);
+      traceEvent(
+        'SogStreamer',
+        'parseLodTree',
+        'lod-tree-levels-invalid',
+        'warn',
+        `LOD 树 numLevels 异常: ${numLevels}, 跳过`,
+      );
       return;
     }
 
     const expectedSize = LOD_TREE_HEADER_SIZE + numLevels * 4;
     if (buffer.byteLength < expectedSize) {
-      console.warn(
-        `[SogStreamer] LOD 树数据不完整: 期望 ${expectedSize} 字节, 实际 ${buffer.byteLength}`,
+      traceEvent(
+        'SogStreamer',
+        'parseLodTree',
+        'lod-tree-incomplete',
+        'warn',
+        `LOD 树数据不完整: 期望 ${expectedSize} 字节, 实际 ${buffer.byteLength}`,
       );
       return;
     }

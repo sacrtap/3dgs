@@ -7,7 +7,7 @@
 [![npm version](https://img.shields.io/npm/v/@3dgs/renderer-three?label=%403dgs%2Frenderer-three)](https://www.npmjs.com/package/@3dgs/renderer-three)
 [![npm downloads](https://img.shields.io/npm/dm/@3dgs/core?label=downloads)](https://www.npmjs.com/package/@3dgs/core)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D18-green.svg)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5%2B-blue.svg)](https://www.typescriptlang.org)
 
 **English** | [中文](README.cn.md)
@@ -81,6 +81,9 @@ Open `http://localhost:5173` to experience multi-scene tours, hotspot navigation
 - **Dual Backend** — WebGL2 + Spark (production-ready, 98%+ browsers) **and** WebGPU native (experimental, WGSL shaders + GPU compute sort)
 - **Device Tiering** — Auto-detects hardware (CPU cores, memory, GPU model, touch capability — iPadOS correctly classified as mobile) and dynamically adjusts render parameters
 - **Adaptive Resolution** — Automatically lowers render resolution when FPS drops below threshold; suspended during scene loading to avoid false downscaling, capped pixel-ratio follow on HIGH/ULTRA tiers for high-DPI sharpness
+- **Spatial Grid Frustum Culling** — `SplatGridCuller` buckets positions into 8³ cells (no Morton dependency); culls at cell granularity, skips GPU index re-upload when the visibility mask is unchanged
+- **Render Stats** — `getStats()` exposes fps, smoothed frame time, visible splat count and buffer pool hit/miss ratios for monitoring
+- **Preloading** — `RendererAdapter.preloadScene()` prefetches scene resources without switching; `SceneManager.preload()` tracks handles and reuses cached data on load
 - **Power & Battery Aware** — Render loop pauses automatically when the page is hidden (visibilitychange), resumes without frame-time spikes
 - **DragLookControls** — Drag-to-look camera controls, similar to panorama viewers
 - **Keyboard Movement** — WASD horizontal movement + QE vertical movement with speed interpolation
@@ -98,8 +101,9 @@ Open `http://localhost:5173` to experience multi-scene tours, hotspot navigation
 |--------|-------------|-------------|
 | **PLY** | Raw 3DGS training output | 1× |
 | **SPLAT** | antimatter15 format (32 bytes/splat) | ~1× |
-| **SPZ** | Niantic SPZ v2 format (gzip compressed) | ~2× measured from .splat |
-| **SOG** | Spatially Ordered Gaussians (streaming LOD) | On-demand |
+| **SPZ** | Niantic SPZ format — reads v1–v4 (v4 NGSP + zstd via injectable decompressor), writes v2 (gzip) | ~2× measured from .splat |
+| **SOG** | Spatially Ordered Gaussians — v2 (streaming LOD), v3 adds trailing SH overlay | On-demand |
+| **Compressed PLY** | SuperSplat-compatible quantized PLY (writer) | ~10× vs raw PLY |
 
 > **Benchmark highlights (2026-08-27, 5 scenes × formats):** On a 248K-splat scene all formats render at ~60 FPS — SPZ loads fastest (405 ms, 48% the size of .splat); for large scenes (>1M splats) SOG loads fastest (1.2 s vs 10.9 s for .splat on a 5.8M scene) with equal FPS. Conversion throughput ≈ 120K–500K splats/s. See the [full performance report](benchmarks/reports/performance-report-full-2026-08-27.md).
 
@@ -222,7 +226,7 @@ await player.switchScene('kitchen');
 
 ## Data Conversion Tool
 
-The `@3dgs/convert` package is [published on npm](https://www.npmjs.com/package/@3dgs/convert) (v0.2.0). You can use it directly via `npx` without installation, or install it globally:
+The `@3dgs/convert` package is [published on npm](https://www.npmjs.com/package/@3dgs/convert) (v0.3.0). You can use it directly via `npx` without installation, or install it globally:
 
 ```bash
 # Use directly via npx (no installation required)
@@ -242,14 +246,18 @@ npx 3dgs-convert ply-to-splat input.ply -o output.splat
 # PLY → SPZ (gzip compressed, ~2x smaller than .splat measured)
 npx 3dgs-convert ply-to-spz input.ply -o output.spz --sh-degree 1
 
-# PLY → SOG (streaming LOD, progressive loading)
+# PLY → SOG (streaming LOD, progressive loading; --sog-version 3 adds SH overlay)
 npx 3dgs-convert ply-to-sog input.ply -o output.sog
+
+# Any input → SuperSplat-compatible compressed PLY (quantized)
+npx 3dgs-convert to-compressed-ply input.ply -o output.compressed.ply
 
 # .splat → .spz / .sog (reverse conversion)
 npx 3dgs-convert splat-to-spz input.splat -o output.spz
 npx 3dgs-convert splat-to-sog input.splat -o output.sog
 
-# Batch convert all PLY files in a directory
+# Batch convert all supported files (.ply/.splat/.spz/.sog) in a directory,
+# emitting a manifest.json with per-file results
 npx 3dgs-convert batch ./scenes/ --format spz --sh-degree 1
 
 # Generate tour.json config template
@@ -272,8 +280,10 @@ npx 3dgs-convert info input.ply
 | `--sh-degree <num>` | SH degree 0-3 (auto-detected by default) |
 | `--fractional-bits <num>` | SPZ position quantization fractional bits (default 12) |
 | `--chunk-size <num>` | SOG splats per chunk (default 8192) |
-| `--contribution-cutoff <num>` | Contribution-based pruning (0-1 = keep ratio, >1 = keep count) |
+| `--contribution-cutoff <num>` | Contribution-based pruning (0-1 = keep ratio, >1 = keep count; uses quickselect, O(N)) |
+| `--max-splats <num>` | Pre-crop to at most N splats by contribution during conversion |
 | `--sh-mode <num>` | SOG SH DC append mode (0=off, 1=Int8, default 0) |
+| `--sog-version <num>` | SOG version 2 or 3 (default 2; 3 = trailing SH overlay, full SH degree 0-3) |
 
 </details>
 
@@ -504,6 +514,8 @@ player.use(createMyPlugin());
 | `TourConfig` | Type | Declarative scene graph config format |
 | `TourPlugin` | Interface | Plugin interface — `init` / `update` / `destroy` lifecycle |
 | `validateTourConfig` | Function | Config validation |
+| `validateTourConfigJson` | Function | Full validation collecting all errors (JSON Schema based) |
+| `RenderStats` | Interface | Render statistics — fps, frameTimeMs, visibleSplats, buffer pool stats |
 
 ### @3dgs/renderer-three
 
@@ -516,27 +528,36 @@ player.use(createMyPlugin());
 | `createRendererSync` | Function | Sync renderer factory — uses WebGL2 directly |
 | `detectWebGPU` | Function | WebGPU capability detection |
 | `detectDeviceTier` | Function | Device tier detection |
-| `SogStreamer` | Class | SOG streaming LOD client |
+| `SogStreamer` | Class | SOG streaming LOD client (v2/v3; v3 loads SH overlay via HTTP Range) |
 | `FrustumCulling` | Class | Morton spatial grid frustum culling |
+| `SplatGridCuller` | Class | Cell-based frustum culler (8³ buckets, no Morton dependency) |
 | `SplatBufferPool` | Class | ArrayBuffer pool for scene switching |
+| `fetchWithProgress` | Function | Streaming fetch with progress callbacks and AbortSignal |
+| `downsampleSplatBytes` / `downsampleSplatData` | Function | Shared downsample helpers (WebGL bytes / WebGPU SoA) |
 | `decodeSpzInWorker` | Function | SPZ format decoder (Worker with main-thread fallback) |
 
 ### @3dgs/convert
 
 | Export | Description |
 |--------|-------------|
-| `loadGaussiansFromPly(buffer, options?)` | Parse gaussian data from PLY |
+| `loadGaussiansFromPly(buffer, options?)` | Parse gaussian data from PLY (streaming-chunked, SoA-capable) |
+| `loadGaussiansFromPlySoA(buffer, options?)` | Parse PLY directly into columnar `GaussianCloudSoA` (fast path) |
 | `loadGaussiansFromSplat(buffer, options?)` | Load `.splat` back into GaussianCloud |
-| `writeSplat(cloud)` | Write `.splat` format |
-| `writeSpz(cloud, options?)` | Write `.spz` format (gzip compressed) |
-| `writeSog(cloud, options?)` | Write `.sog` format (streaming LOD, v2: gzip + LOD tree + position quantization) |
+| `loadGaussiansFromSpz(buffer, options?)` | Read SPZ v1–v4 into GaussianCloud (v4 zstd via `zstdDecompress` injectable) |
+| `toSoA(cloud)` / `fromSoA(soa)` | Convert between AoS `GaussianCloud` and columnar SoA |
+| `writeSplat(cloud)` / `writeSplatSoA(soa)` | Write `.splat` format |
+| `writeSpz(cloud, options?)` | Write `.spz` format (v2, gzip compressed) |
+| `writeSog(cloud, options?)` | Write `.sog` format (v2: gzip + LOD tree + position quantization; `version: 3` appends SH overlay) |
+| `readShOverlaySoA(buffer, metadata)` | Read the trailing SH overlay of a SOG v3 file |
+| `writeCompressedPly(cloud, options?)` | Write SuperSplat-compatible quantized compressed PLY |
 | `pruneGaussians(cloud, options?)` | Redundant gaussian pruning |
 | `mortonSortGaussians(cloud, options?)` | Morton Code spatial sorting |
+| `quickselect(array, k)` / `quickselectIndices(indices, scores, k)` | O(N) nth-element selection for contribution cutoff |
 | `parsePly(buffer)` | Low-level PLY parser |
-| `parseSogMetadata(buffer)` | Parse SOG file metadata |
+| `parseSpzHeader(buffer)` | SPZ header parser (v1–v4 layouts) |
+| `parseSogMetadata(buffer)` | Parse SOG metadata (v1/v2/v3 + SH overlay fields) |
 | `buildLodLevels(numSplats, numLevels, lodBase)` | Build LOD level boundaries (Morton prefix subset) |
-| `serializeLodTree(levels, lodBase)` | Serialize LOD tree to binary |
-| `deserializeLodTree(buffer)` | Deserialize LOD tree from binary |
+| `serializeLodTree(levels, lodBase)` / `deserializeLodTree(buffer)` | Serialize / deserialize LOD tree |
 
 </details>
 
@@ -563,7 +584,7 @@ All three formats have **similar steady-state FPS** (variance < 5%) on small sce
 | Desktop / High bandwidth | `.splat` | No decode overhead, simplest loading |
 | Mobile / 4G | `.spz` | Half the transfer size, faster loading |
 | Large scene (> 1M splats) | `.sog` | Fast first frame + efficient LOD |
-| Spherical harmonics lighting | `.spz` | Only format supporting SH |
+| Spherical harmonics lighting | `.spz` / `.sog` (v3) | SPZ v2+ and SOG v3 (SH overlay) support SH degree 0-3 |
 | Multi-scene tours | `.sog` | Morton sorting improves LOD quality |
 
 ### Recommended by Device Tier
@@ -581,11 +602,11 @@ All three formats have **similar steady-state FPS** (variance < 5%) on small sce
 | Feature | .splat | .spz | .sog |
 |---------|--------|------|------|
 | **Bytes per splat** | 32 B | ~16 B (pre-compression) | 32 B (same as .splat) |
-| **Compression** | None | gzip + quantization | None (chunked transfer) |
-| **SH coefficients** | ✗ | ✓ (degree 0-3) | ✗ |
+| **Compression** | None | gzip + quantization | None (chunked transfer); optional gzip + quantization |
+| **SH coefficients** | ✗ | ✓ (degree 0-3) | ✓ v3 via trailing overlay (degree 0-3); v2 via `--sh-mode` DC |
 | **Streaming** | ✗ | ✗ | ✓ (HTTP Range) |
 | **Morton sorting** | ✗ | ✗ | ✓ (LOD-friendly) |
-| **Position precision** | Float32 | 24bit fixed | Float32 |
+| **Position precision** | Float32 | 24bit fixed | Float32 (or 24bit with quantization) |
 | **Network transfer** | Full | Full (compressed) | Progressive |
 | **CPU decode overhead** | Lowest | Medium (decompress + dequantize) | Low |
 
@@ -835,7 +856,7 @@ pnpm --filter @3dgs/core dev        # Watch mode
 
 ```bash
 pnpm typecheck       # Type checking
-pnpm test            # Unit tests (473 cases, no build required)
+pnpm test            # Unit tests (718 cases, no build required)
 pnpm test:coverage   # Coverage report
 pnpm lint            # ESLint
 pnpm lint:fix        # Auto-fix
@@ -865,6 +886,11 @@ pnpm --filter @3dgs/docs preview    # Preview build
 
 GitHub Actions CI pipeline runs Lint, Type Check, Unit Tests, Build, and Benchmark on every push / PR.
 
+### Release & Rollback
+
+- 发布: changesets (`.github/workflows/release.yml`) — 版本 PR → npm publish, tag 格式 `@3dgs/<pkg>@<version>`
+- 回滚/恢复路径: [docs/ops/rollback.md](docs/ops/rollback.md)（npm 版本恢复、tag 撤回、main 恢复、保护规则现状）
+
 </details>
 
 ---
@@ -883,11 +909,12 @@ For common questions, see the [FAQ docs](docs/site/guide/faq.md) covering deploy
 │   ├── core/              # Framework-agnostic core — TourPlayer, SceneManager, PluginSystem
 │   ├── renderer-three/    # Three.js + Spark / WebGPU renderer adapter
 │   ├── plugins/           # Plugins — hotspots, camera, depth, touch, transitions, shader
-│   ├── convert/           # Data conversion CLI + programmatic API
+│   ├── convert/           # Data conversion CLI + programmatic API (SoA pipeline)
 │   ├── react/             # React adapter — <TourViewer /> component
 │   └── vue/               # Vue 3 adapter — <TourViewer /> component
 ├── apps/
-│   └── demo/              # Demo app (Vite + Vanilla TS)
+│   ├── demo/              # Demo app (Vite + Vanilla TS)
+│   └── r3f-example/       # React Three Fiber integration example (R-10)
 ├── examples/              # 12 example code files
 ├── docs/site/             # VitePress docs site
 ├── .changeset/            # Changesets version management

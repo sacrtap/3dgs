@@ -145,3 +145,82 @@ function validateSceneConfig(id: string, scene: Record<string, unknown>) {
     throw new TourConfigValidationError(`场景 "${id}" 缺少 source 字段`);
   }
 }
+
+// ─── ★ TD-28: JSON 校验 (无 schema 运行时依赖, 收集错误而非抛错) ──
+
+/** ★ TD-28: 校验结果 (valid=false 时 errors 含全部错误信息) */
+export interface TourConfigValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+/**
+ * ★ TD-28: 校验 JSON 配置 — 返回结构化结果 (不抛错)。
+ *
+ * 配套 schema: `schema/tour-config.schema.json` (draft-07, IDE 提示与 CI 校验用)。
+ * 运行时使用本函数做完整校验, 语义与 validateTourConfig 一致但收集全部错误。
+ */
+export function validateTourConfigJson(json: unknown): TourConfigValidationResult {
+  const errors: string[] = [];
+
+  if (!json || typeof json !== 'object' || Array.isArray(json)) {
+    return { valid: false, errors: ['配置必须是一个对象'] };
+  }
+
+  const c = json as Record<string, unknown>;
+
+  // version
+  if (!SUPPORTED_VERSIONS.includes(c.version as string)) {
+    errors.push(`不支持的 version: ${String(c.version)}，支持: ${SUPPORTED_VERSIONS.join(', ')}`);
+  }
+
+  // scenes
+  if (!c.scenes || typeof c.scenes !== 'object' || Array.isArray(c.scenes)) {
+    errors.push('缺少 scenes 字段');
+    return { valid: errors.length === 0, errors };
+  }
+
+  const scenes = c.scenes as Record<string, unknown>;
+  const sceneIds = Object.keys(scenes);
+  if (sceneIds.length === 0) {
+    errors.push('至少需要一个场景');
+  }
+
+  for (const [id, scene] of Object.entries(scenes)) {
+    if (!scene || typeof scene !== 'object') {
+      errors.push(`场景 "${id}" 必须是对象`);
+      continue;
+    }
+    const s = scene as Record<string, unknown>;
+    if (typeof s.source !== 'string' || s.source.length === 0) {
+      errors.push(`场景 "${id}" 缺少 source 字段`);
+    }
+    if (s.lodSource !== undefined && typeof s.lodSource !== 'string') {
+      errors.push(`场景 "${id}" lodSource 必须是字符串`);
+    }
+    if (
+      s.initialView !== undefined &&
+      (typeof s.initialView !== 'object' || s.initialView === null)
+    ) {
+      errors.push(`场景 "${id}" initialView 必须是对象`);
+    } else if (s.initialView !== undefined) {
+      // ★ 子字段校验: 与 JSON Schema 约束一致 (yaw/pitch 数值, fov 数值且 1-179)
+      const iv = s.initialView as Record<string, unknown>;
+      if (iv.yaw !== undefined && typeof iv.yaw !== 'number') {
+        errors.push(`场景 "${id}" initialView.yaw 必须是数字`);
+      }
+      if (iv.pitch !== undefined && typeof iv.pitch !== 'number') {
+        errors.push(`场景 "${id}" initialView.pitch 必须是数字`);
+      }
+      if (iv.fov !== undefined) {
+        if (typeof iv.fov !== 'number' || Number.isNaN(iv.fov)) {
+          errors.push(`场景 "${id}" initialView.fov 必须是数字`);
+        } else if (iv.fov < 1 || iv.fov > 179) {
+          errors.push(`场景 "${id}" initialView.fov 必须在 1-179 范围`);
+        }
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}

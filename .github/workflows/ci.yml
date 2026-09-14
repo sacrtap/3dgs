@@ -38,6 +38,12 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      - name: AGENTS.md refs check
+        # ★ agents-crossref-no-automated-check: root AGENTS.md Internal Markers
+        #   段的 D-xx/R-xx 文档引用必须有确定性检查, 断链 (文件改名/移动)
+        #   会导致标记契约静默失效 — 纯 node 脚本, 无浏览器依赖
+        run: node scripts/check-agents-refs.mjs
+
       - name: Build
         run: pnpm build
 
@@ -50,7 +56,9 @@ jobs:
 
       - name: Unit Tests (Push)
         if: github.event_name == 'push'
-        run: pnpm test
+        # ★ R-14: coverage 阈值门禁 — 全量测试 + v8 覆盖率阈值 (见 vitest.config.ts),
+        #   防 renderer-three/convert 覆盖率实质退化不被感知
+        run: pnpm test:coverage
 
       - name: Build Demo
         run: pnpm --filter @3dgs/demo build
@@ -75,8 +83,10 @@ jobs:
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
+        # ★ R-13: benchmark 与根 engines (>=22) / build-and-test 矩阵 (22,24) 保持一致的 Node 版本 —
+        #   原 20 为无意选择（无记录理由），统一到 22，避免本地 (>=22) 与基准结果 V8/Playwright 行为差异
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -103,8 +113,15 @@ jobs:
             sleep 1
           done
 
+      - name: Run render smoke E2E
+        # ★ R-14: renderer 主路径 browser 级行为证据 — 真实 Chromium 加载 demo
+        #   场景, 断言 canvas 挂载 + 首帧像素非空 + 无控制台错误
+        #   (复用本 job 已起的 demo server 与已安装的 playwright chromium)
+        run: npx tsx e2e/render-smoke.ts
+
       - name: Run benchmark
-        run: npx tsx benchmarks/benchmark.ts
+        # ★ R-07: --gate 门禁 — 任一场景 P50 < 30fps 时 CI 失败
+        run: npx tsx benchmarks/benchmark.ts --gate
 
       - name: Upload benchmark results
         if: always()

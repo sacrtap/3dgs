@@ -58,6 +58,25 @@ pnpm typecheck
 pnpm test -- --related packages/renderer-three/src/index.ts
 ```
 
+## WebGPU 失败分支覆盖边界
+
+`webgpu-render-manager.ts` 的失败路径在 `webgpu-render-manager.test.ts`
+「失败路径观测」describe 中分两类处理：
+
+- **jsdom 可断言**（已覆盖）:
+  - `constructor:experimental` — 构造即触发 warn, spy `console.warn` 断言稳定事件标识
+  - `init:gpu-device-lost` — mock `navigator.gpu` + `device.lost` deferred, spy
+    `console.error` 断言错误消息透传
+- **显式豁免**（不写 jsdom 断言）:
+  - `renderLoop:gpu-sort-failed` — 依赖真实 GPU 管线（`WebGPUSortManager.init`
+    的 `device.createBuffer`/`queue.writeBuffer` + canvas `webgpu` context）,
+    jsdom 下无真实 WebGPU 实现, mock 面过大会让测试退化为 mock 深水区。
+    此分支需真实 WebGPU 环境（浏览器手测或未来 WebGPU browser E2E）验证,
+    单元测试不覆盖属于已知边界而非遗漏。
+
+修改 `webgpu-render-manager.ts` 失败路径时, 若新增事件可被 jsdom mock,
+应同步在「失败路径观测」describe 补断言; 若依赖真实 GPU 语义, 更新本段豁免清单。
+
 ## Do Not Touch (inherited)
 
 - `dist/` — 构建产物

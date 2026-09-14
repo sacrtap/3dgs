@@ -28,10 +28,10 @@
  * [来源: SPZ 格式 — github.com/nianticlabs/spz]
  */
 
-import type { GaussianCloud } from './gaussian-loader.js';
-import { SH_C0 } from './gaussian-loader.js';
+import type { GaussianCloud, GaussianCloudSoA } from './gaussian-loader.js';
+import { SH_C0, toSoA } from './gaussian-loader.js';
 
-/** SPZ 魔数 = 0x50474853 ("SGHP" LE) */
+/** SPZ 魔数 = 0x5053474e ("NGSP" LE), 与 Niantic NGSP_MAGIC 一致 */
 export const SPZ_MAGIC = 1347635022;
 
 /** SPZ 版本 (v2: 3字节旋转, 广泛兼容) */
@@ -77,9 +77,24 @@ export async function writeSpz(
   cloud: GaussianCloud,
   options: SpzWriterOptions = {},
 ): Promise<Uint8Array> {
-  const { shDegree = cloud.shDegree, fractionalBits = 12, flagAntiAlias = true } = options;
+  // ★ C-01/TD-06: 委托 SoA 写入路径, 保证 AoS/SoA 产物 byte 级一致。
+  return writeSpzSoA(toSoA(cloud), options);
+}
 
-  const numSplats = cloud.splats.length;
+/**
+ * ★ C-01/TD-06: 将 GaussianCloudSoA 写入 SPZ v2 格式 (列式消费, 跳过 AoS 装箱)
+ *
+ * @param soa 高斯核集合 (列式)
+ * @param options 写入选项
+ * @returns gzip 压缩的 Uint8Array
+ */
+export async function writeSpzSoA(
+  soa: GaussianCloudSoA,
+  options: SpzWriterOptions = {},
+): Promise<Uint8Array> {
+  const { shDegree = soa.shDegree, fractionalBits = 12, flagAntiAlias = true } = options;
+
+  const numSplats = soa.count;
   const shDim = SH_DIM[shDegree] ?? 0;
 
   // 计算各属性流大小
@@ -112,47 +127,49 @@ export async function writeSpz(
   // ── 1. Positions (N × 9 bytes, 24-bit signed int LE) ──
   let offset = headerSize;
   for (let i = 0; i < numSplats; i++) {
-    const s = cloud.splats[i];
-    writeInt24LE(view, offset, quantizePosition(s.x, fraction));
-    writeInt24LE(view, offset + 3, quantizePosition(s.y, fraction));
-    writeInt24LE(view, offset + 6, quantizePosition(s.z, fraction));
+    const i3 = i * 3;
+    writeInt24LE(view, offset, quantizePosition(soa.positions[i3], fraction));
+    writeInt24LE(view, offset + 3, quantizePosition(soa.positions[i3 + 1], fraction));
+    writeInt24LE(view, offset + 6, quantizePosition(soa.positions[i3 + 2], fraction));
     offset += 9;
   }
 
   // ── 2. Alphas (N × 1 byte) ──
   for (let i = 0; i < numSplats; i++) {
-    const s = cloud.splats[i];
-    view.setUint8(offset + i, clampU8(Math.round(s.opacity * 255)));
+    view.setUint8(offset + i, clampU8(Math.round(soa.opacities[i] * 255)));
   }
   offset += alphasSize;
 
   // ── 3. Colors (N × 3 bytes, DC color encoded) ──
   for (let i = 0; i < numSplats; i++) {
-    const s = cloud.splats[i];
+    const i3 = i * 3;
     const base = offset + i * 3;
-    view.setUint8(base + 0, scaleRgbToSpz(s.colorR));
-    view.setUint8(base + 1, scaleRgbToSpz(s.colorG));
-    view.setUint8(base + 2, scaleRgbToSpz(s.colorB));
+    view.setUint8(base + 0, scaleRgbToSpz(soa.colors[i3]));
+    view.setUint8(base + 1, scaleRgbToSpz(soa.colors[i3 + 1]));
+    view.setUint8(base + 2, scaleRgbToSpz(soa.colors[i3 + 2]));
   }
   offset += colorsSize;
 
   // ── 4. Scales (N × 3 bytes, log-scale encoded) ──
   for (let i = 0; i < numSplats; i++) {
-    const s = cloud.splats[i];
+    const i3 = i * 3;
     const base = offset + i * 3;
-    view.setUint8(base + 0, scaleToSpz(s.scaleX));
-    view.setUint8(base + 1, scaleToSpz(s.scaleY));
-    view.setUint8(base + 2, scaleToSpz(s.scaleZ));
+    view.setUint8(base + 0, scaleToSpz(soa.scales[i3]));
+    view.setUint8(base + 1, scaleToSpz(soa.scales[i3 + 1]));
+    view.setUint8(base + 2, scaleToSpz(soa.scales[i3 + 2]));
   }
   offset += scalesSize;
 
   // ── 5. Rotations (N × 3 bytes, v2: xyz only) ──
   for (let i = 0; i < numSplats; i++) {
-    const s = cloud.splats[i];
+    const i4 = i * 4;
     const base = offset + i * 3;
-    // Normalize quaternion and ensure w >= 0
-    const { x, y, z } = normalizeQuatForSpzV2(s.rotW, s.rotX, s.rotY, s.rotZ);
-    // Encode: value = round((component + 1) * 127.5)
+    const { x, y, z } = normalizeQuatForSpzV2(
+      soa.rotations[i4],
+      soa.rotations[i4 + 1],
+      soa.rotations[i4 + 2],
+      soa.rotations[i4 + 3],
+    );
     view.setUint8(base + 0, clampU8(Math.round((x + 1) * 127.5)));
     view.setUint8(base + 1, clampU8(Math.round((y + 1) * 127.5)));
     view.setUint8(base + 2, clampU8(Math.round((z + 1) * 127.5)));
@@ -161,29 +178,20 @@ export async function writeSpz(
 
   // ── 6. SH (N × shDim × 3 bytes) ──
   if (shDim > 0) {
+    const shPerSplat = shDim * 3; // ★ 每 splat SH 系数总数, 循环外求值
     for (let i = 0; i < numSplats; i++) {
-      const s = cloud.splats[i];
-      const sh = s.sh;
-      const base = offset + i * shDim * 3;
-      if (sh) {
-        for (let j = 0; j < shDim * 3 && j < sh.length; j++) {
-          // Determine bits: degree 1 uses 5 bits, degree 2+ uses 4 bits
-          const bits = j < 9 ? 5 : 4;
-          view.setUint8(base + j, quantizeSh(sh[j], bits));
-        }
-      } else {
-        // No SH data, fill with 128 (neutral)
-        for (let j = 0; j < shDim * 3; j++) {
-          view.setUint8(base + j, 128);
-        }
+      const base = offset + i * shPerSplat;
+      const shBase = i * shPerSplat;
+      for (let j = 0; j < shPerSplat; j++) {
+        // Determine bits: degree 1 uses 5 bits, degree 2+ uses 4 bits
+        const bits = j < 9 ? 5 : 4;
+        const v = soa.sh ? soa.sh[shBase + j] : 0;
+        view.setUint8(base + j, soa.sh ? quantizeSh(v, bits) : 128);
       }
     }
   }
 
-  // ── 布局修复 (2026-08-27): 整文件 gzip (header + body 一起压缩) ──
-  // 权威布局 (Spark SpzWriter.finalize): 单个 gzip 流, 解压后 = header + body。
-  // Spark SpzReader 用 GunzipReader 从字节 0 解压整个文件;
-  // 旧版 M5 "header 不压缩" 布局会导致 Spark 报 "Invalid gzip header"。
+  // ── 整文件 gzip (header + body 一起压缩) ──
   return gzipCompress(u8);
 }
 

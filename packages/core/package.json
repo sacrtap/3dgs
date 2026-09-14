@@ -14,7 +14,8 @@
   },
   "files": [
     "dist/**/*.js",
-    "dist/**/*.d.ts"
+    "dist/**/*.d.ts",
+    "schema/**/*.json"
   ],
   "sideEffects": false,
   "publishConfig": {
