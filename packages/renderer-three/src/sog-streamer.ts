@@ -18,6 +18,8 @@
  * [来源: DecompressionStream — developer.mozilla.org/en-US/docs/Web/API/DecompressionStream]
  */
 
+import { traceEvent } from './trace-log.js';
+
 /** SOG chunk 索引条目 (本地定义, 避免 cross-package 依赖) */
 export interface SogChunkEntry {
   /** chunk 在文件中的字节偏移 */
@@ -189,7 +191,14 @@ export class SogStreamer {
         this.parseLodTree(lodTreeBuffer, this.metadata);
       } catch (err) {
         // LOD 树获取失败不阻断加载, 回退到运行时构建
-        console.warn('[SogStreamer] LOD 树数据获取失败, 回退到运行时构建:', err);
+        traceEvent(
+          'SogStreamer',
+          'start',
+          'lod-fetch-fallback',
+          'warn',
+          'LOD 树数据获取失败, 回退到运行时构建:',
+          err,
+        );
       }
     }
 
@@ -295,8 +304,12 @@ export class SogStreamer {
     if (shDim === 0) return undefined;
     const expected = this.metadata.numSplats * shDim * 3;
     if (overlaySize !== expected) {
-      console.warn(
-        `[SogStreamer] SH overlay 大小不匹配: overlay=${overlaySize}B, 期望=${expected}B (文件损坏或 shDegree 声明不一致)`,
+      traceEvent(
+        'SogStreamer',
+        'loadShOverlay',
+        'sh-overlay-size-mismatch',
+        'warn',
+        `SH overlay 大小不匹配: overlay=${overlaySize}B, 期望=${expected}B (文件损坏或 shDegree 声明不一致)`,
       );
       return undefined;
     }
@@ -309,8 +322,12 @@ export class SogStreamer {
     if (!dataRes.ok && dataRes.status !== 206) return undefined;
     const dataBuf = new Uint8Array(await dataRes.arrayBuffer());
     if (dataBuf.length !== overlaySize) {
-      console.warn(
-        `[SogStreamer] SH overlay 数据区不完整: 收到 ${dataBuf.length}B, 期望 ${overlaySize}B`,
+      traceEvent(
+        'SogStreamer',
+        'loadShOverlay',
+        'sh-overlay-data-incomplete',
+        'warn',
+        `SH overlay 数据区不完整: 收到 ${dataBuf.length}B, 期望 ${overlaySize}B`,
       );
       return undefined;
     }
@@ -505,7 +522,13 @@ export class SogStreamer {
    */
   private parseLodTree(buffer: ArrayBuffer, meta: SogMetadata): void {
     if (buffer.byteLength < LOD_TREE_HEADER_SIZE) {
-      console.warn('[SogStreamer] LOD 树数据过小, 跳过');
+      traceEvent(
+        'SogStreamer',
+        'parseLodTree',
+        'lod-tree-too-small',
+        'warn',
+        'LOD 树数据过小, 跳过',
+      );
       return;
     }
 
@@ -514,14 +537,24 @@ export class SogStreamer {
     const lodBase = view.getFloat32(4, true);
 
     if (numLevels === 0 || numLevels > 100) {
-      console.warn(`[SogStreamer] LOD 树 numLevels 异常: ${numLevels}, 跳过`);
+      traceEvent(
+        'SogStreamer',
+        'parseLodTree',
+        'lod-tree-levels-invalid',
+        'warn',
+        `LOD 树 numLevels 异常: ${numLevels}, 跳过`,
+      );
       return;
     }
 
     const expectedSize = LOD_TREE_HEADER_SIZE + numLevels * 4;
     if (buffer.byteLength < expectedSize) {
-      console.warn(
-        `[SogStreamer] LOD 树数据不完整: 期望 ${expectedSize} 字节, 实际 ${buffer.byteLength}`,
+      traceEvent(
+        'SogStreamer',
+        'parseLodTree',
+        'lod-tree-incomplete',
+        'warn',
+        `LOD 树数据不完整: 期望 ${expectedSize} 字节, 实际 ${buffer.byteLength}`,
       );
       return;
     }

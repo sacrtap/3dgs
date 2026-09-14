@@ -36,8 +36,10 @@ jobs:
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
+        # ★ R-13: 发布环境与根 engines (>=22) 保持一致 — 原 20 为无意选择（无记录理由），
+        #   发布构建低于声明版本会使产物在未达 engines 的环境中构建，统一到 22
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
 

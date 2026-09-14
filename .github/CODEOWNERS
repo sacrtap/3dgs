@@ -1,0 +1,31 @@
+# CODEOWNERS — 核心包属主映射 (机械 review 触发)
+#
+# ★ R-15: 为高频核心包建立属主映射, 使 GitHub 在 PR 触及这些路径时
+#   自动请求对应属主 review (机械触发, 不依赖人工指定)。
+#   规则按文件从上到下匹配, 后匹配优先; 无匹配时回退到 * 兜底属主。
+#
+# 高频包 (90 天窗口): core 14 commits / renderer-three 13 / convert 11
+# 全部映射到 @sacrtap (当前仓库唯一维护者); 多包路径可用空格分隔多个属主。
+
+# ── 兜底: 仓库级属主 (未列出的路径由维护者 review) ──
+*                                   @sacrtap
+
+# ── 核心运行时包 (最高 churn 与回归风险) ──
+packages/core/src/                   @sacrtap
+packages/renderer-three/src/         @sacrtap
+packages/convert/src/                @sacrtap
+
+# ── 生态/框架层包 ──
+packages/plugins/src/                @sacrtap
+packages/react/src/                  @sacrtap
+packages/vue/src/                    @sacrtap
+
+# ── 测试与行为证据 (E2E + 单元测试) ──
+e2e/                                 @sacrtap
+packages/*/src/**/*.test.ts          @sacrtap
+
+# ── 构建/发布/CI 链 (发布与门禁变更需属主确认) ──
+.github/workflows/                   @sacrtap
+.github/CODEOWNERS                   @sacrtap
+vitest.config.ts                     @sacrtap
+pnpm-workspace.yaml                  @sacrtap

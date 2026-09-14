@@ -402,4 +402,24 @@ describe('TD-11 RenderManager 主流程', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     rm.destroy();
   });
+
+  it('★ 重复 addShaderInjection: 降级分支输出带稳定事件标识的结构化日志', async () => {
+    // 可观测调试回路: 失败/降级分支必须输出 [组件:阶段:失败类型] 稳定标识,
+    // 供日志检索与监控; 重复注入同一 id 走 "覆盖旧注入" 降级分支
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const rm = new RenderManager();
+    rm.mount(makeContainer());
+    rm.start();
+    const injection = { id: 'dup-test', code: 'void main(){}', hookPoint: 'mainBegin' } as never;
+    rm.addShaderInjection(injection);
+    rm.addShaderInjection(injection); // 第二次同 id → 降级分支
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '[RenderManager:addShaderInjection:shader-injection-overwrite] Shader 注入',
+      ),
+    );
+    rm.destroy();
+  });
 });

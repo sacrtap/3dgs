@@ -886,6 +886,11 @@ pnpm --filter @3dgs/docs preview    # Preview build
 
 GitHub Actions CI pipeline runs Lint, Type Check, Unit Tests, Build, and Benchmark on every push / PR.
 
+### Release & Rollback
+
+- 发布: changesets (`.github/workflows/release.yml`) — 版本 PR → npm publish, tag 格式 `@3dgs/<pkg>@<version>`
+- 回滚/恢复路径: [docs/ops/rollback.md](docs/ops/rollback.md)（npm 版本恢复、tag 撤回、main 恢复、保护规则现状）
+
 </details>
 
 ---

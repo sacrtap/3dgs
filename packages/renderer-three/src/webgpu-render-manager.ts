@@ -43,6 +43,7 @@ import { decodeSpzToSplatData } from './spz-decoder-worker.js';
 import { fetchWithProgress } from './shared/fetch-util.js';
 import { loadSogChunks, downsampleSplatData } from './shared/scene-loader.js';
 import type { SplatData } from './shared/types.js';
+import { traceEvent } from './trace-log.js';
 // ★ M4-P2.3: WGSL Shader 注入工具
 import {
   injectWgslAfterMainBegin,
@@ -275,8 +276,12 @@ export class WebGPURenderManager implements RendererAdapter {
 
   constructor(options: WebGPURenderManagerOptions = {}) {
     // ★ M3: 标记 experimental — 提醒开发者此渲染器未经验证
-    console.warn(
-      '[WebGPURenderManager] ⚠️ experimental — 此渲染器尚未经过完整验证, 不建议在生产环境使用。' +
+    traceEvent(
+      'WebGPURenderManager',
+      'constructor',
+      'experimental',
+      'warn',
+      '⚠️ experimental — 此渲染器尚未经过完整验证, 不建议在生产环境使用。' +
         ' 当前实际渲染走 RenderManager (WebGL2 + Spark) 路径。',
     );
 
@@ -366,7 +371,14 @@ export class WebGPURenderManager implements RendererAdapter {
     });
 
     this.device.lost.then((info) => {
-      console.error('[WebGPURenderManager] GPU 设备丢失:', info.message);
+      traceEvent(
+        'WebGPURenderManager',
+        'init',
+        'gpu-device-lost',
+        'error',
+        'GPU 设备丢失:',
+        info.message,
+      );
       this._deviceLost = true;
       this._running = false;
     });
@@ -408,8 +420,12 @@ export class WebGPURenderManager implements RendererAdapter {
     if (this.tierSettings.maxSplats > maxSplatsByBuffer) {
       const oldMax = this.tierSettings.maxSplats;
       this.tierSettings = { ...this.tierSettings, maxSplats: maxSplatsByBuffer };
-      console.warn(
-        `[WebGPURenderManager] GPU maxBufferSize 限制: maxSplats ${oldMax.toLocaleString()} → ${maxSplatsByBuffer.toLocaleString()}`,
+      traceEvent(
+        'WebGPURenderManager',
+        'adjustForGpuLimits',
+        'max-splats-buffer-size-limit',
+        'warn',
+        `GPU maxBufferSize 限制: maxSplats ${oldMax.toLocaleString()} → ${maxSplatsByBuffer.toLocaleString()}`,
       );
     }
 
@@ -419,8 +435,12 @@ export class WebGPURenderManager implements RendererAdapter {
     if (this.tierSettings.maxSplats > maxSplatsByBinding) {
       const oldMax = this.tierSettings.maxSplats;
       this.tierSettings = { ...this.tierSettings, maxSplats: maxSplatsByBinding };
-      console.warn(
-        `[WebGPURenderManager] GPU maxStorageBufferBindingSize 限制: maxSplats ${oldMax.toLocaleString()} → ${maxSplatsByBinding.toLocaleString()}`,
+      traceEvent(
+        'WebGPURenderManager',
+        'adjustForGpuLimits',
+        'max-splats-binding-size-limit',
+        'warn',
+        `GPU maxStorageBufferBindingSize 限制: maxSplats ${oldMax.toLocaleString()} → ${maxSplatsByBinding.toLocaleString()}`,
       );
     }
   }
@@ -613,8 +633,12 @@ export class WebGPURenderManager implements RendererAdapter {
           await this.loadSceneWithSog(options.lodSource, options);
           return;
         } catch (err) {
-          console.warn(
-            '[WebGPURenderManager] SOG 流式加载失败, 回退到 source 直接加载:',
+          traceEvent(
+            'WebGPURenderManager',
+            'loadScene',
+            'sog-fallback',
+            'warn',
+            'SOG 流式加载失败, 回退到 source 直接加载:',
             err instanceof Error ? err.message : err,
           );
         }
@@ -626,7 +650,14 @@ export class WebGPURenderManager implements RendererAdapter {
           await this.loadSceneWithSpz(source, options);
           return;
         } catch (err) {
-          console.warn('[WebGPURenderManager] SPZ 解码失败, 回退到 .splat 直接加载:', err);
+          traceEvent(
+            'WebGPURenderManager',
+            'loadScene',
+            'spz-decode-fallback',
+            'warn',
+            'SPZ 解码失败, 回退到 .splat 直接加载:',
+            err,
+          );
         }
       }
 
@@ -636,7 +667,14 @@ export class WebGPURenderManager implements RendererAdapter {
           await this.loadSceneWithSog(source, options);
           return;
         } catch (err) {
-          console.warn('[WebGPURenderManager] SOG 加载失败, 回退到 .splat 直接加载:', err);
+          traceEvent(
+            'WebGPURenderManager',
+            'loadScene',
+            'sog-fallback-load',
+            'warn',
+            'SOG 加载失败, 回退到 .splat 直接加载:',
+            err,
+          );
         }
       }
 
@@ -721,7 +759,14 @@ export class WebGPURenderManager implements RendererAdapter {
         options?.onProgress?.(loaded, total);
       },
       onError: (error) => {
-        console.error('[WebGPURenderManager] SOG chunk 加载错误:', error.message);
+        traceEvent(
+          'WebGPURenderManager',
+          'loadSceneWithSog',
+          'sog-chunk-error',
+          'error',
+          'SOG chunk 加载错误:',
+          error.message,
+        );
       },
       // ★ 提前持有 streamer: await start() 期间新 loadScene/destroy 可 abort 本次加载
       //   (注意: 不可在 await 返回后再次赋值 — 新场景可能已替换 _sogStreamer)
@@ -841,7 +886,13 @@ export class WebGPURenderManager implements RendererAdapter {
 
   addShaderInjection(injection: ShaderInjection): void {
     if (this._shaderInjections.has(injection.id)) {
-      console.warn(`[WebGPURenderManager] Shader 注入 '${injection.id}' 已存在, 将被覆盖`);
+      traceEvent(
+        'WebGPURenderManager',
+        'addShaderInjection',
+        'shader-injection-overwrite',
+        'warn',
+        `Shader 注入 '${injection.id}' 已存在, 将被覆盖`,
+      );
       this.removeShaderInjection(injection.id);
     }
     this._shaderInjections.set(injection.id, injection);
@@ -1039,7 +1090,14 @@ export class WebGPURenderManager implements RendererAdapter {
             this._sorting = false;
             // ★ 设备已销毁或丢失时, 静默处理 (不打印警告)
             if (this._destroyed || this._deviceLost) return;
-            console.warn('[WebGPURenderManager] GPU 排序失败:', err);
+            traceEvent(
+              'WebGPURenderManager',
+              'renderLoop',
+              'gpu-sort-failed',
+              'warn',
+              'GPU 排序失败:',
+              err,
+            );
           });
       }
     }

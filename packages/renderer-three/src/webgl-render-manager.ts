@@ -31,6 +31,7 @@ import { SogStreamer, type SogMetadata } from './sog-streamer.js';
 import { FrustumCulling } from './frustum-culling.js';
 import { SplatBufferPool } from './buffer-pool.js';
 import { DragLookControls } from './drag-look-controls.js';
+import { traceEvent } from './trace-log.js';
 import { readSpzHeader } from './spz-decoder-worker.js';
 import {
   injectAfterMainBegin as injectAfterMainBeginFn,
@@ -298,7 +299,13 @@ export class RenderManager implements RendererAdapter {
     //   移动端和集显设备在内存压力下高发
     this._contextLostHandler = (e: Event) => {
       e.preventDefault();
-      console.warn('[RenderManager] WebGL context lost — GPU 资源已释放, 等待 restore...');
+      traceEvent(
+        'RenderManager',
+        'start',
+        'context-lost',
+        'warn',
+        'WebGL context lost — GPU 资源已释放, 等待 restore...',
+      );
       this._running = false;
       // ★ 显式取消 RAF 并重置 rafId: 若 context lost 后帧回调不被调度,
       //   _startRenderLoop 的 "rafId !== 0 直接返回" 会阻止 restore 后循环重启
@@ -312,7 +319,14 @@ export class RenderManager implements RendererAdapter {
       this._running = true;
       if (this._currentSceneSource) {
         this.loadScene(this._currentSceneSource, this._currentSceneOptions).catch((err) => {
-          console.error('[RenderManager] context restored 后重载场景失败:', err);
+          traceEvent(
+            'RenderManager',
+            'start',
+            'context-restore-reload-failed',
+            'error',
+            'context restored 后重载场景失败:',
+            err,
+          );
         });
       }
       // ★ D-04: 重启主循环 — 与 start() 共用同一实现,
@@ -489,8 +503,12 @@ export class RenderManager implements RendererAdapter {
           await this.loadSceneWithSog(options.lodSource, options);
           return;
         } catch (err) {
-          console.warn(
-            '[RenderManager] SOG 流式加载失败, 回退到 source 直接加载:',
+          traceEvent(
+            'RenderManager',
+            'loadScene',
+            'sog-fallback',
+            'warn',
+            'SOG 流式加载失败, 回退到 source 直接加载:',
             err instanceof Error ? err.message : err,
           );
           // 回退到 source 直接加载
@@ -503,7 +521,14 @@ export class RenderManager implements RendererAdapter {
           await this.loadSceneWithSpz(source, options);
           return;
         } catch (err) {
-          console.warn('[RenderManager] SPZ 原生加载失败, 回退到 URL 直接加载:', err);
+          traceEvent(
+            'RenderManager',
+            'loadScene',
+            'spz-native-fallback',
+            'warn',
+            'SPZ 原生加载失败, 回退到 URL 直接加载:',
+            err,
+          );
         }
       }
 
@@ -514,7 +539,14 @@ export class RenderManager implements RendererAdapter {
           await this.loadSceneWithTruncatedSplat(source, options);
           return;
         } catch (err) {
-          console.warn('[RenderManager] 截断加载失败, 回退到 URL 直接加载:', err);
+          traceEvent(
+            'RenderManager',
+            'loadScene',
+            'truncated-fallback',
+            'warn',
+            '截断加载失败, 回退到 URL 直接加载:',
+            err,
+          );
         }
       }
 
@@ -741,8 +773,12 @@ export class RenderManager implements RendererAdapter {
     //   若 splat 数量超过设备 maxSplats 上限, 输出警告建议在转换阶段裁剪。
     const maxSplats = this.tierSettings.maxSplats;
     if (header.numSplats > maxSplats) {
-      console.warn(
-        `[RenderManager] SPZ splat 数 (${header.numSplats.toLocaleString()}) 超过设备上限 (${maxSplats.toLocaleString()})。\n` +
+      traceEvent(
+        'RenderManager',
+        'loadSceneWithSpz',
+        'splat-count-over-limit',
+        'warn',
+        `SPZ splat 数 (${header.numSplats.toLocaleString()}) 超过设备上限 (${maxSplats.toLocaleString()})。\n` +
           `  ★ H1 替代方案: 请在转换阶段使用 --contribution-cutoff 裁剪 splat 数量:\n` +
           `    3dgs-convert ply-to-spz input.ply --prune --contribution-cutoff ${maxSplats}`,
       );
@@ -866,7 +902,14 @@ export class RenderManager implements RendererAdapter {
         }
       },
       onError: (error) => {
-        console.error('[RenderManager] SOG chunk 加载错误:', error.message);
+        traceEvent(
+          'RenderManager',
+          'loadSceneWithSogFallback',
+          'sog-chunk-error',
+          'error',
+          'SOG chunk 加载错误:',
+          error.message,
+        );
       },
       // ★ 提前持有 streamer: await start() 期间新 loadScene/destroy 可 abort 本次加载
       //   (注意: 不可在 await 返回后再次赋值 — 新场景可能已替换 _sogStreamer)
@@ -975,7 +1018,13 @@ export class RenderManager implements RendererAdapter {
 
   addShaderInjection(injection: ShaderInjection): void {
     if (this._shaderInjections.has(injection.id)) {
-      console.warn(`[RenderManager] Shader 注入 '${injection.id}' 已存在, 将被覆盖`);
+      traceEvent(
+        'RenderManager',
+        'addShaderInjection',
+        'shader-injection-overwrite',
+        'warn',
+        `Shader 注入 '${injection.id}' 已存在, 将被覆盖`,
+      );
       this.removeShaderInjection(injection.id);
     }
 
@@ -1407,7 +1456,14 @@ export class RenderManager implements RendererAdapter {
           `sceneSize=${maxDim.toFixed(2)}, moveSpeed=${this._keyboard.moveSpeed.toFixed(1)}`,
       );
     } catch (err) {
-      console.warn('[RenderManager] 摄像机自动定位失败:', err);
+      traceEvent(
+        'RenderManager',
+        'positionCameraToBounds',
+        'camera-fit-failed',
+        'warn',
+        '摄像机自动定位失败:',
+        err,
+      );
     }
   }
 
@@ -1436,7 +1492,14 @@ export class RenderManager implements RendererAdapter {
       this._lodReady = true;
       console.info(`[RenderManager] LOD 树构建完成 (quality=${this.tierSettings.lodQuality})`);
     } catch (err) {
-      console.warn('[RenderManager] LOD 树构建失败 (不影响基础渲染):', err);
+      traceEvent(
+        'RenderManager',
+        'buildLod',
+        'lod-build-failed',
+        'warn',
+        'LOD 树构建失败 (不影响基础渲染):',
+        err,
+      );
       this._lodReady = false;
     }
   }
@@ -1508,7 +1571,14 @@ export class RenderManager implements RendererAdapter {
         );
       })
       .catch((err) => {
-        console.warn('[RenderManager] LOD 树非阻塞构建失败 (不影响基础渲染):', err);
+        traceEvent(
+          'RenderManager',
+          'buildLodNonBlocking',
+          'lod-build-nonblocking-failed',
+          'warn',
+          'LOD 树非阻塞构建失败 (不影响基础渲染):',
+          err,
+        );
         this._lodReady = false;
       });
   }
