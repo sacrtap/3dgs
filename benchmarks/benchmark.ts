@@ -23,7 +23,7 @@
  */
 
 import { chromium, type Browser, type Page } from 'playwright';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -91,7 +91,9 @@ const DEFAULT_CONFIG: BenchmarkConfig = {
   url: 'http://localhost:5173',
   warmupMs: 10000,
   durationMs: 8000,
-  scenes: ['demo1', 'demo2', 'demo3', 'kitchen'],
+  // ★ 场景由页面运行时发现 (window.__sceneData), 数据缺失场景自动跳过;
+  //   不再硬编码场景列表 — demo 场景集合与按钮顺序会随应用演进漂移
+  scenes: [],
   device: 'desktop',
   testMovement: true,
 };
@@ -188,7 +190,18 @@ async function main() {
   // 逐场景测试
   const results: SceneSummary[] = [];
 
-  for (const scene of config.scenes) {
+  // ★ 场景发现: 只测数据文件存在的场景 (CI 中 gitignored 数据缺失场景跳过)
+  const discovered = await discoverScenes(page);
+  const skippedScenes: string[] = [];
+  for (const s of discovered) {
+    if (!s.available) {
+      console.warn(`    ⏭ 场景数据缺失, 跳过: ${s.id} (CI/工作区无 splat 数据文件)`);
+      skippedScenes.push(s.id);
+    }
+  }
+  const testScenes = discovered.filter((s) => s.available).map((s) => s.id);
+
+  for (const scene of testScenes) {
     console.log(`\n${'─'.repeat(50)}`);
     console.log(`  场景: ${scene}`);
     console.log('─'.repeat(50));
@@ -199,6 +212,24 @@ async function main() {
     // 等待加载完成 (loading 指示器隐藏)
     await page.waitForSelector('#loading', { state: 'hidden', timeout: 60000 }).catch(() => {});
     await page.waitForTimeout(2000); // 等待场景稳定
+
+    // ★ 预热前等待渲染稳定 (LOD 构建/首帧阻塞会让 FPS 采样为 0,
+    //   例如初始 kitchen 的 LOD 树构建 ~8.5s; 等待连续稳定帧再预热)
+    console.log(`  等待渲染稳定...`);
+    const stableStart = Date.now();
+    let stableFrames = 0;
+    while (Date.now() - stableStart < 45000 && stableFrames < 30) {
+      await page.evaluate('window.__perfSamples = []');
+      await page.waitForTimeout(1000);
+      const stable = await page.evaluate(() => {
+        const s = (window as unknown as { __perfSamples?: Array<{ fps: number }> }).__perfSamples ?? [];
+        return s.length > 0 && s.every((x) => x.fps > 0.5) ? s.length : 0;
+      });
+      stableFrames = stable;
+    }
+    if (stableFrames === 0) {
+      console.warn('    ⚠ 渲染长时间未稳定 (LOD 构建超时?)');
+    }
 
     // 预热
     console.log(`  预热 ${config.warmupMs}ms...`);
@@ -246,6 +277,10 @@ async function main() {
 
   // 生成报告
   generateReport(results, sysInfo, config);
+
+  if (skippedScenes.length > 0) {
+    console.log(`\n  跳过 ${skippedScenes.length} 个场景 (数据缺失, 不计入门禁): ${skippedScenes.join(', ')}`);
+  }
 }
 
 // ─── 辅助函数 ──────────────────────────────────────────────
@@ -279,23 +314,69 @@ async function collectSystemInfo(page: Page, config: BenchmarkConfig): Promise<S
 
 /** 切换到指定场景 */
 async function switchToScene(page: Page, scene: string): Promise<void> {
-  // Demo 场景按钮按 config.scenes 顺序生成, 使用 data 属性或索引点击
-  // 按钮文本是中文标题, 所以通过 evaluate 获取按钮列表并点击对应索引
-  const sceneIndexMap: Record<string, number> = {
-    demo1: 0, demo2: 1, demo3: 2, kitchen: 3,
-  };
-  const idx = sceneIndexMap[scene] ?? 0;
-  const clicked = await page.evaluate((index) => {
-    const buttons = document.querySelectorAll('#scene-selector button');
-    if (buttons[index]) {
-      (buttons[index] as HTMLElement).click();
-      return true;
+  // 场景按钮按 config.scenes 顺序生成, 文本为场景标题 (Kitchen/Demo1/...)。
+  // 用标题文本匹配点击, 不用硬编码索引 — 索引会随场景增删漂移。
+  const title = SCENE_TITLES[scene] ?? scene;
+  const clicked = await page.evaluate((label) => {
+    const buttons = Array.from(document.querySelectorAll('#scene-selector button'));
+    for (const b of buttons) {
+      if (b.textContent?.trim() === label) {
+        (b as HTMLElement).click();
+        return true;
+      }
     }
     return false;
-  }, idx);
+  }, title);
   if (!clicked) {
-    console.warn(`    ⚠ 场景按钮未找到: ${scene} (index ${idx})`);
+    console.warn(`    ⚠ 场景按钮未找到: ${scene} (title "${title}")`);
   }
+}
+
+// 场景标题映射 (~ window.__sceneData[id].title)
+const SCENE_TITLES: Record<string, string> = {
+  kitchen: 'Kitchen',
+  demo1: 'Demo1',
+  storysplat: 'StorySplat',
+  demo2: 'Demo2',
+  garden: 'Garden',
+};
+
+/**
+ * 从页面发现可测场景。
+ *
+ * 基准测试只测数据文件真实存在的场景: 场景数据 (*.ply/*.splat/*.sog/*.spz)
+ * 按 AGENTS.md 策略 gitignored 不入库, CI 构建后仅 kitchen.* 白名单数据存在;
+ * 其他场景在 CI 中文件缺失 → 加载失败 → fps 采样 0, 会误触发 R-07 门禁。
+ * 因此启动时探测每个场景的 splat 数据文件 (磁盘存在性), 缺失场景标记
+ * skipped 不参与 gate。
+ *
+ * 注意: 不能用 fetch HEAD 探测 — vite dev server 对缺失静态文件返回 SPA
+ * 入口 HTML (HTTP 200), 无法区分文件是否真实存在; 磁盘 fs 检查才可靠。
+ */
+async function discoverScenes(page: Page): Promise<Array<{ id: string; available: boolean }>> {
+  const sceneIds = await page.evaluate(() => {
+    const sd = (window as unknown as { __sceneData?: Record<string, { formats?: Record<string, { url?: string | null }> }> }).__sceneData;
+    return sd ? Object.keys(sd) : [];
+  });
+  if (sceneIds.length === 0) {
+    throw new Error('无法从页面发现场景 (window.__sceneData 未暴露)');
+  }
+
+  const scenes: Array<{ id: string; available: boolean }> = [];
+  for (const id of sceneIds) {
+    const url = await page.evaluate((sceneId) => {
+      const sd = (window as unknown as { __sceneData?: Record<string, { formats?: Record<string, { url?: string | null }> }> }).__sceneData;
+      return sd?.[sceneId]?.formats?.splat?.url ?? null;
+    }, id);
+    if (!url) {
+      scenes.push({ id, available: false });
+      continue;
+    }
+    // url 形如 /demo1.splat → 解析为 public 目录下的相对路径
+    const publicPath = join(process.cwd(), 'apps', 'demo', 'public', url.replace(/^\//, ''));
+    scenes.push({ id, available: existsSync(publicPath) });
+  }
+  return scenes;
 }
 
 /** 模拟 WASD 移动 */
