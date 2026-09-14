@@ -422,4 +422,60 @@ describe('TD-11 RenderManager 主流程', () => {
     );
     rm.destroy();
   });
+
+  it('★ context lost 失败分支: console.warn 收到带 [RenderManager:start:context-lost] 标识的结构化日志', async () => {
+    // 可观测调试回路: context lost 是 GPU 资源失效的真实失败路径, 必须输出稳定事件标识
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const container = makeContainer();
+    const rm = new RenderManager();
+    rm.mount(container);
+    rm.start();
+
+    // 派发 webglcontextlost 事件 → 触发 _contextLostHandler → traceEvent
+    const canvas = container.querySelector('canvas');
+    expect(canvas).not.toBeNull();
+    canvas!.dispatchEvent(new Event('webglcontextlost'));
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[RenderManager:start:context-lost] WebGL context lost'),
+    );
+    rm.destroy();
+  });
+
+  it('★ SPZ 原生加载失败回退: console.warn 收到带 [RenderManager:loadScene:spz-native-fallback] 标识与错误对象', async () => {
+    // 可观测调试回路: SPZ 原生加载失败 → 回退 URL 直接加载前, 必须输出稳定事件标识 + 错误
+    const fetchMock = vi.fn().mockRejectedValue(new Error('spz fetch failed'));
+    vi.stubGlobal('fetch', fetchMock);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const rm = new RenderManager();
+    rm.mount(makeContainer());
+    rm.start();
+    await rm.loadScene('http://test/a.spz');
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[RenderManager:loadScene:spz-native-fallback] SPZ 原生加载失败'),
+      expect.any(Error),
+    );
+    rm.destroy();
+  });
+
+  it('★ SOG 流式加载失败回退: console.warn 收到带 [RenderManager:loadScene:sog-fallback] 标识的结构化日志', async () => {
+    // 可观测调试回路: SOG 流式加载失败 → 回退 source 直接加载, 必须输出稳定事件标识
+    const fetchMock = vi.fn().mockRejectedValue(new Error('sog fetch failed'));
+    vi.stubGlobal('fetch', fetchMock);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const rm = new RenderManager();
+    rm.mount(makeContainer());
+    rm.start();
+    await rm.loadScene('http://test/a.splat', { lodSource: 'http://test/a.sog' } as never);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[RenderManager:loadScene:sog-fallback] SOG 流式加载失败'),
+      expect.stringContaining('sog fetch failed'),
+    );
+    rm.destroy();
+  });
 });

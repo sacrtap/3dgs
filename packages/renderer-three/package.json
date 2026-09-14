@@ -61,6 +61,7 @@
     "@types/three": "^0.186.0",
     "@webgpu/types": "^0.1.71",
     "three": "^0.186.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "@types/node": "^22.0.0"
   }
 }
