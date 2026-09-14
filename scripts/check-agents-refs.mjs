@@ -36,7 +36,7 @@ const markers = sectionEnd === -1 ? section : section.slice(0, sectionEnd);
 // `--gate`, or `>=22` are NOT paths and are skipped.
 const REF_RE = /`([^`]+)`/g;
 const PATH_SHAPE_RE = /\/(?!\/)|\*|\.(md|ts|tsx|js|mjs|json|yaml|yml|jsonc)\b/;
-const SKIP_RE = /^\.\.?\/|^\*|^\$|::|^#|→/;
+const SKIP_RE = /^\.\.?\/|^\*|^\$|::|^#|→|\/$/;
 
 const refs = [];
 for (const m of markers.matchAll(REF_RE)) {
