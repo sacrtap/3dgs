@@ -274,6 +274,41 @@ describe('C-10 batch CLI 多格式 + manifest', () => {
     expect(Math.abs(s8.scaleZ - src8.scaleZ)).toBeLessThan(1e-4);
     expect(Math.abs(s8.opacity - src8.opacity)).toBeLessThan(1 / 255 + 1e-6);
   });
+
+  it('★ 3.3: 同基准名多格式输入 → 输出名去重 (后缀 -N) 且 manifest 唯一', async () => {
+    const batchDir = join(tmpDir, 'c10-collision');
+    const outDir = join(tmpDir, 'c10-collision-out');
+    mkdirSync(batchDir, { recursive: true });
+
+    // 同基准名 bench-1000 的三种格式
+    const plyPath = join(batchDir, 'bench-1000.ply');
+    make3dgsPlyFile(plyPath, 8);
+    const plyBuf = readFileSync(plyPath);
+    const cloudA = loadGaussiansFromPly(
+      plyBuf.buffer.slice(plyBuf.byteOffset, plyBuf.byteOffset + plyBuf.byteLength) as ArrayBuffer,
+    );
+    writeFileSync(join(batchDir, 'bench-1000.splat'), Buffer.from(writeSplat(cloudA)));
+    const spzBytes = await writeSpz(cloudA);
+    writeFileSync(join(batchDir, 'bench-1000.spz'), Buffer.from(spzBytes));
+
+    const out = runCli(['batch', batchDir, '-o', outDir, '-f', 'spz']);
+    expect(out).toMatch(/批量转换完成: 3 成功, 0 失败/);
+
+    const manifest = JSON.parse(readFileSync(join(outDir, 'manifest.json'), 'utf8'));
+    expect(manifest.files).toHaveLength(3);
+    const outputs = manifest.files.map((f: { output: string }) => f.output);
+    // 3 个独立输出文件, 互不重复
+    expect(new Set(outputs).size).toBe(3);
+    // 一个保留原命名, 两个带 -1/-2 后缀 (字典序中 '-' < '.', 故后缀名排前)
+    const names = outputs.map((p: string) => p.split('/').pop());
+    expect(new Set(names)).toEqual(
+      new Set(['bench-1000.spz', 'bench-1000-1.spz', 'bench-1000-2.spz']),
+    );
+    // 每个输出文件实际存在
+    for (const p of outputs) {
+      expect(readFileSync(p).byteLength).toBeGreaterThan(0);
+    }
+  });
 });
 
 // ── C-05: to-compressed-ply CLI ──────────────────────────
@@ -286,6 +321,8 @@ describe('C-05 to-compressed-ply CLI', () => {
 
     const stdout = runCli(['to-compressed-ply', ply, '-o', out]);
     expect(stdout).toMatch(/压缩 PLY: 30 splats/);
+    // ★ 3.4: 源 PLY 含 SH degree 1 → 提示丢弃
+    expect(stdout).toMatch(/压缩 PLY 不保留 SH: 源 SH degree 1 将被丢弃/);
 
     const buf = readFileSync(out);
     const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
@@ -345,5 +382,14 @@ describe('C-05 to-compressed-ply CLI', () => {
     const read = loadGaussiansFromPly(ab);
     expect(read.vertexCount).toBeLessThan(30);
     expect(read.vertexCount).toBeGreaterThan(0);
+  });
+});
+
+// ── C2: CLI 版本号对齐包版本 ─────────────────────────────
+
+describe('CLI --version', () => {
+  it('★ 3.9: --version 输出包版本 0.4.0', () => {
+    const stdout = runCli(['--version']);
+    expect(stdout.trim()).toBe('0.4.0');
   });
 });

@@ -958,3 +958,192 @@ describe('SogStreamer — D-02 chunk 失败传播', () => {
     }
   });
 });
+
+describe('SogStreamer — 3.8 v3 shMode 语义', () => {
+  const SOG_MAGIC_V3 = 0x33474f53; // "SOG3"
+
+  /** 构造 v3 mock (无压缩, byte 54 = shMode) */
+  function createMockSogV3File(shMode: number): ArrayBuffer {
+    const numChunks = 2;
+    const chunkSize = 5;
+    const numSplats = numChunks * chunkSize;
+    const indexSize = numChunks * 8;
+    const dataSize = numSplats * SPLAT_BYTES;
+    const totalSize = HEADER_SIZE + indexSize + dataSize;
+
+    const buffer = new ArrayBuffer(totalSize);
+    const view = new DataView(buffer);
+
+    view.setUint32(0, SOG_MAGIC_V3, true);
+    view.setUint16(4, 3, true); // version 3
+    view.setUint8(6, 0); // shDegree
+    view.setUint8(7, 0); // compression
+    view.setUint32(8, numSplats, true);
+    view.setUint32(12, numChunks, true);
+    view.setUint32(16, chunkSize, true);
+    view.setFloat32(20, 0, true);
+    view.setFloat32(24, 0, true);
+    view.setFloat32(28, 0, true);
+    view.setFloat32(32, 100, true);
+    view.setFloat32(36, 100, true);
+    view.setFloat32(40, 100, true);
+    view.setUint32(44, 0, true); // lodTreeOffset
+    view.setUint32(48, 0, true); // lodTreeSize
+    view.setUint8(52, 1); // lodQuality
+    view.setUint8(53, 0); // positionQuantization
+    view.setUint8(54, shMode); // shMode
+
+    let dataOffset = HEADER_SIZE + indexSize;
+    for (let c = 0; c < numChunks; c++) {
+      const base = HEADER_SIZE + c * 8;
+      view.setUint32(base, dataOffset, true);
+      view.setUint32(base + 4, chunkSize * SPLAT_BYTES, true);
+      dataOffset += chunkSize * SPLAT_BYTES;
+    }
+    return buffer;
+  }
+
+  it('v3 + shMode=2: metadata.shMode 解释为完整 overlay (chunk 无 DC)', async () => {
+    const sogBuffer = createMockSogV3File(2);
+    globalThis.fetch = createMockFetch(sogBuffer) as unknown as typeof globalThis.fetch;
+
+    const streamer = new SogStreamer({ url: 'mock://test.sog' });
+    const metadata = await streamer.start();
+    expect(metadata.version).toBe(3);
+    // 2 = v3 完整 overlay — chunk 无 DC, SH 走文件尾 overlay
+    expect(metadata.shMode).toBe(2);
+  });
+
+  it('v3 + shMode=0: 无 SH 数据', async () => {
+    const sogBuffer = createMockSogV3File(0);
+    globalThis.fetch = createMockFetch(sogBuffer) as unknown as typeof globalThis.fetch;
+
+    const streamer = new SogStreamer({ url: 'mock://test.sog' });
+    const metadata = await streamer.start();
+    expect(metadata.version).toBe(3);
+    expect(metadata.shMode).toBe(0);
+  });
+});
+
+describe('SogStreamer — TD-26 LOD 树 v0/v1 双格式解析', () => {
+  const SOG_MAGIC_V3 = 0x33474f53; // "SOG3"
+  const LOD_TREE_VERSION = 1;
+
+  /**
+   * 构造含 LOD 树 (v1 格式: version + numLevels + lodBase + levels) 的 v3 SOG
+   */
+  function createMockSogV3WithLodTreeV1(levels: number[], lodBase: number): ArrayBuffer {
+    const numChunks = 2;
+    const chunkSize = 5;
+    const numSplats = numChunks * chunkSize;
+    const indexSize = numChunks * 8;
+    const dataSize = numSplats * SPLAT_BYTES;
+    const lodTreeSize = 12 + levels.length * 4;
+    const lodTreeOffset = HEADER_SIZE + indexSize + dataSize;
+    const totalSize = lodTreeOffset + lodTreeSize;
+
+    const buffer = new ArrayBuffer(totalSize);
+    const view = new DataView(buffer);
+
+    view.setUint32(0, SOG_MAGIC_V3, true);
+    view.setUint16(4, 3, true);
+    view.setUint8(6, 0);
+    view.setUint8(7, 0);
+    view.setUint32(8, numSplats, true);
+    view.setUint32(12, numChunks, true);
+    view.setUint32(16, chunkSize, true);
+    view.setFloat32(20, 0, true);
+    view.setFloat32(24, 0, true);
+    view.setFloat32(28, 0, true);
+    view.setFloat32(32, 100, true);
+    view.setFloat32(36, 100, true);
+    view.setFloat32(40, 100, true);
+    view.setUint32(44, lodTreeOffset, true);
+    view.setUint32(48, lodTreeSize, true);
+    view.setUint8(52, 1);
+    view.setUint8(53, 0);
+    view.setUint8(54, 0);
+
+    let dataOffset = HEADER_SIZE + indexSize;
+    for (let c = 0; c < numChunks; c++) {
+      const base = HEADER_SIZE + c * 8;
+      view.setUint32(base, dataOffset, true);
+      view.setUint32(base + 4, chunkSize * SPLAT_BYTES, true);
+      dataOffset += chunkSize * SPLAT_BYTES;
+    }
+
+    // LOD 树 v1: version + numLevels + lodBase + levels
+    view.setUint32(lodTreeOffset, LOD_TREE_VERSION, true);
+    view.setUint32(lodTreeOffset + 4, levels.length, true);
+    view.setFloat32(lodTreeOffset + 8, lodBase, true);
+    for (let i = 0; i < levels.length; i++) {
+      view.setUint32(lodTreeOffset + 12 + i * 4, levels[i], true);
+    }
+    return buffer;
+  }
+
+  it('v1 LOD 树: 正确解析 numLevels/lodBase/levels (回归: 旧实现按 v0 读致 lodBase=5.6e-45)', async () => {
+    const levels = [5, 10];
+    const lodBase = 1.75;
+    const sogBuffer = createMockSogV3WithLodTreeV1(levels, lodBase);
+    globalThis.fetch = createMockFetch(sogBuffer) as unknown as typeof globalThis.fetch;
+
+    const streamer = new SogStreamer({ url: 'mock://test.sog' });
+    const metadata = await streamer.start();
+    expect(metadata.lodLevels).toEqual([5, 10]);
+    expect(metadata.lodBase).toBeCloseTo(1.75, 5);
+  });
+
+  it('v0 LOD 树 (legacy): 兼容解析 (numLevels 直接读首字段)', async () => {
+    // v0: numLevels(4B) + lodBase(4B) + levels
+    const levels = [3, 10];
+    const lodBase = 1.5;
+    const numChunks = 2;
+    const chunkSize = 5;
+    const indexSize = numChunks * 8;
+    const dataSize = numChunks * chunkSize * SPLAT_BYTES;
+    const lodTreeSize = 8 + levels.length * 4;
+    const lodTreeOffset = HEADER_SIZE + indexSize + dataSize;
+    const totalSize = lodTreeOffset + lodTreeSize;
+
+    const buffer = new ArrayBuffer(totalSize);
+    const view = new DataView(buffer);
+    view.setUint32(0, SOG_MAGIC_V3, true);
+    view.setUint16(4, 3, true);
+    view.setUint8(6, 0);
+    view.setUint8(7, 0);
+    view.setUint32(8, numChunks * chunkSize, true);
+    view.setUint32(12, numChunks, true);
+    view.setUint32(16, chunkSize, true);
+    view.setFloat32(20, 0, true);
+    view.setFloat32(24, 0, true);
+    view.setFloat32(28, 0, true);
+    view.setFloat32(32, 100, true);
+    view.setFloat32(36, 100, true);
+    view.setFloat32(40, 100, true);
+    view.setUint32(44, lodTreeOffset, true);
+    view.setUint32(48, lodTreeSize, true);
+    view.setUint8(52, 1);
+    view.setUint8(53, 0);
+    view.setUint8(54, 0);
+    let dataOffset = HEADER_SIZE + indexSize;
+    for (let c = 0; c < numChunks; c++) {
+      const base = HEADER_SIZE + c * 8;
+      view.setUint32(base, dataOffset, true);
+      view.setUint32(base + 4, chunkSize * SPLAT_BYTES, true);
+      dataOffset += chunkSize * SPLAT_BYTES;
+    }
+    // v0 LOD 树: 无 version 字段
+    view.setUint32(lodTreeOffset, levels.length, true);
+    view.setFloat32(lodTreeOffset + 4, lodBase, true);
+    for (let i = 0; i < levels.length; i++) {
+      view.setUint32(lodTreeOffset + 8 + i * 4, levels[i], true);
+    }
+
+    globalThis.fetch = createMockFetch(buffer) as unknown as typeof globalThis.fetch;
+    const streamer = new SogStreamer({ url: 'mock://test.sog' });
+    const metadata = await streamer.start();
+    expect(metadata.lodLevels).toEqual([3, 10]);
+    expect(metadata.lodBase).toBeCloseTo(1.5, 5);
+  });
+});

@@ -29,6 +29,7 @@ import { loadGaussiansFromSplatSoA } from './splat-reader.js';
 import { writeSpzSoA } from './spz-writer.js';
 import { loadGaussiansFromSpzSoA, parseSpzHeader } from './spz-reader.js';
 import { writeSogSoA, parseSogMetadata, readShOverlaySoA } from './sog-writer.js';
+import { loadGaussiansFromSogSoA } from './sog-reader.js';
 import { gunzipSync } from 'node:zlib';
 
 /** 从基准 PLY 加载源 SoA (快路径) */
@@ -200,5 +201,34 @@ describe('C-09 跨格式 round-trip 质量回归', () => {
     expect(meta3.numSplats).toBe(40);
     expect(meta3.shDegree).toBe(2);
     expect(readShOverlaySoA(sog3, meta3)).toBeDefined();
+  });
+});
+
+describe('A4 SOG v3 → SPZ SH 保留 (公共读回 API)', () => {
+  it('SOG v3 → loadGaussiansFromSogSoA: shDegree 与 SH 系数保留', () => {
+    const src = loadSource(1, 24);
+    const sog = writeSogSoA(src, { version: 3, buildLodTree: false });
+    const read = loadGaussiansFromSogSoA(sog, { source: 'test' });
+
+    expect(read.count).toBe(24);
+    expect(read.shDegree).toBe(1);
+    expect(read.sh).toBeDefined();
+    expect(read.sh!.length).toBe(24 * 9);
+    // 源 SH (degree 1: 24 splats × 9) 误差在 Int8 量化桶内 (0.5/128 + 舍入)
+    expectClose(read.sh!, src.sh!, 0.5 / 128 + 1e-6, 'sog v3 sh');
+    expect(read.source).toBe('test');
+  });
+
+  it('SOG v3 → SPZ: shDegree=1 且 SH 非空', async () => {
+    const src = loadSource(1, 24);
+    const sog = writeSogSoA(src, { version: 3, buildLodTree: false });
+    const readSog = loadGaussiansFromSogSoA(sog);
+
+    const spz = await writeSpzSoA(readSog);
+    const readSpz = await loadGaussiansFromSpzSoA(new Uint8Array(spz));
+    expect(readSpz.count).toBe(24);
+    expect(readSpz.shDegree).toBe(1);
+    expect(readSpz.sh).toBeDefined();
+    expect(readSpz.sh!.length).toBe(24 * 9);
   });
 });

@@ -744,8 +744,10 @@ async function main() {
           }
         },
         onFirstFrame: () => {
-          loading.style.display = 'none';
-          showInfo(`${format.toUpperCase()} 首帧已渲染`);
+          // ★ F-2: 首帧仅是首个 chunk (默认 8192 splats), 大场景全量拼接 + 降采样
+          //   还需数十秒。不在此隐藏遮罩 — 遮罩由 loadScene 完成后的 finally 兜底隐藏;
+          //   此处仅提示首帧已可见, 完整场景仍在加载。
+          showInfo(`${format.toUpperCase()} 首帧已渲染, 正在加载完整场景...`);
         },
       };
 

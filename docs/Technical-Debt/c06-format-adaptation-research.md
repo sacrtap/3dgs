@@ -37,7 +37,7 @@ SPZ (v1-v4, 写 v2)、SOG (v2/v3)。本调研评估社区其他压缩格式 (KSP
 | 格式 | 压缩 | 体积量级 (4M splat 参考) | SH |
 | --- | --- | --- | --- |
 | PLY (原始) | 无 | ~1.4 GB | 是 |
-| 压缩 PLY (C-05, SuperSplat) | 量化 (位置 32bit 打包 / 颜色 8bit) | 数十 MB 级 | 是 (C-05 已含 SH 量化) |
+| 压缩 PLY (C-05, SuperSplat) | 量化 (位置 32bit 打包 / 颜色 8bit) | 数十 MB 级 | 否 (仅 base attributes; SH 未写入) |
 | SPZ v2 (gzip) | 整流 gzip + 量化 | 100-300 MB | 是 (TD-01/SPZ 布局) |
 | SOG v3 (C-04) | 量化 + 可选 gzip | 百 MB 级 | 是 (SH overlay) |
 

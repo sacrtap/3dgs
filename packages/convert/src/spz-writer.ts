@@ -60,14 +60,11 @@ export interface SpzWriterOptions {
 }
 
 /**
- * 将 GaussianCloud 写入 SPZ v2 格式
+ * 将 GaussianCloud 写入 SPZ 格式
  *
- * 返回 Header (未压缩) + Body (gzip 压缩) 的 Uint8Array, 可直接写入 .spz 文件
- *
- * ★ M5 修复: 原代码 gzipCompress(u8) 压缩了整个 buffer (header + body),
- *   导致前 4 字节为 gzip magic 而非 SPZ magic, 解码器 magic 校验失败。
- *   修复后仅压缩 body 部分, header 16 字节保持未压缩。
- *   [来源: SPZ v2 格式规范 — Header (16 bytes, 未压缩) + Body (gzip compressed)]
+ * 整个文件为单个 gzip 流; 解压后 = 16B header (magic/version/numPoints/
+ * shDegree/fractionalBits/flags/reserved) + 属性体 (positions→alphas→
+ * colors→scales→rotations→sh)。
  *
  * @param cloud 高斯核集合
  * @param options 写入选项

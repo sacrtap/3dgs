@@ -338,6 +338,12 @@ export function writeSogSoA(soa: GaussianCloudSoA, options: SogWriterOptions = {
   // 3. 分块
   const numChunks = Math.ceil(numSplats / chunkSize);
 
+  // ★ 3.8: v3 SH overlay 语义 — 先于分块判定
+  //   overlay 存在时主 header shMode=2, chunk 内不再追加 DC (互斥)
+  const isV3 = version === 3;
+  const shDim = isV3 ? SH_DIM_FOR_DEGREE(soa.shDegree) : 0;
+  const hasShOverlay = isV3 && shDim > 0 && !!soa.sh;
+
   // 4. 构建各 chunk 数据 (带 gzip 压缩)
   const chunks: SogChunkEntry[] = [];
   const chunkDataList: ArrayBuffer[] = [];
@@ -380,14 +386,14 @@ export function writeSogSoA(soa: GaussianCloudSoA, options: SogWriterOptions = {
       rawChunkData = writeSplatSoA(sorted, start, end);
     }
 
-    // ★ H2: 追加 SH DC 数据到 chunk 末尾
-    if (shMode === SOG_SH_MODE_DC_INT8) {
+    // ★ H2: 追加 SH DC 数据到 chunk 末尾 (v3 + overlay 时跳过 — 冗余, 见 ★ 3.8)
+    if (shMode === SOG_SH_MODE_DC_INT8 && !hasShOverlay) {
       rawChunkData = appendShDcSoA(rawChunkData, sorted, start, end);
     }
 
-    // ★ M4: gzip 压缩 chunk 数据 (level 9)
+    // ★ M4: gzip 压缩 chunk 数据 (level 6, 与体积/耗时平衡; reader 兼容任意 level)
     if (compression) {
-      const compressed = gzipSync(Buffer.from(rawChunkData), { level: 9 });
+      const compressed = gzipSync(Buffer.from(rawChunkData), { level: 6 });
       chunkDataList.push(
         compressed.buffer.slice(
           compressed.byteOffset,
@@ -427,9 +433,6 @@ export function writeSogSoA(soa: GaussianCloudSoA, options: SogWriterOptions = {
   }
 
   // 6. 组装最终文件 (v3: 尾部追加 SH overlay 数据 + 12B overlay header)
-  const isV3 = version === 3;
-  const shDim = isV3 ? SH_DIM_FOR_DEGREE(soa.shDegree) : 0;
-  const hasShOverlay = isV3 && shDim > 0 && !!soa.sh;
   const overlayDataSize = hasShOverlay ? numSplats * shDim * 3 : 0;
   const overlayHeaderSize = hasShOverlay ? SOG_V3_OVERLAY_HEADER_SIZE : 0;
 
@@ -463,7 +466,8 @@ export function writeSogSoA(soa: GaussianCloudSoA, options: SogWriterOptions = {
   view.setUint32(48, lodTreeSize, true);
   view.setUint8(52, lodQuality);
   view.setUint8(53, positionQuantization ? SOG_POSITION_QUANT_24BIT : SOG_POSITION_QUANT_OFF);
-  view.setUint8(54, shMode);
+  // ★ 3.8: byte 54 — v3 + overlay → FULL_INT8(2) 互斥; 否则透传 shMode (0/1)
+  view.setUint8(54, hasShOverlay ? SOG_SH_MODE_FULL_INT8 : shMode);
   // 9 bytes padding (55-63) already zeroed
 
   // Chunk index

@@ -49,7 +49,7 @@ export interface SogMetadata {
   lodQuality: number;
   /** ★ P2-3: 位置量化 (0=off, 1=24-bit) */
   positionQuantization: number;
-  /** ★ H2: SH DC 追加模式 (0=off, 1=Int8) */
+  /** ★ 3.8: SH 模式 (0=无, 1=chunk 尾 3B DC, 2=v3 完整 overlay — chunk 无 DC, SH 走文件尾 overlay) */
   shMode: number;
   /** ★ 格式版本 */
   version: number;
@@ -411,6 +411,7 @@ export class SogStreamer {
       compression = view.getUint8(7);
       lodQuality = view.getUint8(52);
       positionQuantization = view.getUint8(53);
+      // ★ 3.8: byte 54 — 0=无, 1=chunk 尾 3B DC (旧 v2 语义), 2=v3 完整 overlay (chunk 无 DC)
       shMode = view.getUint8(54);
     } else if (magic === SOG_MAGIC_V2) {
       // ★ SOG v2
@@ -419,7 +420,7 @@ export class SogStreamer {
       lodQuality = view.getUint8(52);
       // ★ P2-3: 读取位置量化标志 (byte 53)
       positionQuantization = view.getUint8(53);
-      // ★ H2: 读取 SH DC 模式 (byte 54)
+      // ★ H2: 读取 SH DC 模式 (byte 54, 0=无, 1=chunk 尾 3B DC)
       shMode = view.getUint8(54);
     } else if (magic === SOG_MAGIC_V1) {
       // ★ SOG v1 (向后兼容)
@@ -513,9 +514,15 @@ export class SogStreamer {
   }
 
   /**
-   * ★ M2: 解析预构建 LOD 树数据
+   * 解析预构建 LOD 树数据 (★ TD-26: 与 sog-writer serializeLodTree/deserializeLodTree 对齐)
    *
-   * 二进制格式:
+   * 二进制格式 (v1, head 12B):
+   *   version    Uint32    — LOD_TREE_VERSION (1)
+   *   numLevels  Uint32    — LOD 层级数
+   *   lodBase    Float32   — LOD 缩减因子
+   *   levels     numLevels × Uint32 — 每个 LOD 层级的累计 splat 数
+   *
+   * 兼容 v0 (legacy, head 8B, 无 version 字段):
    *   numLevels  Uint32    — LOD 层级数
    *   lodBase    Float32   — LOD 缩减因子
    *   levels     numLevels × Uint32 — 每个 LOD 层级的累计 splat 数
@@ -533,8 +540,22 @@ export class SogStreamer {
     }
 
     const view = new DataView(buffer);
-    const numLevels = view.getUint32(0, true);
-    const lodBase = view.getFloat32(4, true);
+
+    // ★ TD-26: v0/v1 检测 — 首字为 version=1 且长度足 12B 时按 v1 解析, 否则按 v0
+    const firstUint = view.getUint32(0, true);
+    const isV1 = firstUint === 1 && buffer.byteLength >= 12;
+    let numLevels: number;
+    let lodBase: number;
+    let headerSize: number;
+    if (isV1) {
+      numLevels = view.getUint32(4, true);
+      lodBase = view.getFloat32(8, true);
+      headerSize = 12;
+    } else {
+      numLevels = firstUint;
+      lodBase = view.getFloat32(4, true);
+      headerSize = 8;
+    }
 
     if (numLevels === 0 || numLevels > 100) {
       traceEvent(
@@ -547,7 +568,7 @@ export class SogStreamer {
       return;
     }
 
-    const expectedSize = LOD_TREE_HEADER_SIZE + numLevels * 4;
+    const expectedSize = headerSize + numLevels * 4;
     if (buffer.byteLength < expectedSize) {
       traceEvent(
         'SogStreamer',
@@ -561,7 +582,7 @@ export class SogStreamer {
 
     const levels: number[] = [];
     for (let i = 0; i < numLevels; i++) {
-      levels.push(view.getUint32(LOD_TREE_HEADER_SIZE + i * 4, true));
+      levels.push(view.getUint32(headerSize + i * 4, true));
     }
 
     meta.lodLevels = levels;

@@ -107,8 +107,9 @@ export function parsePlyHeader(buffer: ArrayBuffer): { header: PlyHeader; header
   let line = '';
 
   // 读取第一行，必须是 "ply"
-  line = readLine(bytes, offset);
-  offset += line.length + 1;
+  const first = readLine(bytes, offset);
+  line = first.text;
+  offset = first.nextOffset;
   if (line.trim() !== 'ply') {
     throw new Error(`无效的 PLY 文件: 第一行应为 "ply"，实际为 "${line}"`);
   }
@@ -121,8 +122,9 @@ export function parsePlyHeader(buffer: ArrayBuffer): { header: PlyHeader; header
   let currentElement: PlyElement | null = null;
 
   while (offset < bytes.length) {
-    line = readLine(bytes, offset);
-    offset += line.length + 1;
+    const r = readLine(bytes, offset);
+    line = r.text;
+    offset = r.nextOffset;
 
     const trimmed = line.trim();
     if (trimmed === 'end_header') break;
@@ -180,16 +182,25 @@ export function parsePlyHeader(buffer: ArrayBuffer): { header: PlyHeader; header
   return { header: { format, version, elements, comments }, headerEnd: offset };
 }
 
-/** 从字节数组中读取一行 (ASCII) */
-function readLine(bytes: Uint8Array, offset: number): string {
+/** 从字节数组中读取一行 (ASCII)，返回文本与下一行起始偏移 */
+function readLine(bytes: Uint8Array, offset: number): { text: string; nextOffset: number } {
   let end = offset;
   while (end < bytes.length && bytes[end] !== 0x0a && bytes[end] !== 0x0d) {
     end++;
   }
-  // 处理 \r\n
-  const lineEnd = end;
-  const line = new TextDecoder().decode(bytes.subarray(offset, lineEnd));
-  return line;
+  let nextOffset: number;
+  if (end >= bytes.length) {
+    // 未找到换行符 (EOF)
+    nextOffset = end;
+  } else if (bytes[end] === 0x0a) {
+    nextOffset = end + 1;
+  } else {
+    // 0x0d: 若后随 0x0a (\r\n) 则跨过 CRLF，否则仅跨过 \r
+    nextOffset = end + 1;
+    if (end + 1 < bytes.length && bytes[end + 1] === 0x0a) nextOffset = end + 2;
+  }
+  const text = new TextDecoder().decode(bytes.subarray(offset, end));
+  return { text, nextOffset };
 }
 
 /** 解析 ASCII 格式的 PLY body */
@@ -388,6 +399,17 @@ export function tryFastPathParsePly(
     };
   }
 
+  // ★ 修复 3.1: 计算 vertex 在 body 中的真实偏移
+  //   vertex 之前可能存在其他 element (如 face), 其字节长度需累加
+  let vertexBodyOffset = 0;
+  for (const el of header.elements) {
+    if (el === vertexElement) break;
+    // 前序 element 含 list 属性 → 变长, 无法静态计算 → 回退慢路径
+    if (el.properties.some((p) => p.isList)) return null;
+    const elStride = el.properties.reduce((s, p) => s + DATA_TYPE_SIZE[p.type], 0);
+    vertexBodyOffset += el.count * elStride;
+  }
+
   // 计算每顶点 stride 和属性偏移
   const props = vertexElement.properties;
   const stride = props.reduce((sum, p) => sum + (p.isList ? 0 : DATA_TYPE_SIZE[p.type]), 0);
@@ -440,7 +462,10 @@ export function tryFastPathParsePly(
   if (hasRot) rotations = new Float32Array(count * 4);
   if (hasColor) colors = new Uint8Array(count * 3);
 
-  const view = new DataView(buffer, headerEnd);
+  // 分配前边界校验: 越界则回退慢路径 (慢路径会抛明确错误)
+  if (headerEnd + vertexBodyOffset + count * stride > buffer.byteLength) return null;
+
+  const view = new DataView(buffer, headerEnd + vertexBodyOffset);
 
   // ★ C-02/TD-32: 分块读取 + 属性列偏移预计算。
   //   - 预计算每个属性列的字节偏移/类型 (避免逐顶点 Map.get, O(count) → O(props))
