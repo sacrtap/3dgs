@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { pruneGaussians, mortonSortGaussians, quickselect } from './processing.js';
-import type { GaussianCloud } from './gaussian-loader.js';
+import {
+  pruneGaussians,
+  pruneGaussiansSoA,
+  mortonSortGaussians,
+  quickselect,
+} from './processing.js';
+import { toSoA, fromSoA } from './gaussian-loader.js';
+import type { GaussianCloud, GaussianSplat } from './gaussian-loader.js';
 
-function makeCloud(
-  splats: Array<Partial<import('./gaussian-loader.js').GaussianSplat>>,
-): GaussianCloud {
+function makeCloud(splats: Array<Partial<GaussianSplat>>): GaussianCloud {
   return {
     splats: splats.map((s) => ({
       x: s.x ?? 0,
@@ -424,5 +428,70 @@ describe('TD-15 quickselect 贡献度裁剪', () => {
       // 60K 已排序输入在旧实现下会超秒级/爆栈; median-of-three 应 < 500ms
       expect(elapsed).toBeLessThan(500);
     }
+  });
+});
+
+// ── 3.6: pruneGaussiansSoA 与 AoS 语义等价 ───────────────
+
+describe('pruneGaussiansSoA 与 pruneGaussians 等价', () => {
+  /** 构造含低透明度/NaN/异常缩放的混合 SoA (含 SH) */
+  function makeMixedCloud(): GaussianCloud {
+    const splats: Array<Partial<GaussianSplat>> = [
+      { opacity: 0.5, scaleX: 1, scaleY: 1, scaleZ: 1 }, // 保留
+      { opacity: 0.001, scaleX: 1, scaleY: 1, scaleZ: 1 }, // 低透明度剔除
+      { x: NaN, y: 0, z: 0, scaleX: 1, scaleY: 1, scaleZ: 1 }, // 无效剔除
+      { opacity: 0.8, scaleX: 100, scaleY: 1, scaleZ: 1 }, // 大缩放剔除
+      { opacity: 0.9, scaleX: 2, scaleY: 2, scaleZ: 2 }, // 保留 (高贡献)
+      { opacity: 0.3, scaleX: 0.1, scaleY: 0.1, scaleZ: 0.1 }, // 保留 (低贡献)
+    ];
+    return makeCloud(splats);
+  }
+
+  it('--prune 配置下与 AoS 逐 splat 等价', () => {
+    const cloud = makeMixedCloud();
+    const soa = toSoA(cloud);
+
+    const prunedAos = pruneGaussians(cloud, { minOpacity: 0.01, maxScale: 10 });
+    const prunedSoA = pruneGaussiansSoA(soa, { minOpacity: 0.01, maxScale: 10 });
+
+    expect(prunedSoA.count).toBe(prunedAos.splats.length);
+    expect(prunedSoA.shDegree).toBe(prunedAos.shDegree);
+    const back = fromSoA(prunedSoA);
+    for (let i = 0; i < prunedAos.splats.length; i++) {
+      expect(back.splats[i].x).toBe(prunedAos.splats[i].x);
+      expect(back.splats[i].y).toBe(prunedAos.splats[i].y);
+      expect(back.splats[i].z).toBe(prunedAos.splats[i].z);
+      // SoA 以 Float32 存储, AoS 为 JS number → 近似比较
+      expect(Math.abs(back.splats[i].opacity - prunedAos.splats[i].opacity)).toBeLessThan(1e-6);
+    }
+  });
+
+  it('contributionCutoff 配置下与 AoS 逐 splat 等价', () => {
+    const cloud = makeMixedCloud();
+    const soa = toSoA(cloud);
+
+    const prunedAos = pruneGaussians(cloud, { contributionCutoff: 2, minOpacity: 0 });
+    const prunedSoA = pruneGaussiansSoA(soa, { contributionCutoff: 2, minOpacity: 0 });
+
+    expect(prunedSoA.count).toBe(prunedAos.splats.length);
+    const back = fromSoA(prunedSoA);
+    for (let i = 0; i < prunedAos.splats.length; i++) {
+      expect(back.splats[i].x).toBe(prunedAos.splats[i].x);
+      expect(back.splats[i].y).toBe(prunedAos.splats[i].y);
+      expect(back.splats[i].z).toBe(prunedAos.splats[i].z);
+    }
+  });
+
+  it('空集输入返回空集', () => {
+    const cloud = makeCloud([]);
+    const result = pruneGaussiansSoA(toSoA(cloud));
+    expect(result.count).toBe(0);
+  });
+
+  it('无剔除条件时原样返回 (不拷贝)', () => {
+    const cloud = makeCloud([{ opacity: 0.5 }, { opacity: 0.8 }]);
+    const soa = toSoA(cloud);
+    const result = pruneGaussiansSoA(soa, { minOpacity: 0.01 });
+    expect(result).toBe(soa);
   });
 });

@@ -84,6 +84,9 @@ export type {
   ZstdDecompressFn,
 } from './spz-reader.js';
 
+// SOG 读取器
+export { loadGaussiansFromSog, loadGaussiansFromSogSoA } from './sog-reader.js';
+
 // SOG 写入器
 export {
   writeSog,
@@ -120,6 +123,7 @@ export type { SogWriterOptions, SogChunkEntry, SogMetadata } from './sog-writer.
 // 数据处理
 export {
   pruneGaussians,
+  pruneGaussiansSoA,
   mortonSortGaussians,
   mortonSortSoA,
   quickselect,

@@ -1051,4 +1051,34 @@ describe('writeSog — C-04/TD-19 SOG v3 SH overlay', () => {
     expect(meta2.shOverlayOffset).toBeUndefined();
     expect(meta2.shOverlaySize).toBeUndefined();
   });
+
+  it('★ 3.8: v3 含 SH → 主 header shMode=2 且 chunk 数据无 DC 尾 (互斥)', () => {
+    const splats = Array.from({ length: 12 }, (_, i) => {
+      const sh = new Float32Array(9);
+      for (let j = 0; j < 9; j++) sh[j] = (Math.sin(i * 0.7 + j) * 0.5) / 128;
+      return { x: i * 0.3, y: i * 2, z: -i * 0.1, shDegree: 1, sh };
+    });
+    const cloud = makeCloud(splats);
+    const buf = writeSog(cloud, { version: 3, buildLodTree: false });
+    const meta = parseSogMetadata(buf);
+
+    // 主 header byte 54 = SOG_SH_MODE_FULL_INT8 (2)
+    expect(meta.shMode).toBe(2);
+    expect(new DataView(buf).getUint8(54)).toBe(2);
+
+    // chunk 数据无 DC 尾: 解压后大小 = chunk.count × 32B (无 +3B/splat DC)
+    const chunk = meta.chunks[0];
+    const raw = new Uint8Array(buf, chunk.offset, chunk.size);
+    const data = new Uint8Array(gunzipSync(raw));
+    expect(data.byteLength).toBe(chunk.count * 32);
+  });
+
+  it('★ 3.8: v3 无 SH → 主 header shMode 透传 (0/1), 不强制 2', () => {
+    const cloud = makeCloud([{ x: 1, y: 2, z: 3 }]);
+    // shDegree=0 → 无 overlay → shMode=1 仍走 chunk DC 语义
+    const buf = writeSog(cloud, { version: 3, shMode: 1, buildLodTree: false });
+    const meta = parseSogMetadata(buf);
+    expect(meta.shMode).toBe(1);
+    expect(meta.shOverlaySize).toBeUndefined();
+  });
 });

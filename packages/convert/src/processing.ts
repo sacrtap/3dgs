@@ -162,6 +162,183 @@ export function pruneGaussians(cloud: GaussianCloud, options: PruneOptions = {})
 }
 
 /**
+ * ★ 3.6: 冗余剔除 (SoA 版本, 与 pruneGaussians 语义逐项对齐)
+ *
+ * 直接对列式 TypedArray 过滤, 避免 AoS 中间对象数组, 供 CLI 全链路 SoA 化使用。
+ * 过滤条件与 pruneGaussians 完全一致:
+ *   - removeInvalid: 位置/缩放/旋转/不透明度含 NaN/Inf
+ *   - removeTransparent + minOpacity: 不透明度低于阈值
+ *   - maxScale / minScale: 缩放异常
+ *   - contributionCutoff: 贡献度 (opacity × max(scale)) top-K 裁剪 (quickselect)
+ *
+ * @param soa 高斯核集合 (列式)
+ * @param options 剔除选项 (默认与 pruneGaussians 相同)
+ * @returns 剔除后的新 GaussianCloudSoA (不修改原始数据)
+ */
+export function pruneGaussiansSoA(
+  soa: GaussianCloudSoA,
+  options: PruneOptions = {},
+): GaussianCloudSoA {
+  const {
+    minOpacity = 0.01,
+    maxScale = Infinity,
+    minScale = 0,
+    removeInvalid = true,
+    removeTransparent = true,
+    contributionCutoff,
+  } = options;
+
+  const count = soa.count;
+  const positions = soa.positions;
+  const scales = soa.scales;
+  const rotations = soa.rotations;
+  const opacities = soa.opacities;
+
+  // ★ 第一阶段 — 基础过滤, 收集 keep 索引
+  const keep = new Uint32Array(count);
+  let keepLen = 0;
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3;
+    const i4 = i * 4;
+
+    if (removeInvalid) {
+      if (
+        !isFinite(positions[i3]) ||
+        !isFinite(positions[i3 + 1]) ||
+        !isFinite(positions[i3 + 2]) ||
+        !isFinite(scales[i3]) ||
+        !isFinite(scales[i3 + 1]) ||
+        !isFinite(scales[i3 + 2]) ||
+        !isFinite(rotations[i4]) ||
+        !isFinite(rotations[i4 + 1]) ||
+        !isFinite(rotations[i4 + 2]) ||
+        !isFinite(rotations[i4 + 3]) ||
+        !isFinite(opacities[i])
+      ) {
+        continue;
+      }
+    }
+
+    if (removeTransparent && opacities[i] < minOpacity) {
+      continue;
+    }
+
+    const maxS = Math.max(scales[i3], scales[i3 + 1], scales[i3 + 2]);
+    const minS = Math.min(scales[i3], scales[i3 + 1], scales[i3 + 2]);
+    if (maxS > maxScale || minS < minScale) {
+      continue;
+    }
+
+    keep[keepLen++] = i;
+  }
+
+  // ★ 第二阶段 — 贡献度裁剪 (对 keep 索引求 top-K 阈值, 语义与 pruneGaussians 一致)
+  let finalLen = keepLen;
+  if (contributionCutoff !== undefined && contributionCutoff > 0 && keepLen > 0) {
+    const scores = new Float64Array(keepLen);
+    for (let i = 0; i < keepLen; i++) {
+      const idx = keep[i];
+      const i3 = idx * 3;
+      scores[i] = opacities[idx] * Math.max(scales[i3], scales[i3 + 1], scales[i3 + 2]);
+    }
+
+    let keepCount: number;
+    if (contributionCutoff >= 1) {
+      keepCount = Math.min(Math.floor(contributionCutoff), keepLen);
+    } else {
+      keepCount = Math.floor(keepLen * contributionCutoff);
+    }
+
+    if (keepCount <= 0) {
+      finalLen = 0;
+    } else if (keepCount < keepLen) {
+      const indices = new Uint32Array(keepLen);
+      for (let i = 0; i < keepLen; i++) indices[i] = i;
+      const thresholdIdx = quickselectIndices(indices, scores, keepLen - keepCount);
+      const threshold = scores[thresholdIdx];
+
+      const kept = new Uint32Array(keepLen);
+      let keptLen = 0;
+      for (let i = 0; i < keepLen; i++) {
+        if (scores[i] > threshold) kept[keptLen++] = keep[i];
+      }
+      // 与阈值相等者恰好补足 (重复分数场景, 与 pruneGaussians 一致)
+      let slack = keepCount - keptLen;
+      if (slack > 0) {
+        for (let i = 0; i < keepLen && slack > 0; i++) {
+          if (scores[i] === threshold) {
+            kept[keptLen++] = keep[i];
+            slack--;
+          }
+        }
+      }
+      keep.set(kept.subarray(0, keptLen));
+      finalLen = keptLen;
+    }
+  }
+
+  if (finalLen === count) return soa;
+
+  // ★ 按最终 keep 索引拷贝出新的 SoA
+  const shCoeffsPerChannel = soa.shDegree === 0 ? 0 : soa.shDegree * (soa.shDegree + 2);
+  const totalShCoeffs = shCoeffsPerChannel * 3;
+
+  const nPositions = new Float32Array(finalLen * 3);
+  const nScales = new Float32Array(finalLen * 3);
+  const nRotations = new Float32Array(finalLen * 4);
+  const nColors = new Float32Array(finalLen * 3);
+  const nOpacities = new Float32Array(finalLen);
+  const nSh = totalShCoeffs > 0 && soa.sh ? new Float32Array(finalLen * totalShCoeffs) : undefined;
+
+  for (let n = 0; n < finalLen; n++) {
+    const src = keep[n];
+    const si3 = src * 3;
+    const si4 = src * 4;
+    const di3 = n * 3;
+    const di4 = n * 4;
+
+    nPositions[di3] = positions[si3];
+    nPositions[di3 + 1] = positions[si3 + 1];
+    nPositions[di3 + 2] = positions[si3 + 2];
+
+    nScales[di3] = scales[si3];
+    nScales[di3 + 1] = scales[si3 + 1];
+    nScales[di3 + 2] = scales[si3 + 2];
+
+    nRotations[di4] = rotations[si4];
+    nRotations[di4 + 1] = rotations[si4 + 1];
+    nRotations[di4 + 2] = rotations[si4 + 2];
+    nRotations[di4 + 3] = rotations[si4 + 3];
+
+    nColors[di3] = soa.colors[si3];
+    nColors[di3 + 1] = soa.colors[si3 + 1];
+    nColors[di3 + 2] = soa.colors[si3 + 2];
+
+    nOpacities[n] = opacities[src];
+
+    if (nSh && soa.sh) {
+      const shSrcBase = src * totalShCoeffs;
+      const shDstBase = n * totalShCoeffs;
+      for (let j = 0; j < totalShCoeffs; j++) {
+        nSh[shDstBase + j] = soa.sh[shSrcBase + j];
+      }
+    }
+  }
+
+  return {
+    count: finalLen,
+    shDegree: soa.shDegree,
+    source: soa.source,
+    positions: nPositions,
+    scales: nScales,
+    rotations: nRotations,
+    colors: nColors,
+    opacities: nOpacities,
+    sh: nSh,
+  };
+}
+
+/**
  * ★ TD-15: quickselect (nth_element 语义) — 就地部分排序, O(N) 平均
  *
  * 对 array 原地调整, 使第 k 小 (0-indexed) 的元素处于最终位置,
