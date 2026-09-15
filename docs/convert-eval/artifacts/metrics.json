@@ -1,0 +1,329 @@
+{
+  "demo1": {
+    "source": {
+      "count": 991089,
+      "shDegree": 0,
+      "shLength": 0
+    },
+    "formats": {
+      "splat": {
+        "count": 991089,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "scales": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "rotations": {
+          "maxErr": 0.01887337490916252,
+          "rmsErr": 0.008259595401360228
+        },
+        "colors": {
+          "maxErr": 0.0019607841968536377,
+          "rmsErr": 0.0009757778108712855
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      },
+      "spz": {
+        "count": 991089,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0.0001220703125,
+          "rmsErr": 0.00007050502994463877
+        },
+        "scales": {
+          "maxErr": 0.3584861755371094,
+          "rmsErr": 0.0024193925379344303
+        },
+        "rotations": {
+          "maxErr": 2.8335201521404088,
+          "rmsErr": 2.0212279791783136
+        },
+        "colors": {
+          "maxErr": 0.0036875158548355103,
+          "rmsErr": 0.002140557512241542
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      },
+      "sog": {
+        "count": 991089,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "scales": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "rotations": {
+          "maxErr": 0.01887337490916252,
+          "rmsErr": 0.008259595401360228
+        },
+        "colors": {
+          "maxErr": 0.0019607841968536377,
+          "rmsErr": 0.0009757778108712855
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      },
+      "compressedPly": {
+        "count": 991089,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "scales": {
+          "maxErr": 2.384185791015625e-7,
+          "rmsErr": 2.3304774433284182e-9
+        },
+        "rotations": {
+          "maxErr": 0.001380324363708496,
+          "rmsErr": 0.000031124162524315026
+        },
+        "colors": {
+          "maxErr": 0.0019607841968536377,
+          "rmsErr": 0.0009476482348209044
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      }
+    }
+  },
+  "demo2": {
+    "source": {
+      "count": 3973688,
+      "shDegree": 0,
+      "shLength": 0
+    },
+    "formats": {
+      "splat": {
+        "count": 3973688,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "scales": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "rotations": {
+          "maxErr": 0.01922871544957161,
+          "rmsErr": 0.008425396359734027
+        },
+        "colors": {
+          "maxErr": 0.0019607841968536377,
+          "rmsErr": 0.0010240963443137582
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      },
+      "spz": {
+        "count": 3973688,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0.0001220703125,
+          "rmsErr": 0.00007047130570304913
+        },
+        "scales": {
+          "maxErr": 0.48230743408203125,
+          "rmsErr": 0.001223850919336502
+        },
+        "rotations": {
+          "maxErr": 2.8326297234743834,
+          "rmsErr": 2.107193432241879
+        },
+        "colors": {
+          "maxErr": 0.0036875009536743164,
+          "rmsErr": 0.0021380388287680287
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      },
+      "sog": {
+        "count": 3973688,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "scales": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "rotations": {
+          "maxErr": 0.01922871544957161,
+          "rmsErr": 0.008425396359734027
+        },
+        "colors": {
+          "maxErr": 0.0019607841968536377,
+          "rmsErr": 0.0010240963443137582
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      },
+      "compressedPly": {
+        "count": 3973688,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "scales": {
+          "maxErr": 1.1920928955078125e-7,
+          "rmsErr": 8.278455354728024e-10
+        },
+        "rotations": {
+          "maxErr": 0.0013804435729980469,
+          "rmsErr": 0.00001741838345915331
+        },
+        "colors": {
+          "maxErr": 0.0019607841968536377,
+          "rmsErr": 0.0009533858864633309
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      }
+    }
+  },
+  "garden": {
+    "source": {
+      "count": 5834781,
+      "shDegree": 0,
+      "shLength": 0
+    },
+    "formats": {
+      "splat": {
+        "count": 5834781,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "scales": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "rotations": {
+          "maxErr": 0.013928055763244629,
+          "rmsErr": 0.0038564175703748008
+        },
+        "colors": {
+          "maxErr": 0.0019530951976776123,
+          "rmsErr": 0.0008334557079066841
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      },
+      "spz": {
+        "count": 5834781,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0.0001220703125,
+          "rmsErr": 0.00007048523667758436
+        },
+        "scales": {
+          "maxErr": 0.07330751419067383,
+          "rmsErr": 0.000425521243245253
+        },
+        "rotations": {
+          "maxErr": 2.828370153903961,
+          "rmsErr": 2.0859142182504327
+        },
+        "colors": {
+          "maxErr": 0.003687456250190735,
+          "rmsErr": 0.002129718630235361
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      },
+      "sog": {
+        "count": 5834781,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "scales": {
+          "maxErr": 0,
+          "rmsErr": 0
+        },
+        "rotations": {
+          "maxErr": 0.013928055763244629,
+          "rmsErr": 0.0038564175703748008
+        },
+        "colors": {
+          "maxErr": 0.0019530951976776123,
+          "rmsErr": 0.0008334557079066841
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      },
+      "compressedPly": {
+        "count": 5834781,
+        "shDegree": 0,
+        "aligned": "index",
+        "positions": {
+          "maxErr": 0.0002288818359375,
+          "rmsErr": 2.685073708942769e-7
+        },
+        "scales": {
+          "maxErr": 0.0003943443298339844,
+          "rmsErr": 1.459480784439912e-7
+        },
+        "rotations": {
+          "maxErr": 0.0013799667358398438,
+          "rmsErr": 0.000034991040677820396
+        },
+        "colors": {
+          "maxErr": 0.0009913444519042969,
+          "rmsErr": 0.0000011567120138584371
+        },
+        "opacities": {
+          "maxErr": 0,
+          "rmsErr": 0
+        }
+      }
+    }
+  }
+}
